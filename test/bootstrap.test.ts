@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { createDatabase } from '../src/db.js'
-import { seedBooks } from '../src/seed.js'
-import { loadConfig } from '../src/config.js'
+import { createDatabase } from '../src/database/connection.js'
+import { seedBooks } from '../src/database/seed.js'
+import { loadConfig } from '../src/config/env.js'
 
 describe('bootstrap', () => {
   it('migrates an empty database and seeds demo books only when requested', () => {

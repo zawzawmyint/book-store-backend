@@ -1,6 +1,6 @@
 # The Quiet Shelf API
 
-An Express + GraphQL + SQLite backend for a small bookstore learning project. This folder is its own Git repository and runs independently from the frontend.
+An Express + GraphQL + SQLite bookstore API. This folder is its own Git repository and runs independently from the frontend.
 
 ## Start
 
@@ -12,7 +12,7 @@ Copy-Item .env.example .env
 npm run dev
 ```
 
-The API starts at `http://localhost:4000/graphql`; `GET /health` returns a small health response. The SQLite file is created under `data/` on first start and the schema is migrated to version 1. In development, twelve sample books are seeded once. With `NODE_ENV=production`, the catalog starts empty unless you explicitly run `npm run db:seed`. `data/` is ignored by Git. Set `PORT`, `DATABASE_PATH`, and `FRONTEND_ORIGIN` in `.env` for your environment.
+The API starts at `http://localhost:4000/graphql`; `GET /health` returns a health response. SQLite migrations run on startup. Development seeds twelve catalog books once; production does not seed automatically. Use `npm run db:seed` only when you intentionally want the sample catalog. The `data/` directory is ignored by Git. Configure `PORT`, `DATABASE_PATH`, `FRONTEND_ORIGIN`, and `NODE_ENV` in `.env`.
 
 ## GraphQL examples
 
@@ -37,8 +37,8 @@ query BrowseBooks {
 mutation BuyBooks {
   placeOrder(
     input: {
-      customerName: "Demo Reader"
-      email: "demo@example.com"
+      customerName: "Ada Reader"
+      email: "ada@example.com"
       items: [{ bookId: "1", quantity: 1 }]
     }
   ) {
@@ -53,18 +53,39 @@ mutation BuyBooks {
 }
 ```
 
-The catalog query reads SQLite. The order mutation validates the request, reads current prices, checks stock, and writes the order and stock changes in one transaction. The browser never supplies an order total. No REST catalog or checkout API is required. The only non-GraphQL route is `/health`.
+The order mutation validates the request, reads current prices, checks stock, and saves the order and stock changes in one SQLite transaction. The browser never supplies an order total. The GraphQL endpoint is the catalog and order API; `/health` is the only REST route.
 
-## Code layout
+## Architecture
 
-- [`src/server.ts`](src/server.ts) loads configuration and owns startup and shutdown.
-- [`src/db.ts`](src/db.ts) creates the SQLite connection and schema; [`src/seed.ts`](src/seed.ts) adds optional demo data.
-- [`src/catalog.ts`](src/catalog.ts) reads books; [`src/orders.ts`](src/orders.ts) validates and saves orders.
-- [`src/graphql.ts`](src/graphql.ts) defines the API contract and maps service errors to GraphQL errors; [`src/app.ts`](src/app.ts) configures Express and Apollo.
+GraphQL resolvers play the **controller** role in MVC: they receive API requests and translate application errors into GraphQL errors. Services enforce business rules. Repositories contain SQL. The React repository contains the views.
+
+```text
+src/
+  app.ts                 Express and Apollo setup
+  server.ts              Process startup and shutdown
+  config/env.ts          Environment validation
+  database/
+    connection.ts        SQLite connection
+    migrations.ts        Versioned schema migrations
+    seed.ts              Optional catalog seed
+  graphql/
+    schema.ts            Public GraphQL contract
+    resolvers.ts         Controller layer
+  modules/
+    books/
+      book.service.ts    Catalog input rules
+      book.repository.ts Catalog SQL
+    orders/
+      order.types.ts     Shared order input contract
+      order.service.ts   Order input rules
+      order.repository.ts Transactional order SQL
+  shared/errors.ts       Application validation error
+test/                     API and database integration tests
+```
 
 ## Why no ORM?
 
-This project has three small tables and a few queries. Parameterized SQL in the catalog and order modules makes the data flow easy to see. An ORM such as Drizzle becomes useful when the schema and query layer grow; it is not needed here.
+An ORM is optional, including in production. This schema has three tables and a small number of queries, so repositories use parameterized SQL and versioned migrations. Drizzle would be reasonable when schema changes and query complexity justify the additional dependency.
 
 ## Checks
 
@@ -73,4 +94,4 @@ npm test
 npm run build
 ```
 
-Tests run against a temporary in-memory SQLite database. This is a **demo checkout**: it stores guest details locally but takes no payment, sends no email, and has no order administration. Add authentication, operational controls, and a payment provider before adapting it for real sales.
+Tests run against an in-memory SQLite database. This API records **order requests** without payment or delivery. Before accepting real customer orders, add payment or fulfillment, customer communication, operational monitoring, and deployment specific security controls.

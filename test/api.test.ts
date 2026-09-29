@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import request from 'supertest'
 import { createApp } from '../src/app.js'
-import { createDatabase } from '../src/db.js'
-import { seedBooks } from '../src/seed.js'
+import { createDatabase } from '../src/database/connection.js'
+import { seedBooks } from '../src/database/seed.js'
 import type Database from 'better-sqlite3'
 
 const query = `query Books($search: String) { books(search: $search) { total items { id title author priceCents stock } } }`

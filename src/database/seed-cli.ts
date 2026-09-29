@@ -1,8 +1,8 @@
 import 'dotenv/config'
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { loadConfig } from './config.js'
-import { createDatabase } from './db.js'
+import { loadConfig } from '../config/env.js'
+import { createDatabase } from './connection.js'
 import { seedBooks } from './seed.js'
 
 const { databasePath } = loadConfig()

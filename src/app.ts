@@ -3,7 +3,8 @@ import cors from 'cors'
 import { ApolloServer } from '@apollo/server'
 import { expressMiddleware } from '@as-integrations/express5'
 import type Database from 'better-sqlite3'
-import { createResolvers, typeDefs } from './graphql.js'
+import { createResolvers } from './graphql/resolvers.js'
+import { typeDefs } from './graphql/schema.js'
 
 export async function createApp(
   db: Database.Database,

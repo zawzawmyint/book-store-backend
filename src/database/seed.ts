@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3'
-import type { BookRow } from './catalog.js'
+import type { BookRow } from '../modules/books/book.repository.js'
 
 const sampleBooks: Array<Omit<BookRow, 'id'>> = [
   {
