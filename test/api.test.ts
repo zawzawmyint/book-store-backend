@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import request from 'supertest'
 import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/db.js'
+import { seedBooks } from '../src/seed.js'
 import type Database from 'better-sqlite3'
 
 const query = `query Books($search: String) { books(search: $search) { total items { id title author priceCents stock } } }`
@@ -13,6 +14,7 @@ describe('book store GraphQL API', () => {
 
   beforeEach(async () => {
     db = createDatabase(':memory:')
+    seedBooks(db)
     app = await createApp(db)
   })
 
@@ -32,6 +34,28 @@ describe('book store GraphQL API', () => {
       .post('/graphql')
       .send({ query, variables: { search: 'Gothic Fiction' } })
     expect(genre.body.data.books.total).toBe(2)
+  })
+
+  it('reports invalid input as a client error', async () => {
+    const page = await request(app)
+      .post('/graphql')
+      .send({ query: '{ books(limit: 100) { total } }' })
+    expect(page.body.errors[0].extensions.code).toBe('BAD_USER_INPUT')
+
+    const order = await request(app)
+      .post('/graphql')
+      .send({
+        query: mutation,
+        variables: {
+          input: {
+            customerName: 'Ada Reader',
+            email: 'invalid',
+            items: [{ bookId: '1', quantity: 1 }],
+          },
+        },
+      })
+    expect(order.body.errors[0].extensions.code).toBe('BAD_USER_INPUT')
+    expect(db.prepare('SELECT COUNT(*) AS count FROM orders').get()).toEqual({ count: 0 })
   })
 
   it('places a guest order using server prices and decrements stock', async () => {

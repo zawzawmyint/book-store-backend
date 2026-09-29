@@ -12,7 +12,7 @@ Copy-Item .env.example .env
 npm run dev
 ```
 
-The API starts at `http://localhost:4000/graphql`; `GET /health` returns a small health response. The SQLite file is created under `data/` on first start, the schema is migrated to version 1, and twelve sample books are seeded. `data/` is ignored by Git. Change `PORT`, `DATABASE_PATH`, or `FRONTEND_ORIGIN` in `.env` if needed.
+The API starts at `http://localhost:4000/graphql`; `GET /health` returns a small health response. The SQLite file is created under `data/` on first start and the schema is migrated to version 1. In development, twelve sample books are seeded once. With `NODE_ENV=production`, the catalog starts empty unless you explicitly run `npm run db:seed`. `data/` is ignored by Git. Set `PORT`, `DATABASE_PATH`, and `FRONTEND_ORIGIN` in `.env` for your environment.
 
 ## GraphQL examples
 
@@ -55,9 +55,16 @@ mutation BuyBooks {
 
 The catalog query reads SQLite. The order mutation validates the request, reads current prices, checks stock, and writes the order and stock changes in one transaction. The browser never supplies an order total. No REST catalog or checkout API is required. The only non-GraphQL route is `/health`.
 
+## Code layout
+
+- [`src/server.ts`](src/server.ts) loads configuration and owns startup and shutdown.
+- [`src/db.ts`](src/db.ts) creates the SQLite connection and schema; [`src/seed.ts`](src/seed.ts) adds optional demo data.
+- [`src/catalog.ts`](src/catalog.ts) reads books; [`src/orders.ts`](src/orders.ts) validates and saves orders.
+- [`src/graphql.ts`](src/graphql.ts) defines the API contract and maps service errors to GraphQL errors; [`src/app.ts`](src/app.ts) configures Express and Apollo.
+
 ## Why no ORM?
 
-This project has three small tables and a few queries. Parameterized SQL in [`src/store.ts`](src/store.ts) makes the resolver-to-database connection easy to see. An ORM such as Drizzle becomes useful when the schema and query layer grow; it is not needed here.
+This project has three small tables and a few queries. Parameterized SQL in the catalog and order modules makes the data flow easy to see. An ORM such as Drizzle becomes useful when the schema and query layer grow; it is not needed here.
 
 ## Checks
 

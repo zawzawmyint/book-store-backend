@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "format": "prettier --write src test README.md",
     "start": "node dist/server.js",
+    "db:seed": "tsx src/seed-cli.ts",
     "test": "vitest run"
   },
   "keywords": [],

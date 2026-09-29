@@ -1,50 +1,17 @@
-import { GraphQLError } from 'graphql'
 import type Database from 'better-sqlite3'
-import type { BookRow } from './db.js'
+import type { BookRow } from './catalog.js'
+import { ValidationError } from './errors.js'
 
-type OrderInput = {
+export type OrderInput = {
   customerName: string
   email: string
   items: Array<{ bookId: string; quantity: number }>
 }
 
-const invalid = (message: string) =>
-  new GraphQLError(message, { extensions: { code: 'BAD_USER_INPUT' } })
+const invalid = (message: string) => new ValidationError(message)
 
-export function createStore(db: Database.Database) {
+export function createOrderService(db: Database.Database) {
   return {
-    listBooks(search = '', limit = 12, offset = 0) {
-      const term = search.trim()
-      if (
-        term.length > 100 ||
-        !Number.isInteger(limit) ||
-        limit < 1 ||
-        limit > 24 ||
-        !Number.isInteger(offset) ||
-        offset < 0
-      ) {
-        throw invalid('Invalid search or page size')
-      }
-      const pattern = `%${term.replace(/[\\%_]/g, '\\$&')}%`
-      const where =
-        "WHERE title LIKE ? ESCAPE '\\' OR author LIKE ? ESCAPE '\\' OR genre LIKE ? ESCAPE '\\'"
-      const total = (
-        db
-          .prepare(`SELECT COUNT(*) AS count FROM books ${where}`)
-          .get(pattern, pattern, pattern) as { count: number }
-      ).count
-      const items = db
-        .prepare(`SELECT * FROM books ${where} ORDER BY id LIMIT ? OFFSET ?`)
-        .all(pattern, pattern, pattern, limit, offset) as BookRow[]
-      return { total, items }
-    },
-    getBook(id: string) {
-      if (!/^\d+$/.test(id)) return null
-      return (
-        (db.prepare('SELECT * FROM books WHERE id = ?').get(Number(id)) as BookRow | undefined) ??
-        null
-      )
-    },
     placeOrder(input: OrderInput) {
       const name = input.customerName.trim()
       const email = input.email.trim().toLowerCase()
