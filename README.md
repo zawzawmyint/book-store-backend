@@ -2,6 +2,8 @@
 
 An Express + GraphQL + SQLite bookstore API. This folder is its own Git repository and runs independently from the frontend.
 
+See [SPEC.md](SPEC.md) for the implemented API behavior and current scope.
+
 ## Start
 
 Requires Node.js 24 or later.
