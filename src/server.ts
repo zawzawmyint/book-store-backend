@@ -11,7 +11,12 @@ const databasePath = resolve(config.databasePath)
 mkdirSync(dirname(databasePath), { recursive: true })
 const db = createDatabase(databasePath)
 if (config.nodeEnv !== 'production') seedBooks(db)
-const app = await createApp(db, { frontendOrigin: config.frontendOrigin })
+const app = await createApp(db, {
+  frontendOrigin: config.frontendOrigin,
+  authBaseURL: config.authBaseURL,
+  authSecret: config.authSecret,
+  trustedProxyIp: config.trustedProxyIp,
+})
 const server = app.listen(config.port, () =>
   console.log(`Book store API: http://localhost:${config.port}/graphql`),
 )

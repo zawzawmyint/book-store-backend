@@ -1,43 +1,23 @@
 import type Database from 'better-sqlite3'
-import { GraphQLError } from 'graphql'
-import { createCatalogRepository, type BookRow } from '../modules/books/book.repository.js'
-import { createBookService } from '../modules/books/book.service.js'
-import { ValidationError } from '../shared/errors.js'
-import { createOrderRepository } from '../modules/orders/order.repository.js'
-import { createOrderService } from '../modules/orders/order.service.js'
-import type { OrderInput } from '../modules/orders/order.types.js'
+import type { Resolvers } from './generated/resolvers.js'
+import { createBookResolvers } from '../modules/books/book.resolvers.js'
+import { createOrderResolvers } from '../modules/orders/order.resolvers.js'
+import type { GraphQLContext } from './context.js'
+import { createAdminResolvers } from '../modules/admin/admin.resolvers.js'
+import { createAdminBookResolvers } from '../modules/books/admin-book.resolvers.js'
+import { createAdminOrderResolvers } from '../modules/orders/admin-order.resolvers.js'
 
-function asGraphQLError(error: unknown): never {
-  if (error instanceof ValidationError) {
-    throw new GraphQLError(error.message, { extensions: { code: 'BAD_USER_INPUT' } })
-  }
-  throw error
-}
-
-export function createResolvers(db: Database.Database) {
-  const books = createBookService(createCatalogRepository(db))
-  const orders = createOrderService(createOrderRepository(db))
-
+export function createResolvers(db: Database.Database): Resolvers<GraphQLContext> {
+  const orderResolvers = createOrderResolvers(db)
+  const adminBooks = createAdminBookResolvers(db)
   return {
-    Book: { priceCents: (book: BookRow) => book.price_cents },
     Query: {
-      books: (_: unknown, args: { search?: string; limit?: number; offset?: number }) => {
-        try {
-          return books.listBooks(args.search, args.limit, args.offset)
-        } catch (error) {
-          return asGraphQLError(error)
-        }
-      },
-      book: (_: unknown, args: { id: string }) => books.getBook(args.id),
+      ...createBookResolvers(db),
+      ...orderResolvers.Query,
+      ...createAdminResolvers(db),
+      ...adminBooks.Query,
+      ...createAdminOrderResolvers(db),
     },
-    Mutation: {
-      placeOrder: (_: unknown, args: { input: OrderInput }) => {
-        try {
-          return orders.placeOrder(args.input)
-        } catch (error) {
-          return asGraphQLError(error)
-        }
-      },
-    },
+    Mutation: { ...orderResolvers.Mutation, ...adminBooks.Mutation },
   }
 }

@@ -1,7 +1,12 @@
+import { isIP } from 'node:net'
+
 export type AppConfig = {
   port: number
   databasePath: string
   frontendOrigin: string
+  authBaseURL: string
+  authSecret: string
+  trustedProxyIp?: string
   nodeEnv: 'development' | 'test' | 'production'
 }
 
@@ -29,5 +34,29 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     throw new Error('NODE_ENV must be development, test, or production')
   }
 
-  return { port, databasePath, frontendOrigin, nodeEnv }
+  const authBaseURL = env.BETTER_AUTH_URL ?? frontendOrigin
+  try {
+    const parsed = new URL(authBaseURL)
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.origin !== authBaseURL) {
+      throw new Error('Invalid origin')
+    }
+  } catch {
+    throw new Error('BETTER_AUTH_URL must be an HTTP origin such as http://localhost:5173')
+  }
+  const authSecret = env.BETTER_AUTH_SECRET
+  if (!authSecret || authSecret.length < 32) {
+    throw new Error('BETTER_AUTH_SECRET must contain at least 32 characters')
+  }
+  const trustedProxyIp = env.AUTH_TRUSTED_PROXY_IP || undefined
+  if (trustedProxyIp && !isIP(trustedProxyIp)) {
+    throw new Error('AUTH_TRUSTED_PROXY_IP must be an IP address')
+  }
+  if (
+    nodeEnv === 'production' &&
+    (!authBaseURL.startsWith('https://') || !frontendOrigin.startsWith('https://'))
+  ) {
+    throw new Error('Production auth and frontend origins must use HTTPS')
+  }
+
+  return { port, databasePath, frontendOrigin, authBaseURL, authSecret, trustedProxyIp, nodeEnv }
 }

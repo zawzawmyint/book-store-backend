@@ -1,14 +1,25 @@
 import type Database from 'better-sqlite3'
-import type { BookRow } from '../modules/books/book.repository.js'
+import { count } from 'drizzle-orm'
+import { drizzle } from 'drizzle-orm/better-sqlite3'
+import { books } from './schema.js'
 
-const sampleBooks: Array<Omit<BookRow, 'id'>> = [
+type SeedBook = {
+  title: string
+  author: string
+  genre: string
+  description: string
+  priceCents: number
+  stock: number
+}
+
+const sampleBooks: SeedBook[] = [
   {
     title: 'The Great Gatsby',
     author: 'F. Scott Fitzgerald',
     genre: 'Classic Fiction',
     description:
       'A luminous portrait of longing, ambition, and the American dream in the Jazz Age.',
-    price_cents: 1699,
+    priceCents: 1699,
     stock: 12,
   },
   {
@@ -16,7 +27,7 @@ const sampleBooks: Array<Omit<BookRow, 'id'>> = [
     author: 'Jane Austen',
     genre: 'Classic Fiction',
     description: 'Elizabeth Bennet discovers that first impressions can be wonderfully misleading.',
-    price_cents: 1499,
+    priceCents: 1499,
     stock: 15,
   },
   {
@@ -24,7 +35,7 @@ const sampleBooks: Array<Omit<BookRow, 'id'>> = [
     author: 'Frances Hodgson Burnett',
     genre: 'Children’s Literature',
     description: 'A hidden garden becomes a place of friendship, healing, and new beginnings.',
-    price_cents: 1399,
+    priceCents: 1399,
     stock: 9,
   },
   {
@@ -32,7 +43,7 @@ const sampleBooks: Array<Omit<BookRow, 'id'>> = [
     author: 'Charlotte Brontë',
     genre: 'Classic Fiction',
     description: 'A fiercely independent governess searches for love without surrendering herself.',
-    price_cents: 1799,
+    priceCents: 1799,
     stock: 8,
   },
   {
@@ -41,7 +52,7 @@ const sampleBooks: Array<Omit<BookRow, 'id'>> = [
     genre: 'Classic Fiction',
     description:
       'The March sisters grow through love, loss, work, and the pull of their own dreams.',
-    price_cents: 1599,
+    priceCents: 1599,
     stock: 11,
   },
   {
@@ -49,7 +60,7 @@ const sampleBooks: Array<Omit<BookRow, 'id'>> = [
     author: 'H. G. Wells',
     genre: 'Science Fiction',
     description: 'A daring journey into the distant future reveals a startling vision of humanity.',
-    price_cents: 1299,
+    priceCents: 1299,
     stock: 7,
   },
   {
@@ -57,7 +68,7 @@ const sampleBooks: Array<Omit<BookRow, 'id'>> = [
     author: 'Oscar Wilde',
     genre: 'Gothic Fiction',
     description: 'A beautiful portrait bears the cost of a young man’s pursuit of pleasure.',
-    price_cents: 1699,
+    priceCents: 1699,
     stock: 10,
   },
   {
@@ -65,7 +76,7 @@ const sampleBooks: Array<Omit<BookRow, 'id'>> = [
     author: 'E. M. Forster',
     genre: 'Classic Fiction',
     description: 'A trip to Florence opens a young woman’s eyes to a different kind of life.',
-    price_cents: 1499,
+    priceCents: 1499,
     stock: 13,
   },
   {
@@ -74,7 +85,7 @@ const sampleBooks: Array<Omit<BookRow, 'id'>> = [
     genre: 'Fantasy',
     description:
       'Dorothy follows the yellow brick road toward home and finds courage along the way.',
-    price_cents: 1399,
+    priceCents: 1399,
     stock: 14,
   },
   {
@@ -82,7 +93,7 @@ const sampleBooks: Array<Omit<BookRow, 'id'>> = [
     author: 'Bram Stoker',
     genre: 'Gothic Fiction',
     description: 'An unforgettable tale of terror unfolds across the shadows of Victorian England.',
-    price_cents: 1899,
+    priceCents: 1899,
     stock: 6,
   },
   {
@@ -90,7 +101,7 @@ const sampleBooks: Array<Omit<BookRow, 'id'>> = [
     author: 'Jack London',
     genre: 'Adventure',
     description: 'Buck answers the wild call of the Yukon in a story of survival and instinct.',
-    price_cents: 1299,
+    priceCents: 1299,
     stock: 10,
   },
   {
@@ -98,18 +109,15 @@ const sampleBooks: Array<Omit<BookRow, 'id'>> = [
     author: 'L. M. Montgomery',
     genre: 'Children’s Literature',
     description: 'An imaginative orphan transforms the lives of everyone at Green Gables.',
-    price_cents: 1599,
+    priceCents: 1599,
     stock: 12,
   },
 ]
 
 export function seedBooks(db: Database.Database): void {
-  const count = db.prepare('SELECT COUNT(*) AS count FROM books').get() as { count: number }
-  if (count.count > 0) return
-  const insert = db.prepare(
-    'INSERT INTO books (title, author, genre, description, price_cents, stock) VALUES (@title, @author, @genre, @description, @price_cents, @stock)',
-  )
-  db.transaction(() => {
-    for (const book of sampleBooks) insert.run(book)
-  })()
+  const orm = drizzle(db)
+  orm.transaction((tx) => {
+    if (tx.select({ count: count() }).from(books).get()!.count > 0) return
+    tx.insert(books).values(sampleBooks).run()
+  })
 }

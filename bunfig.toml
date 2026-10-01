@@ -1,0 +1,4 @@
+[install]
+# better-sqlite3 13 ships its native binaries. Bun otherwise attempts a needless
+# node-gyp rebuild on Windows despite the package's gypfile=false metadata.
+ignoreScripts = true

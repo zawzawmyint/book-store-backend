@@ -1,54 +1,108 @@
 import type Database from 'better-sqlite3'
-import type { BookRow } from '../books/book.repository.js'
+import { and, count, desc, eq, gte, inArray, sql } from 'drizzle-orm'
+import { drizzle } from 'drizzle-orm/better-sqlite3'
+import { books, orders, orderItems } from '../../database/schema.js'
 import { ValidationError } from '../../shared/errors.js'
-import type { OrderItemInput } from './order.types.js'
+import type { OrderRepository } from './order.types.js'
 
-export function createOrderRepository(db: Database.Database) {
-  const findBook = db.prepare('SELECT * FROM books WHERE id = ?')
-  const insertOrder = db.prepare(
-    'INSERT INTO orders (customer_name, email, total_cents) VALUES (?, ?, ?)',
-  )
-  const insertLine = db.prepare(
-    'INSERT INTO order_items (order_id, book_id, title, quantity, unit_price_cents) VALUES (?, ?, ?, ?, ?)',
-  )
-  const reduceStock = db.prepare('UPDATE books SET stock = stock - ? WHERE id = ? AND stock >= ?')
-
+export function createOrderRepository(db: Database.Database): OrderRepository {
+  const orm = drizzle(db)
   return {
-    saveOrder(name: string, email: string, items: OrderItemInput[]) {
-      return db.transaction(() => {
+    saveOrder(customer, items) {
+      return orm.transaction((tx) => {
         const lines = items.map((item) => {
-          const book = findBook.get(Number(item.bookId)) as BookRow | undefined
+          const book = tx
+            .select()
+            .from(books)
+            .where(eq(books.id, Number(item.bookId)))
+            .get()
           if (!book) throw new ValidationError(`Book ${item.bookId} was not found`)
+          if (book.archived) throw new ValidationError(`${book.title} is unavailable. Remove it from your cart to continue.`)
           if (book.stock < item.quantity)
             throw new ValidationError(`${book.title} has only ${book.stock} in stock`)
           return { book, quantity: item.quantity }
         })
         const totalCents = lines.reduce(
-          (total, line) => total + line.book.price_cents * line.quantity,
+          (total, line) => total + line.book.priceCents * line.quantity,
           0,
         )
-        const orderId = Number(insertOrder.run(name, email, totalCents).lastInsertRowid)
-        for (const line of lines) {
-          if (reduceStock.run(line.quantity, line.book.id, line.quantity).changes !== 1)
-            throw new ValidationError(`${line.book.title} is out of stock`)
-          insertLine.run(
-            orderId,
-            line.book.id,
-            line.book.title,
-            line.quantity,
-            line.book.price_cents,
-          )
+        const order = tx
+          .insert(orders)
+          .values({
+            userId: customer.id,
+            customerName: customer.name,
+            email: customer.email,
+            totalCents,
+          })
+          .returning({ id: orders.id })
+          .get()
+        for (const { book, quantity } of lines) {
+          const updated = tx
+            .update(books)
+            .set({ stock: sql`${books.stock} - ${quantity}` })
+            .where(and(eq(books.id, book.id), gte(books.stock, quantity)))
+            .run()
+          if (updated.changes !== 1) throw new ValidationError(`${book.title} is out of stock`)
+          tx.insert(orderItems)
+            .values({
+              orderId: order.id,
+              bookId: book.id,
+              title: book.title,
+              quantity,
+              unitPriceCents: book.priceCents,
+            })
+            .run()
         }
         return {
-          id: String(orderId),
+          id: String(order.id),
           totalCents,
           items: lines.map(({ book, quantity }) => ({
             title: book.title,
             quantity,
-            unitPriceCents: book.price_cents,
+            unitPriceCents: book.priceCents,
           })),
         }
-      })()
+      })
+    },
+    listOrders(userId, limit, offset) {
+      const where = eq(orders.userId, userId)
+      const total = orm.select({ value: count() }).from(orders).where(where).get()?.value ?? 0
+      const rows = orm
+        .select({ id: orders.id, createdAt: orders.createdAt, totalCents: orders.totalCents })
+        .from(orders)
+        .where(where)
+        .orderBy(desc(orders.createdAt), desc(orders.id))
+        .limit(limit)
+        .offset(offset)
+        .all()
+      const lines = rows.length
+        ? orm
+            .select({
+              orderId: orderItems.orderId,
+              title: orderItems.title,
+              quantity: orderItems.quantity,
+              unitPriceCents: orderItems.unitPriceCents,
+            })
+            .from(orderItems)
+            .where(
+              inArray(
+                orderItems.orderId,
+                rows.map((row) => row.id),
+              ),
+            )
+            .all()
+        : []
+      return {
+        total,
+        items: rows.map((row) => ({
+          id: String(row.id),
+          createdAt: row.createdAt,
+          totalCents: row.totalCents,
+          items: lines
+            .filter((line) => line.orderId === row.id)
+            .map(({ title, quantity, unitPriceCents }) => ({ title, quantity, unitPriceCents })),
+        })),
+      }
     },
   }
 }

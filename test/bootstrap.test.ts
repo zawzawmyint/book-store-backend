@@ -18,13 +18,24 @@ describe('bootstrap', () => {
   })
 
   it('validates startup configuration', () => {
-    expect(loadConfig({})).toEqual({
+    const authSecret = 'test-secret-that-is-at-least-thirty-two-characters-long'
+    expect(loadConfig({ BETTER_AUTH_SECRET: authSecret })).toEqual({
       port: 4000,
       databasePath: './data/book-store.sqlite',
       frontendOrigin: 'http://localhost:5173',
+      authBaseURL: 'http://localhost:5173',
+      authSecret,
+      trustedProxyIp: undefined,
       nodeEnv: 'development',
     })
+    expect(() => loadConfig({})).toThrow(/BETTER_AUTH_SECRET/)
     expect(() => loadConfig({ PORT: '0' })).toThrow(/PORT/)
     expect(() => loadConfig({ FRONTEND_ORIGIN: 'not-a-url' })).toThrow(/FRONTEND_ORIGIN/)
+    expect(() =>
+      loadConfig({ BETTER_AUTH_SECRET: authSecret, BETTER_AUTH_URL: 'invalid' }),
+    ).toThrow(/BETTER_AUTH_URL/)
+    expect(() =>
+      loadConfig({ BETTER_AUTH_SECRET: authSecret, AUTH_TRUSTED_PROXY_IP: 'not-an-ip' }),
+    ).toThrow(/AUTH_TRUSTED_PROXY_IP/)
   })
 })
