@@ -76,6 +76,8 @@ export type Query = {
   adminOrder?: Maybe<AdminOrder>;
   myOrders: MyOrdersPage;
   viewer?: Maybe<Viewer>;
+  adminCustomers: AdminCustomersPage;
+  adminCustomer: AdminCustomer;
 };
 
 
@@ -119,6 +121,19 @@ export type QueryAdminOrderArgs = {
 export type QueryMyOrdersArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
   offset?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QueryAdminCustomersArgs = {
+  search?: InputMaybe<Scalars['String']['input']>;
+  role?: InputMaybe<AdminCustomerRoleFilter>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QueryAdminCustomerArgs = {
+  id: Scalars['ID']['input'];
 };
 
 export type OrderItem = {
@@ -182,6 +197,8 @@ export type Mutation = {
   updateBook: AdminBook;
   adjustBookStock: AdminBook;
   setBookArchived: AdminBook;
+  setCustomerAdminAccess: AdminCustomer;
+  resetCustomerPassword: AdminCustomer;
 };
 
 
@@ -212,6 +229,18 @@ export type MutationSetBookArchivedArgs = {
   archived: Scalars['Boolean']['input'];
 };
 
+
+export type MutationSetCustomerAdminAccessArgs = {
+  userId: Scalars['ID']['input'];
+  enabled: Scalars['Boolean']['input'];
+};
+
+
+export type MutationResetCustomerPasswordArgs = {
+  userId: Scalars['ID']['input'];
+  newPassword: Scalars['String']['input'];
+};
+
 export enum UserRole {
   Customer = 'CUSTOMER',
   Admin = 'ADMIN'
@@ -221,6 +250,27 @@ export type Viewer = {
   __typename?: 'Viewer';
   id: Scalars['ID']['output'];
   role: UserRole;
+};
+
+export enum AdminCustomerRoleFilter {
+  All = 'ALL',
+  Customer = 'CUSTOMER',
+  Admin = 'ADMIN'
+}
+
+export type AdminCustomer = {
+  __typename?: 'AdminCustomer';
+  id: Scalars['ID']['output'];
+  name: Scalars['String']['output'];
+  email: Scalars['String']['output'];
+  role: UserRole;
+  createdAt: Scalars['String']['output'];
+};
+
+export type AdminCustomersPage = {
+  __typename?: 'AdminCustomersPage';
+  total: Scalars['Int']['output'];
+  items: Array<AdminCustomer>;
 };
 
 
@@ -319,6 +369,9 @@ export type ResolversTypes = {
   Mutation: ResolverTypeWrapper<Record<PropertyKey, never>>;
   UserRole: UserRole;
   Viewer: ResolverTypeWrapper<Viewer>;
+  AdminCustomerRoleFilter: AdminCustomerRoleFilter;
+  AdminCustomer: ResolverTypeWrapper<AdminCustomer>;
+  AdminCustomersPage: ResolverTypeWrapper<AdminCustomersPage>;
 };
 
 /** Mapping between all available schema types and the resolvers parents */
@@ -344,6 +397,8 @@ export type ResolversParentTypes = {
   PlaceOrderInput: PlaceOrderInput;
   Mutation: Record<PropertyKey, never>;
   Viewer: Viewer;
+  AdminCustomer: AdminCustomer;
+  AdminCustomersPage: AdminCustomersPage;
 };
 
 export type BookResolvers<ContextType = any, ParentType extends ResolversParentTypes['Book'] = ResolversParentTypes['Book']> = {
@@ -387,6 +442,8 @@ export type QueryResolvers<ContextType = any, ParentType extends ResolversParent
   adminOrder?: Resolver<Maybe<ResolversTypes['AdminOrder']>, ParentType, ContextType, RequireFields<QueryAdminOrderArgs, 'id'>>;
   myOrders?: Resolver<ResolversTypes['MyOrdersPage'], ParentType, ContextType, RequireFields<QueryMyOrdersArgs, 'limit' | 'offset'>>;
   viewer?: Resolver<Maybe<ResolversTypes['Viewer']>, ParentType, ContextType>;
+  adminCustomers?: Resolver<ResolversTypes['AdminCustomersPage'], ParentType, ContextType, RequireFields<QueryAdminCustomersArgs, 'role' | 'limit' | 'offset'>>;
+  adminCustomer?: Resolver<ResolversTypes['AdminCustomer'], ParentType, ContextType, RequireFields<QueryAdminCustomerArgs, 'id'>>;
 };
 
 export type OrderItemResolvers<ContextType = any, ParentType extends ResolversParentTypes['OrderItem'] = ResolversParentTypes['OrderItem']> = {
@@ -434,11 +491,26 @@ export type MutationResolvers<ContextType = any, ParentType extends ResolversPar
   updateBook?: Resolver<ResolversTypes['AdminBook'], ParentType, ContextType, RequireFields<MutationUpdateBookArgs, 'id' | 'input'>>;
   adjustBookStock?: Resolver<ResolversTypes['AdminBook'], ParentType, ContextType, RequireFields<MutationAdjustBookStockArgs, 'id' | 'delta'>>;
   setBookArchived?: Resolver<ResolversTypes['AdminBook'], ParentType, ContextType, RequireFields<MutationSetBookArchivedArgs, 'id' | 'archived'>>;
+  setCustomerAdminAccess?: Resolver<ResolversTypes['AdminCustomer'], ParentType, ContextType, RequireFields<MutationSetCustomerAdminAccessArgs, 'userId' | 'enabled'>>;
+  resetCustomerPassword?: Resolver<ResolversTypes['AdminCustomer'], ParentType, ContextType, RequireFields<MutationResetCustomerPasswordArgs, 'userId' | 'newPassword'>>;
 };
 
 export type ViewerResolvers<ContextType = any, ParentType extends ResolversParentTypes['Viewer'] = ResolversParentTypes['Viewer']> = {
   id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
   role?: Resolver<ResolversTypes['UserRole'], ParentType, ContextType>;
+};
+
+export type AdminCustomerResolvers<ContextType = any, ParentType extends ResolversParentTypes['AdminCustomer'] = ResolversParentTypes['AdminCustomer']> = {
+  id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  name?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  email?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  role?: Resolver<ResolversTypes['UserRole'], ParentType, ContextType>;
+  createdAt?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+};
+
+export type AdminCustomersPageResolvers<ContextType = any, ParentType extends ResolversParentTypes['AdminCustomersPage'] = ResolversParentTypes['AdminCustomersPage']> = {
+  total?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  items?: Resolver<Array<ResolversTypes['AdminCustomer']>, ParentType, ContextType>;
 };
 
 export type Resolvers<ContextType = any> = {
@@ -455,5 +527,7 @@ export type Resolvers<ContextType = any> = {
   AdminOrdersPage?: AdminOrdersPageResolvers<ContextType>;
   Mutation?: MutationResolvers<ContextType>;
   Viewer?: ViewerResolvers<ContextType>;
+  AdminCustomer?: AdminCustomerResolvers<ContextType>;
+  AdminCustomersPage?: AdminCustomersPageResolvers<ContextType>;
 };
 

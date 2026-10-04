@@ -47,7 +47,11 @@ it('resolves customer/admin access from membership and revokes an existing sessi
   for (const query of [
     '{ adminBooks { total } }',
     '{ adminOrders { total } }',
+    '{ adminCustomers { total } }',
+    '{ adminCustomer(id: "missing") { id email } }',
     'mutation { adjustBookStock(id: "1", delta: 1) { id } }',
+    'mutation { setCustomerAdminAccess(userId: "missing", enabled: true) { id } }',
+    'mutation { resetCustomerPassword(userId: "missing", newPassword: "new-password-123") { id } }',
   ]) {
     const denied = await request(app)
       .post('/graphql')

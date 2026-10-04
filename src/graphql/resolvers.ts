@@ -10,14 +10,15 @@ import { createAdminOrderResolvers } from '../modules/orders/admin-order.resolve
 export function createResolvers(db: Database.Database): Resolvers<GraphQLContext> {
   const orderResolvers = createOrderResolvers(db)
   const adminBooks = createAdminBookResolvers(db)
+  const admin = createAdminResolvers(db)
   return {
     Query: {
       ...createBookResolvers(db),
       ...orderResolvers.Query,
-      ...createAdminResolvers(db),
+      ...admin.Query,
       ...adminBooks.Query,
       ...createAdminOrderResolvers(db),
     },
-    Mutation: { ...orderResolvers.Mutation, ...adminBooks.Mutation },
+    Mutation: { ...orderResolvers.Mutation, ...adminBooks.Mutation, ...admin.Mutation },
   }
 }

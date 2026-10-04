@@ -61,8 +61,13 @@ export function createAuth(db: Database.Database, options: AuthOptions) {
           before: async (user) => ({ data: { ...user, name: normalizeName(user.name) } }),
         },
         update: {
-          before: async (user) =>
-            user.name === undefined ? undefined : { data: { ...user, name: normalizeName(user.name) } },
+          before: async (user) => {
+            if (user.image !== undefined) {
+              throw new APIError('BAD_REQUEST', { message: 'Image cannot be updated' })
+            }
+            if (user.name === undefined) return undefined
+            return { data: { ...user, name: normalizeName(user.name) } }
+          },
         },
       },
     },
