@@ -10,7 +10,7 @@ Provide a GraphQL catalog and authenticated order-request API for the separate s
 
 - `POST /graphql` accepts GraphQL operations. Module schemas composed in `src/graphql/schema.ts` are the authoritative field and type contract.
 - `GET /health` returns `{ "status": "ok" }`.
-- Better Auth handles email-and-password account requests and cookie sessions under `/api/auth/*`.
+- Better Auth handles email-and-password account requests and cookie sessions under `/api/auth/*`. A signed-in user can update their own display name and change their password on those existing routes. Name updates trim to 1–120 characters. Email, image, role, and user ID stay unchanged. Password changes require the current password and a new password of 8–128 characters, revoke other sessions, and keep the current browser session. Later order requests use the saved name; existing orders keep their stored contact snapshots. See [the account profile spec](specs/profile/SPEC.md).
 - Browser access to `/graphql` and `/api/auth/*` is limited by the configured `FRONTEND_ORIGIN` CORS origin. Authenticated GraphQL POST requests require that origin and JSON content.
 
 ## Catalog
@@ -29,7 +29,7 @@ Provide a GraphQL catalog and authenticated order-request API for the separate s
 - In one SQLite transaction, the server writes the order and its line items and reduces stock. A failed validation or stock check leaves no partial order.
 - The response contains an order ID, total in cents, and line titles, quantities, and unit prices.
 - `myOrders(limit, offset)` requires a session, lists only the session user's orders newest first, and returns at most 50 per page. Legacy guest orders remain stored with no user ID and are not claimed by matching email.
-- Email verification, password reset, payment, shipping, email notification, and order processing are not implemented.
+- Email verification, self-service password recovery, payment, shipping, email notification, and order processing are not implemented. An admin can set another account's password through `resetCustomerPassword`.
 
 ## Store administration
 
@@ -37,6 +37,8 @@ Provide a GraphQL catalog and authenticated order-request API for the separate s
 - Admin-only `adminBooks`, `adminBook`, `createBook`, `updateBook`, `adjustBookStock`, and `setBookArchived` manage catalog and inventory. Metadata edits exclude stock; signed adjustments are atomic and bounded. Low stock means five or fewer units.
 - Archived books are absent from public catalog/details/genres and cannot be ordered. Archive/restore preserves IDs, stock, references, and prior order snapshots.
 - Admin-only `adminOrders` and `adminOrder` expose stored requests and contact snapshots, including legacy guest history. Customer `myOrders` remains owner-scoped.
+- Admin-only `adminCustomers` lists registered accounts, with name, email, Customer or Admin role, and join time. Search matches name or email, and a role filter selects all, customers, or admins. `setCustomerAdminAccess` grants or revokes membership for an existing user and does not create or edit the account. See [the customer directory spec](specs/customers/SPEC.md).
+- Admin-only `adminCustomer` reads one registered account. `resetCustomerPassword` sets a new 8–128 character password for another account, using the Better Auth hasher, and deletes that account's sessions. The caller's own password stays on Better Auth `change-password`. See [the customer details spec](specs/customer-details/SPEC.md).
 - Every admin resolver checks current membership before domain validation or lookup. Guests receive `UNAUTHENTICATED`, customers `FORBIDDEN`. Membership revocation affects the next request.
 - Operator `admin:access` grant/revoke acts only on existing user IDs against the configured database. See [the admin feature spec](specs/admin/SPEC.md) for exact contracts and limits.
 

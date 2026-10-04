@@ -104,7 +104,7 @@ drizzle/                  Committed SQL migrations and metadata
 
 ## Admin access and operations
 
-The existing storefront includes `/admin` for authorized store staff. It manages books, atomic stock adjustments, archive/restore, and read-only order requests. There are two roles: Customer and Admin. All accounts start as customers; an `admin_memberships` row grants admin abilities while retaining normal customer access. Seller accounts are not part of this single-bookstore application.
+The existing storefront includes `/admin` for authorized store staff. It manages books, atomic stock adjustments, archive/restore, read-only order requests, and registered accounts. There are two roles: Customer and Admin. All accounts start as customers; an `admin_memberships` row grants admin abilities while retaining normal customer access. Seller accounts are not part of this single-bookstore application. A signed-in person updates their own name and password through Better Auth. An admin can list accounts, grant or revoke membership, and set another account's password. See [the customer directory spec](specs/customers/SPEC.md) and [the customer details spec](specs/customer-details/SPEC.md).
 
 Start the API to apply migrations, or run `bun run db:migrate` using the configured `.env`. Register the intended account through the storefront, verify the account identity, and obtain its exact user ID from the signed-in `viewer { id role }` GraphQL query or the local database. Run these operator commands **from this backend directory**, against the intended `DATABASE_PATH`:
 
@@ -137,4 +137,4 @@ bun run build
 
 After changing a module GraphQL schema, run `bun run codegen` here to refresh the committed resolver types. If a frontend operation uses the new schema, start the API and run `bun run codegen` in the frontend repository too.
 
-Tests run against an in-memory SQLite database. This API records **order requests** without payment or delivery. Email verification and password recovery are deferred. Before serving real customer accounts or accepting real orders, add those email flows, payment or fulfillment, customer communication, operational monitoring, and deployment specific security controls.
+Tests run against an in-memory SQLite database. This API records **order requests** without payment or delivery. Email verification and self-service password recovery are deferred. An admin can still set another account's password. Before serving real customer accounts or accepting real orders, add those email flows, payment or fulfillment, customer communication, operational monitoring, and deployment specific security controls.
