@@ -14,7 +14,7 @@ The user selected this phased scope, including order viewing. The contracts and 
 - Public catalog queries are `books`, `book`, and `genres`. `placeOrder` checks stock and saves orders and stock deductions in one transaction. `myOrders` restricts history to the session user.
 - There is no admin authorization, book write API, archive flag, or order administration. Order items reference books and preserve title and price snapshots.
 - Use the existing `/graphql` endpoint and `/api/auth/*` login flow. No second auth server or admin application is required.
-- Exclude public role assignment, customer account administration, book deletion, image uploads, dashboards, audit-log UI, bulk import, order status changes, cancellation, automatic restocking, payment, shipping, and email notifications.
+- Exclude public role assignment, book deletion, image uploads, dashboards, audit-log UI, bulk import, order status changes, cancellation, automatic restocking, payment, shipping, and email notifications. Listing accounts, granting or revoking membership, and setting another account's password are specified in [the customer directory spec](../customers/SPEC.md) and [the customer details spec](../customer-details/SPEC.md).
 
 ## Phase 1 — administrator access
 

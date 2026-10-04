@@ -6,7 +6,7 @@
 
 Let store administrators list registered accounts and grant or revoke admin membership through the existing GraphQL API. The directory shows who can sign in and which of those accounts currently have admin membership. The matching user experience is defined in [the frontend spec](../../../frontend/specs/customers/SPEC.md).
 
-This adds one admin query and one admin mutation to the implemented admin API in [the admin spec](../admin/SPEC.md). It does not create accounts, edit names or emails, reset passwords, or add a profile page. Account name and password changes for the signed-in person live on the storefront profile. Resetting another account's password is specified in [the customer details spec](../customer-details/SPEC.md). This feature leaves both Account menus unchanged.
+This adds one admin query and one admin mutation to the implemented admin API in [the admin spec](../admin/SPEC.md). It does not create accounts, edit names or emails, or reset passwords. A customer changes their own name and password on `/account/profile`. An admin does that on `/admin/profile`. Resetting another account's password is specified in [the customer details spec](../customer-details/SPEC.md).
 
 ## Current system and design choice
 

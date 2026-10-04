@@ -29,8 +29,7 @@ Provide a GraphQL catalog and authenticated order-request API for the separate s
 - In one SQLite transaction, the server writes the order and its line items and reduces stock. A failed validation or stock check leaves no partial order.
 - The response contains an order ID, total in cents, and line titles, quantities, and unit prices.
 - `myOrders(limit, offset)` requires a session, lists only the session user's orders newest first, and returns at most 50 per page. Legacy guest orders remain stored with no user ID and are not claimed by matching email.
-- A signed-in user can update their own display name and password through Better Auth `update-user` and `change-password`. Name updates are trimmed to 1–120 characters. Email, image, role, and user ID stay unchanged. A password change requires the current password, accepts 8–128 characters, revokes other sessions, and keeps the current browser session. Later orders use the saved name; existing orders keep their stored contact snapshots. See [the profile spec](specs/profile/SPEC.md).
-- Email verification, password reset, payment, shipping, email notification, and order processing are not implemented.
+- Email verification, self-service password recovery, payment, shipping, email notification, and order processing are not implemented. An admin can set another account's password through `resetCustomerPassword`.
 
 ## Store administration
 
