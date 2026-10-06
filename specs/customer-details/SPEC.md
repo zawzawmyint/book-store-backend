@@ -1,12 +1,14 @@
-# The Quiet Shelf API — admin customer details specification
+# The Quiet Shelf API — historical admin customer details specification
 
-> **Status:** Implemented. **Date:** 2026-10-04.
+> **Status:** Historical compatibility record. Implemented 2026-10-04; superseded 2026-10-05 by [the user directory specification](../users/SPEC.md).
+>
+> The `adminCustomer` and `resetCustomerPassword` names below are retained GraphQL compatibility fields with their original types. New clients use `adminUser` and `resetUserPassword`; this document does not describe the current canonical contract. The current Admin-only user-management permission is in [the staff roles specification](../staff/SPEC.md).
 
 ## Goal and agreed scope
 
 Let a signed-in admin read one registered account and set a new password for someone else. The matching screen is defined in [the frontend spec](../../../frontend/specs/customer-details/SPEC.md).
 
-The signed-in person still changes their own name and password through Better Auth, specified in [the profile spec](../profile/SPEC.md). Customers use `/account/profile`. Admins use `/admin/profile`. This feature does not create accounts, edit names or emails, change membership, or rewrite order snapshots. Grant and revoke stay on `setCustomerAdminAccess`.
+The signed-in person still changes their own name and password through Better Auth, specified in [the profile spec](../profile/SPEC.md). Customers use `/account/profile`; Staff and Admin use `/admin/profile`. This historical feature did not create accounts, edit names or emails, change roles, or rewrite order snapshots.
 
 ## Current system and design choice
 

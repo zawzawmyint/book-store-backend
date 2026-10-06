@@ -2,7 +2,11 @@
 
 > This document describes implemented behavior. See [the authentication feature spec](specs/authentication/SPEC.md) for the detailed account contract.
 
+> The implemented role and permission model is defined in [the staff roles specification](specs/staff/SPEC.md), with user-directory compatibility details in [the user directory specification](specs/users/SPEC.md).
+
 ## Purpose and current scope
+
+The implemented [activity history specification](specs/activity/SPEC.md) defines atomic change recording and Admin-only history queries. Its additive migration has not been applied to a production database.
 
 Provide a GraphQL catalog and authenticated order-request API for the separate storefront. The API records requests but does not take payment or arrange delivery.
 
@@ -18,39 +22,42 @@ Provide a GraphQL catalog and authenticated order-request API for the separate s
 - `books(search, limit, offset)` returns `{ total, items }`. Defaults are `limit: 12` and `offset: 0`.
 - Search trims the input and matches title, author, or genre as case-insensitive SQLite `LIKE` text. SQL wildcard characters in input are treated literally.
 - The service accepts search text up to 100 characters, a whole-number limit from 1 to 24, and a nonnegative whole-number offset.
-- `book(id)` returns one book or `null` when no matching numeric ID exists.
+- `book(id)` returns one book or `null` when its ID is invalid, missing, or archived. Public lookups accept digit-only IDs, including leading zeroes such as `01`; this is distinct from strict positive safe-integer IDs used by administrative operations.
 - `genres` returns the distinct catalog genres in alphabetical order.
 - Book prices are integer `priceCents` values. The database stores them as `price_cents`.
 
 ## Order requests
 
 - `placeOrder(input)` requires a Better Auth session and accepts 1 to 20 distinct book lines. Each line has a book ID and quantity from 1 to 10. Customer name, email, and user ID come from the server session.
-- Module-local Zod schemas require numeric-string book IDs and integer quantities. Services translate input failures into GraphQL `extensions.code: BAD_USER_INPUT`; missing sessions return `UNAUTHENTICATED`. The repository checks book existence and stock and calculates totals from stored prices.
+- Module-local Zod schemas require numeric-string book IDs and integer quantities. Services translate the first input failure into GraphQL `extensions.code: BAD_USER_INPUT`; exact validation wording is not a stable API guarantee. Missing sessions return `UNAUTHENTICATED`. The repository checks book existence and stock and calculates totals from stored prices.
 - In one SQLite transaction, the server writes the order and its line items and reduces stock. A failed validation or stock check leaves no partial order.
 - The response contains an order ID, total in cents, and line titles, quantities, and unit prices.
 - `myOrders(limit, offset)` requires a session, lists only the session user's orders newest first, and returns at most 50 per page. Legacy guest orders remain stored with no user ID and are not claimed by matching email.
-- Email verification, self-service password recovery, payment, shipping, email notification, and order processing are not implemented. An admin can set another account's password through `resetCustomerPassword`.
+- Email verification, self-service password recovery, payment, shipping, email notification, and order processing are not implemented. An admin can set another account's password through `resetUserPassword`.
 
 ## Store administration
 
-- `viewer` reports the signed-in user's ID and server-owned Customer/Admin role, or null without a valid session. `admin_memberships` grants access; new/existing accounts are customers until an operator explicitly grants membership.
-- Admin-only `adminBooks`, `adminBook`, `createBook`, `updateBook`, `adjustBookStock`, and `setBookArchived` manage catalog and inventory. Metadata edits exclude stock; signed adjustments are atomic and bounded. Low stock means five or fewer units.
+- `viewer` reports the signed-in user's ID and server-owned Customer, Staff, or Admin role, or null without a valid session. `user_roles` is the sole role authority; an absent row resolves to Customer. Signup does not assign a privileged role.
+- Staff and Admin may use `adminBooks`, `adminBook`, `createBook`, `updateBook`, and `adjustBookStock`. Only Admin may use `setBookArchived`. Metadata edits exclude stock; signed adjustments are atomic and bounded. Low stock means five or fewer units.
 - Archived books are absent from public catalog/details/genres and cannot be ordered. Archive/restore preserves IDs, stock, references, and prior order snapshots.
-- Admin-only `adminOrders` and `adminOrder` expose stored requests and contact snapshots, including legacy guest history. Customer `myOrders` remains owner-scoped.
-- Admin-only `adminCustomers` lists registered accounts, with name, email, Customer or Admin role, and join time. Search matches name or email, and a role filter selects all, customers, or admins. `setCustomerAdminAccess` grants or revokes membership for an existing user and does not create or edit the account. See [the customer directory spec](specs/customers/SPEC.md).
-- Admin-only `adminCustomer` reads one registered account. `resetCustomerPassword` sets a new 8–128 character password for another account, using the Better Auth hasher, and deletes that account's sessions. The caller's own password stays on Better Auth `change-password`. See [the customer details spec](specs/customer-details/SPEC.md).
-- Every admin resolver checks current membership before domain validation or lookup. Guests receive `UNAUTHENTICATED`, customers `FORBIDDEN`. Membership revocation affects the next request.
-- Operator `admin:access` grant/revoke acts only on existing user IDs against the configured database. See [the admin feature spec](specs/admin/SPEC.md) for exact contracts and limits.
+- Staff and Admin may use `adminOrders` and `adminOrder` to read stored requests and contact snapshots, including legacy guest history. Customer `myOrders` remains owner-scoped.
+- Only Admin may use `adminUsers`, `adminUser`, `setUserRole`, and `resetUserPassword`. Directory search/filter includes Customer, Staff, and Admin. `setUserRole` assigns one role for an existing user and does not change identity, credentials, sessions, or orders. See [the staff roles specification](specs/staff/SPEC.md).
+- `setUserAdminAccess` and legacy `setCustomerAdminAccess` are deprecated compatibility mutations: true assigns Admin and false assigns Customer. Deprecated legacy user query/detail/password fields retain their declared types for existing clients.
+- `adminActivity` is Admin-only and returns the newest recorded catalog and account changes first. It supports bounded pagination plus actor, action, changed-field, target, and UTC time-range filters. Book history is the same query filtered to a book target. Staff actions are recorded but Staff cannot read activity. The log begins after the updated backend runs with migration `0005_panoramic_invisible_woman` applied; it does not reconstruct prior changes.
+- Workspace permission guards read the current stored role before private validation or lookup and supply the authenticated user to resolver logic. Admin has `MANAGE_CATALOG`, `VIEW_ORDERS`, `ARCHIVE_BOOKS`, `MANAGE_USERS`, and `VIEW_ACTIVITY`; Staff has `MANAGE_CATALOG` and `VIEW_ORDERS`; Customer and unknown roles have none of these workspace permissions. Guests receive `UNAUTHENTICATED`; users without the required permission receive `FORBIDDEN`. A role change affects the next request.
+- Operator `admin:access` grant/revoke acts only on existing user IDs against the configured database, assigning Admin or Customer respectively. See [the staff roles specification](specs/staff/SPEC.md) for role and recovery limits.
 
 ## Data and operation
 
 - Drizzle defines storefront tables in `src/database/schema.ts` and Better Auth's `user`, `session`, `account`, and `verification` tables in `src/database/auth-schema.ts`, retaining foreign keys and check constraints. Queries stay behind repository interfaces. SQL migrations and metadata are committed under `drizzle/`. Migrations run when the database opens; `bun run db:generate` generates changes and `bun run db:migrate` applies them explicitly through the compatibility wrapper.
 - The migration wrapper verifies the original `user_version = 1` schema before adopting its baseline in the Drizzle journal, preserving existing catalog and order data. Fresh databases run the baseline. Unsupported versions or legacy schemas fail startup.
+- Migration `0004_sad_reavers` copies existing `admin_memberships` to `user_roles` as Admin and drops `admin_memberships`. Before applying it to production, stop writers and make a consistent SQLite backup. Do not run an older backend binary against that migrated database; rollback requires restoring the pre-migration backup with compatible application versions.
+- Migration `0005_panoramic_invisible_woman` adds the additive `activity_events` table and its indexes without changing existing business data. Apply it through the migration wrapper with writers stopped and a consistent SQLite backup. A prior compatible binary can ignore the table but will leave a documented logging gap; preserve the table during rollback.
 - Development seeds twelve sample books once. Production does not seed automatically; `bun run db:seed` is explicit.
 - `DATABASE_PATH`, `PORT`, `FRONTEND_ORIGIN`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`, and `NODE_ENV` are validated at startup. The database file is runtime data and is not committed.
 - Bun 1.3.14 manages dependencies using committed `bun.lock` and `bun install --frozen-lockfile` for reproducible installs. Node.js 24 or later remains the runtime.
 
 ## Acceptance checks
 
-- `bun run test` covers catalog queries and distinct genres, sign-up/sign-in/sign-out, session-scoped order history, unauthenticated access, order pricing, stock rejection, transactional rollback, migration, seed behavior, and configuration validation.
+- `bun run test` covers catalog queries and distinct genres, sign-up/sign-in/sign-out, session-scoped order history, unauthenticated access, order pricing, stock rejection, transactional rollback, migration, seed behavior, configuration validation, and activity permissions, snapshots, aliases, filters, and atomic rollback.
 - Run `bun run lint` and `bun run build` for static and build checks.

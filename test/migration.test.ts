@@ -8,6 +8,90 @@ import { migrateDatabase } from '../src/database/migrations.js'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 
+it('adds empty activity history to a populated Staff schema without changing existing business data', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'activity-migration-'))
+  const db = new Database(':memory:')
+  try {
+    mkdirSync(join(directory, 'meta'))
+    const journal = JSON.parse(
+      readFileSync(new URL('../drizzle/meta/_journal.json', import.meta.url), 'utf8'),
+    ) as { entries: Array<{ tag: string }> }
+    journal.entries = journal.entries.slice(0, 5)
+    writeFileSync(join(directory, 'meta', '_journal.json'), JSON.stringify(journal))
+    for (const entry of journal.entries)
+      copyFileSync(
+        new URL(`../drizzle/${entry.tag}.sql`, import.meta.url),
+        join(directory, `${entry.tag}.sql`),
+      )
+    db.pragma('foreign_keys = ON')
+    migrate(drizzle(db), { migrationsFolder: directory })
+    db.exec(`
+      INSERT INTO user (id,name,email) VALUES ('staff','Staff','staff@example.com');
+      INSERT INTO user_roles VALUES ('staff','STAFF');
+      INSERT INTO account (id,account_id,provider_id,user_id,password,updated_at) VALUES ('credential','staff','credential','staff','saved-hash',1);
+      INSERT INTO session (id,expires_at,token,updated_at,user_id) VALUES ('saved',2000000000000,'saved-token',1,'staff');
+      INSERT INTO books (id,title,author,genre,description,price_cents,stock,archived) VALUES (42,'Saved','Author','Genre','Description',100,5,1);
+      INSERT INTO orders (id,user_id,customer_name,email,total_cents) VALUES (9,'staff','Staff','staff@example.com',100);
+      INSERT INTO order_items (order_id,book_id,title,quantity,unit_price_cents) VALUES (9,42,'Saved',1,100);
+    `)
+    const tables = ['user', 'user_roles', 'account', 'session', 'books', 'orders', 'order_items']
+    const before = tables.map((table) => db.prepare(`SELECT * FROM ${table}`).all())
+    migrateDatabase(db)
+    migrateDatabase(db)
+    expect(tables.map((table) => db.prepare(`SELECT * FROM ${table}`).all())).toEqual(before)
+    expect(db.prepare('SELECT * FROM activity_events').all()).toEqual([])
+    expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({ n: 6 })
+    expect(db.pragma('foreign_key_check')).toEqual([])
+  } finally {
+    db.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+it('migrates populated admin memberships to roles without losing admins or identity data', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'staff-role-migration-'))
+  const db = new Database(':memory:')
+  try {
+    mkdirSync(join(directory, 'meta'))
+    const journal = JSON.parse(
+      readFileSync(new URL('../drizzle/meta/_journal.json', import.meta.url), 'utf8'),
+    )
+    journal.entries = journal.entries.slice(0, 4)
+    writeFileSync(join(directory, 'meta', '_journal.json'), JSON.stringify(journal))
+    for (const entry of journal.entries)
+      copyFileSync(
+        new URL(`../drizzle/${entry.tag}.sql`, import.meta.url),
+        join(directory, `${entry.tag}.sql`),
+      )
+    db.pragma('foreign_keys = ON')
+    migrate(drizzle(db), { migrationsFolder: directory })
+    db.exec(
+      "INSERT INTO user (id, name, email) VALUES ('owner', 'Owner', 'owner@example.com'), ('buyer', 'Buyer', 'buyer@example.com'); INSERT INTO admin_memberships (user_id) VALUES ('owner');",
+    )
+    const before = db.prepare('SELECT * FROM user').all()
+    migrateDatabase(db)
+    expect(db.prepare('SELECT * FROM user').all()).toEqual(before)
+    expect(db.prepare('SELECT * FROM user_roles').all()).toEqual([
+      { user_id: 'owner', role: 'ADMIN' },
+    ])
+    expect(
+      db.prepare("SELECT name FROM sqlite_master WHERE name = 'admin_memberships'").get(),
+    ).toBeUndefined()
+    expect(() => db.exec("INSERT INTO user_roles VALUES ('buyer', 'INVALID')")).toThrow(/CHECK/)
+    expect(() => db.exec("INSERT INTO user_roles VALUES ('unknown', 'STAFF')")).toThrow(
+      /FOREIGN KEY/,
+    )
+    expect(() => db.exec("INSERT INTO user_roles VALUES ('owner', 'STAFF')")).toThrow(/UNIQUE/)
+    db.exec("DELETE FROM user WHERE id = 'owner'")
+    expect(db.prepare('SELECT * FROM user_roles').all()).toEqual([])
+    migrateDatabase(db)
+    expect(db.pragma('foreign_key_check')).toEqual([])
+  } finally {
+    db.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 it('upgrades the current authenticated schema preserving accounts, sessions, and owned orders', () => {
   const directory = mkdtempSync(join(tmpdir(), 'admin-current-migration-'))
   const db = new Database(':memory:')
@@ -47,7 +131,9 @@ it('upgrades the current authenticated schema preserving accounts, sessions, and
       stock: 7,
       archived: 0,
     })
-    expect(db.prepare('SELECT count(*) AS count FROM admin_memberships').get()).toEqual({
+    expect(
+      db.prepare("SELECT count(*) AS count FROM user_roles WHERE role = 'ADMIN'").get(),
+    ).toEqual({
       count: 0,
     })
     expect(db.pragma('foreign_key_check')).toEqual([])
@@ -78,7 +164,7 @@ describe('Drizzle migration adoption', () => {
     const db = createDatabase(':memory:')
     try {
       expect(db.prepare('SELECT COUNT(*) AS count FROM __drizzle_migrations').get()).toEqual({
-        count: 4,
+        count: 6,
       })
       expect(() =>
         db
@@ -124,7 +210,7 @@ describe('Drizzle migration adoption', () => {
             { order_id: 9, book_id: 42, quantity: 2 },
           ])
           expect(db.prepare('SELECT COUNT(*) AS count FROM __drizzle_migrations').get()).toEqual({
-            count: 4,
+            count: 6,
           })
           expect(db.pragma('foreign_keys', { simple: true })).toBe(1)
           expect(
@@ -132,7 +218,9 @@ describe('Drizzle migration adoption', () => {
               .prepare('SELECT archived, length(description) AS size FROM books WHERE id = 42')
               .get(),
           ).toEqual({ archived: 0, size: 6000 })
-          expect(db.prepare('SELECT count(*) AS count FROM admin_memberships').get()).toEqual({
+          expect(
+            db.prepare("SELECT count(*) AS count FROM user_roles WHERE role = 'ADMIN'").get(),
+          ).toEqual({
             count: 0,
           })
           expect(() => db.prepare('UPDATE books SET archived = 2 WHERE id = 42').run()).toThrow(
@@ -168,7 +256,7 @@ describe('Drizzle migration adoption', () => {
         db.prepare('UPDATE order_items SET unit_price_cents = -1 WHERE id = 11').run(),
       ).toThrow()
       expect(db.prepare('SELECT COUNT(*) AS count FROM __drizzle_migrations').get()).toEqual({
-        count: 4,
+        count: 6,
       })
     } finally {
       db.close()

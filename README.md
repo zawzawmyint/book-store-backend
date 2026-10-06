@@ -2,7 +2,7 @@
 
 An Express + GraphQL + Drizzle + SQLite bookstore API with Zod input validation. This folder is its own Git repository and runs independently from the frontend.
 
-See [SPEC.md](SPEC.md) for the implemented API behavior and [specs/authentication/SPEC.md](specs/authentication/SPEC.md) for the account feature contract.
+See [SPEC.md](SPEC.md) for the implemented API behavior, [specs/authentication/SPEC.md](specs/authentication/SPEC.md) for the account feature contract, [specs/staff/SPEC.md](specs/staff/SPEC.md) for roles and permissions, [specs/users/SPEC.md](specs/users/SPEC.md) for user-directory compatibility, and [specs/activity/SPEC.md](specs/activity/SPEC.md) for the Admin-only activity contract.
 
 ## Development workflow
 
@@ -104,7 +104,7 @@ drizzle/                  Committed SQL migrations and metadata
 
 ## Admin access and operations
 
-The existing storefront includes `/admin` for authorized store staff. It manages books, atomic stock adjustments, archive/restore, read-only order requests, and registered accounts. There are two roles: Customer and Admin. All accounts start as customers; an `admin_memberships` row grants admin abilities while retaining normal customer access. Seller accounts are not part of this single-bookstore application. A signed-in person updates their own name and password through Better Auth. An admin can list accounts, grant or revoke membership, and set another account's password. See [the customer directory spec](specs/customers/SPEC.md) and [the customer details spec](specs/customer-details/SPEC.md).
+The storefront has three roles: Customer, Staff, and Admin. Signup creates a Customer; `user_roles` is the sole server-owned role authority, with no row also resolving to Customer. Staff can manage catalog metadata, prices, and stock and read order requests. Admin adds archive/restore and user management, including role assignment and another user's password reset. All three roles can still use normal shopping and their own account profile. See [the staff roles spec](specs/staff/SPEC.md). The deprecated Boolean access mutations and customer-named GraphQL fields remain only for compatible clients.
 
 Start the API to apply migrations, or run `bun run db:migrate` using the configured `.env`. Register the intended account through the storefront, verify the account identity, and obtain its exact user ID from the signed-in `viewer { id role }` GraphQL query or the local database. Run these operator commands **from this backend directory**, against the intended `DATABASE_PATH`:
 
@@ -113,11 +113,13 @@ bun run admin:access -- grant <user-id>
 bun run admin:access -- revoke <user-id>
 ```
 
-Both commands are idempotent and reject unknown users. They do not create accounts, passwords, or public promotion endpoints. Membership is checked on each admin API request, so revocation affects the next request even with an existing session. Reload or focus the storefront to refresh its navigation/access display after a grant.
+Both commands are idempotent and reject unknown users. They do not create accounts, passwords, or public promotion endpoints. `grant` assigns Admin and `revoke` assigns Customer. The current role is checked on each protected request, so a role change affects the next request even with an existing session. Reload or focus the storefront to refresh its navigation/access display after a role change.
 
 Metadata edits exclude stock; inventory changes are signed deltas applied to current stored stock. A lost mutation response leaves the result uncertain: check inventory and decide deliberately before submitting another adjustment. Archive hides books and rejects new checkout lines while preserving earlier order snapshots; restore uses the same book ID. Low stock means five or fewer units.
 
-Before migrating persisted data, stop writers and make a consistent SQLite backup (including any required WAL state, or use SQLite's backup API). To roll back, stop writers and restore the backup with its matching application release. An older API ignores the archive flag and must not serve an upgraded database as a rollback method. The test suites use isolated databases and do not grant development/production access.
+The Activity API records successful catalog changes, role changes, and another-user password resets in the same transaction as the business write. `adminActivity` is Admin-only; Staff changes are attributed but Staff cannot read history. It has a default limit of 20, maximum 50, newest-first ordering, and actor/action/changed-field/target/UTC-range filters. The log starts after the updated backend runs with `0005_panoramic_invisible_woman` applied; prior changes are not backfilled. The operator command records an `OPERATOR` event named **Operator command**, never an inferred person.
+
+Before migrating persisted data, stop writers and make a consistent SQLite backup (including any required WAL state, or use SQLite's backup API). The staff-role migration copies old admin memberships as Admin and drops the old table. Activity migration `0005_panoramic_invisible_woman` is additive and preserves existing data; an earlier compatible binary may ignore its table but will not record events. Preserve the table and document any resulting history gap, or restore the matching pre-migration backup with compatible application versions. The test suites use isolated databases and do not grant development/production access.
 
 See [the admin spec](specs/admin/SPEC.md) for the full contract.
 

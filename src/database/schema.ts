@@ -4,11 +4,51 @@ import { user } from './auth-schema.js'
 
 export { user, session, account, verification } from './auth-schema.js'
 
-export const adminMemberships = sqliteTable('admin_memberships', {
-  userId: text('user_id')
-    .primaryKey()
-    .references(() => user.id, { onDelete: 'cascade' }),
-})
+export const activityEvents = sqliteTable(
+  'activity_events',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    actorUserId: text('actor_user_id').references(() => user.id, { onDelete: 'set null' }),
+    actorName: text('actor_name').notNull(),
+    actorRole: text('actor_role', { enum: ['CUSTOMER', 'STAFF', 'ADMIN'] }),
+    source: text('source', { enum: ['GRAPHQL', 'OPERATOR'] }).notNull(),
+    action: text('action', {
+      enum: [
+        'BOOK_CREATED',
+        'BOOK_UPDATED',
+        'BOOK_STOCK_ADJUSTED',
+        'BOOK_ARCHIVED',
+        'BOOK_RESTORED',
+        'USER_ROLE_CHANGED',
+        'USER_PASSWORD_RESET',
+      ],
+    }).notNull(),
+    targetType: text('target_type', { enum: ['BOOK', 'USER'] }).notNull(),
+    targetId: text('target_id').notNull(),
+    targetName: text('target_name').notNull(),
+    changesJson: text('changes_json').notNull(),
+    stockDelta: integer('stock_delta'),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+  },
+  (table) => [
+    index('activity_newest_idx').on(table.id),
+    index('activity_target_idx').on(table.targetType, table.targetId, table.id),
+    index('activity_actor_idx').on(table.actorUserId, table.id),
+  ],
+)
+
+export const userRoles = sqliteTable(
+  'user_roles',
+  {
+    userId: text('user_id')
+      .primaryKey()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    role: text('role', { enum: ['CUSTOMER', 'STAFF', 'ADMIN'] }).notNull(),
+  },
+  (table) => [check('user_roles_valid_role', sql`${table.role} IN ('CUSTOMER', 'STAFF', 'ADMIN')`)],
+)
 
 export const books = sqliteTable(
   'books',

@@ -29,6 +29,20 @@
       "when": 1790849081458,
       "tag": "0003_chilly_mastermind",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1791189281234,
+      "tag": "0004_sad_reavers",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1791196128276,
+      "tag": "0005_panoramic_invisible_woman",
+      "breakpoints": true
     }
   ]
 }

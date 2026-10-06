@@ -18,6 +18,24 @@ describe('service input validation', () => {
     )
     expect(listBooks).toHaveBeenCalledWith('Gatsby', 12, 0)
   })
+  it('reports the first catalog validation issue before querying', () => {
+    const listBooks = vi.fn()
+    const service = createBookService({ listBooks, listGenres: () => [], getBook: () => null })
+    expect(() => service.listBooks('x'.repeat(101), 0, -1)).toThrow(
+      'Too big: expected string to have <=100 characters',
+    )
+    expect(listBooks).not.toHaveBeenCalled()
+  })
+  it('preserves nullable public lookups and leading-zero IDs before querying', () => {
+    const getBook = vi.fn(() => null)
+    const service = createBookService({ listBooks: vi.fn(), listGenres: () => [], getBook })
+    for (const id of ['', 'abc', '-1', '1.5', ' 1 ']) {
+      expect(service.getBook(id)).toBeNull()
+    }
+    expect(getBook).not.toHaveBeenCalled()
+    service.getBook('01')
+    expect(getBook).toHaveBeenCalledWith('01')
+  })
   it.each([
     { items: [] },
     { items: Array.from({ length: 21 }, (_, i) => ({ bookId: String(i), quantity: 1 })) },

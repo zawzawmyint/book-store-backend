@@ -2,6 +2,8 @@
 
 > **Status:** Implemented. **Date:** 2026-10-01.
 
+> **Role-model update (2026-10-05):** The original membership-based two-role description below is historical. The implemented [Staff specification](../staff/SPEC.md) defines the current Customer/Staff/Admin permissions and `user_roles` storage.
+
 ## Goal and agreed scope
 
 Let store administrators manage books and inventory and view all order requests through the existing GraphQL API. Deliver the full feature in phases: access control, catalog and inventory management, then order viewing. The matching user experience is defined in [the frontend spec](../../../frontend/specs/admin/SPEC.md).
@@ -14,7 +16,7 @@ The user selected this phased scope, including order viewing. The contracts and 
 - Public catalog queries are `books`, `book`, and `genres`. `placeOrder` checks stock and saves orders and stock deductions in one transaction. `myOrders` restricts history to the session user.
 - There is no admin authorization, book write API, archive flag, or order administration. Order items reference books and preserve title and price snapshots.
 - Use the existing `/graphql` endpoint and `/api/auth/*` login flow. No second auth server or admin application is required.
-- Exclude public role assignment, book deletion, image uploads, dashboards, audit-log UI, bulk import, order status changes, cancellation, automatic restocking, payment, shipping, and email notifications. Listing accounts, granting or revoking membership, and setting another account's password are specified in [the customer directory spec](../customers/SPEC.md) and [the customer details spec](../customer-details/SPEC.md).
+- Exclude public role assignment, book deletion, image uploads, dashboards, audit-log UI, bulk import, order status changes, cancellation, automatic restocking, payment, shipping, and email notifications. Listing users, granting or revoking membership, and setting another user's password are specified in [the user directory spec](../users/SPEC.md). The customer-named specs are historical compatibility records.
 
 ## Phase 1 — administrator access
 

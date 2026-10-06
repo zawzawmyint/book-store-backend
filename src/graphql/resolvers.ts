@@ -6,6 +6,7 @@ import type { GraphQLContext } from './context.js'
 import { createAdminResolvers } from '../modules/admin/admin.resolvers.js'
 import { createAdminBookResolvers } from '../modules/books/admin-book.resolvers.js'
 import { createAdminOrderResolvers } from '../modules/orders/admin-order.resolvers.js'
+import { createActivityResolvers } from '../modules/activity/activity.resolvers.js'
 
 export function createResolvers(db: Database.Database): Resolvers<GraphQLContext> {
   const orderResolvers = createOrderResolvers(db)
@@ -18,6 +19,7 @@ export function createResolvers(db: Database.Database): Resolvers<GraphQLContext
       ...admin.Query,
       ...adminBooks.Query,
       ...createAdminOrderResolvers(db),
+      ...createActivityResolvers(db),
     },
     Mutation: { ...orderResolvers.Mutation, ...adminBooks.Mutation, ...admin.Mutation },
   }

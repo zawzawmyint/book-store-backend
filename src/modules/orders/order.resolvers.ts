@@ -1,19 +1,10 @@
 import type Database from 'better-sqlite3'
-import { GraphQLError } from 'graphql'
 import type { MutationResolvers, QueryResolvers } from '../../graphql/generated/resolvers.js'
 import type { GraphQLContext } from '../../graphql/context.js'
 import { asGraphQLError } from '../../graphql/errors.js'
 import { createOrderRepository } from './order.repository.js'
 import { createOrderService } from './order.service.js'
-
-function requireUser(context: GraphQLContext) {
-  if (!context.user) {
-    throw new GraphQLError('Sign in to continue', {
-      extensions: { code: 'UNAUTHENTICATED' },
-    })
-  }
-  return context.user
-}
+import { requireUser } from '../../shared/authentication.js'
 
 export function createOrderResolvers(db: Database.Database): {
   Query: Pick<QueryResolvers<GraphQLContext>, 'myOrders'>
@@ -23,7 +14,7 @@ export function createOrderResolvers(db: Database.Database): {
   return {
     Query: {
       myOrders: (_, args, context) => {
-        const user = requireUser(context)
+        const user = requireUser(context.user)
         try {
           return service.myOrders(user.id, args.limit ?? 20, args.offset ?? 0)
         } catch (error) {
@@ -33,7 +24,7 @@ export function createOrderResolvers(db: Database.Database): {
     },
     Mutation: {
       placeOrder: (_, args, context) => {
-        const user = requireUser(context)
+        const user = requireUser(context.user)
         try {
           return service.placeOrder(args.input, user)
         } catch (error) {

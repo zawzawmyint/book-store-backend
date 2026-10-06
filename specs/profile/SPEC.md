@@ -6,7 +6,7 @@
 
 Let a signed-in customer update their own display name and password through the existing Better Auth session. The storefront page is defined in [the frontend spec](../../../frontend/specs/profile/SPEC.md).
 
-Editing another customer's name or email from admin remains deferred. An admin password reset is specified in [the customer details spec](../customer-details/SPEC.md).
+Editing another user's name or email from the workspace remains deferred. An admin password reset is specified in [the staff roles spec](../staff/SPEC.md).
 
 ## Contract
 

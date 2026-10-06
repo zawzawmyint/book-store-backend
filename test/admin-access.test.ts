@@ -40,9 +40,9 @@ it('resolves customer/admin access from membership and revokes an existing sessi
       .set('Cookie', cookies)
       .send({ query: '{ viewer { id role } }' })
   expect((await viewer()).body.data.viewer).toEqual({ id, role: 'CUSTOMER' })
-  db.prepare('INSERT INTO admin_memberships (user_id) VALUES (?)').run(id)
+  db.prepare("INSERT INTO user_roles (user_id, role) VALUES (?, 'ADMIN')").run(id)
   expect((await viewer()).body.data.viewer.role).toBe('ADMIN')
-  db.prepare('DELETE FROM admin_memberships WHERE user_id = ?').run(id)
+  db.prepare("DELETE FROM user_roles WHERE role = 'ADMIN' AND user_id = ?").run(id)
   expect((await viewer()).body.data.viewer.role).toBe('CUSTOMER')
   for (const query of [
     '{ adminBooks { total } }',

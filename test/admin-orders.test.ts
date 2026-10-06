@@ -26,7 +26,7 @@ beforeEach(async () => {
     expect(res.status).toBe(200)
     if (email.startsWith('admin')) {
       cookies = res.headers['set-cookie'] as string[]
-      db.prepare('INSERT INTO admin_memberships (user_id) VALUES (?)').run(res.body.user.id)
+      db.prepare('INSERT INTO user_roles (user_id, role) VALUES (?, \'ADMIN\')').run(res.body.user.id)
     } else customer = res.headers['set-cookie'] as string[]
   }
 })

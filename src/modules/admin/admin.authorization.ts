@@ -1,11 +1,26 @@
 import { GraphQLError } from 'graphql'
 import type { AuthenticatedUser } from '../../graphql/context.js'
+import { requireUser } from '../../shared/authentication.js'
 
-export function createAdminGuard(isAdmin: (id: string) => boolean) {
-  return (user: AuthenticatedUser | null): void => {
-    if (!user)
-      throw new GraphQLError('Sign in to continue', { extensions: { code: 'UNAUTHENTICATED' } })
-    if (!isAdmin(user.id))
-      throw new GraphQLError('Admin access required', { extensions: { code: 'FORBIDDEN' } })
+export type Permission =
+  'MANAGE_CATALOG' | 'VIEW_ORDERS' | 'ARCHIVE_BOOKS' | 'MANAGE_USERS' | 'VIEW_ACTIVITY'
+
+const rolePermissions: Readonly<Record<'ADMIN' | 'STAFF' | 'CUSTOMER', readonly Permission[]>> = {
+  ADMIN: ['MANAGE_CATALOG', 'VIEW_ORDERS', 'ARCHIVE_BOOKS', 'MANAGE_USERS', 'VIEW_ACTIVITY'],
+  STAFF: ['MANAGE_CATALOG', 'VIEW_ORDERS'],
+  CUSTOMER: [],
+}
+
+export function createPermissionGuard(getRole: (id: string) => string) {
+  return (user: AuthenticatedUser | null, permission: Permission): AuthenticatedUser => {
+    const authenticated = requireUser(user)
+    const role = getRole(authenticated.id)
+    const allowed = Object.hasOwn(rolePermissions, role)
+      ? rolePermissions[role as keyof typeof rolePermissions]
+      : []
+    if (!allowed.includes(permission)) {
+      throw new GraphQLError('Permission required', { extensions: { code: 'FORBIDDEN' } })
+    }
+    return authenticated
   }
 }

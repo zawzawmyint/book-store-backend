@@ -76,6 +76,7 @@ describe('book store GraphQL API', () => {
       .post('/graphql')
       .send({ query: '{ books(limit: 100) { total } }' })
     expect(page.body.errors[0].extensions.code).toBe('BAD_USER_INPUT')
+    expect(page.body.errors[0].message).toBe('Too big: expected number to be <=24')
 
     const order = await request(app)
       .post('/graphql')
@@ -91,6 +92,15 @@ describe('book store GraphQL API', () => {
       })
     expect(order.body.errors[0].extensions.code).toBe('BAD_USER_INPUT')
     expect(db.prepare('SELECT COUNT(*) AS count FROM orders').get()).toEqual({ count: 0 })
+  })
+
+  it('retains nullable public lookups and numeric ID compatibility', async () => {
+    const response = await request(app).post('/graphql').send({
+      query:
+        '{ leading: book(id: "01") { id } invalid: book(id: "abc") { id } missing: book(id: "99999") { id } }',
+    })
+    expect(response.body.errors).toBeUndefined()
+    expect(response.body.data).toEqual({ leading: { id: '1' }, invalid: null, missing: null })
   })
 
   it('places an authenticated order using server prices and decrements stock', async () => {

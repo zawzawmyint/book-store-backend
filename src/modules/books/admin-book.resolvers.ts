@@ -1,8 +1,8 @@
 import type Database from 'better-sqlite3'
-import type { GraphQLContext } from '../../graphql/context.js'
+import type { AuthenticatedUser, GraphQLContext } from '../../graphql/context.js'
 import type { QueryResolvers, MutationResolvers } from '../../graphql/generated/resolvers.js'
 import { asGraphQLError } from '../../graphql/errors.js'
-import { createAdminGuard } from '../admin/admin.authorization.js'
+import { createPermissionGuard, type Permission } from '../admin/admin.authorization.js'
 import { createAdminRepository } from '../admin/admin.repository.js'
 import { createAdminBookService } from './admin-book.service.js'
 import { createAdminBookRepository } from './admin-book.repository.js'
@@ -14,12 +14,17 @@ export function createAdminBookResolvers(db: Database.Database): {
     'createBook' | 'updateBook' | 'adjustBookStock' | 'setBookArchived'
   >
 } {
-  const guard = createAdminGuard(createAdminRepository(db).isAdmin)
+  const adminRepository = createAdminRepository(db)
+  const guard = createPermissionGuard(adminRepository.getUserRole)
   const service = createAdminBookService(createAdminBookRepository(db))
-  const run = <T>(context: GraphQLContext, action: () => T): T => {
-    guard(context.user)
+  const run = <T>(
+    context: GraphQLContext,
+    action: (user: AuthenticatedUser) => T,
+    permission: Permission = 'MANAGE_CATALOG',
+  ): T => {
+    const user = guard(context.user, permission)
     try {
-      return action()
+      return action(user)
     } catch (error) {
       return asGraphQLError(error)
     }
@@ -39,10 +44,23 @@ export function createAdminBookResolvers(db: Database.Database): {
       adminBook: (_, args, ctx) => run(ctx, () => service.get(args.id)),
     },
     Mutation: {
-      createBook: (_, args, ctx) => run(ctx, () => service.create(args.input)),
-      updateBook: (_, args, ctx) => run(ctx, () => service.update(args.id, args.input)),
-      adjustBookStock: (_, args, ctx) => run(ctx, () => service.adjustStock(args.id, args.delta)),
-      setBookArchived: (_, args, ctx) => run(ctx, () => service.archive(args.id, args.archived)),
+      createBook: (_, args, ctx) =>
+        run(ctx, (user) => service.create(args.input, adminRepository.getActivityActor(user.id))),
+      updateBook: (_, args, ctx) =>
+        run(ctx, (user) =>
+          service.update(args.id, args.input, adminRepository.getActivityActor(user.id)),
+        ),
+      adjustBookStock: (_, args, ctx) =>
+        run(ctx, (user) =>
+          service.adjustStock(args.id, args.delta, adminRepository.getActivityActor(user.id)),
+        ),
+      setBookArchived: (_, args, ctx) =>
+        run(
+          ctx,
+          (user) =>
+            service.archive(args.id, args.archived, adminRepository.getActivityActor(user.id)),
+          'ARCHIVE_BOOKS',
+        ),
     },
   }
 }

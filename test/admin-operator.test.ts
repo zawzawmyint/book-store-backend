@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { operatorActor } from '../src/modules/activity/activity.types.js'
 
 it('grants and revokes only an existing account idempotently without creating users', () => {
   const db = createDatabase(':memory:')
@@ -14,19 +15,21 @@ it('grants and revokes only an existing account idempotently without creating us
     ).run()
     const repo = createAdminRepository(db)
     expect(repo.isAdmin('operator')).toBe(false)
-    repo.setAdminAccess('operator', true)
-    repo.setAdminAccess('operator', true)
+    repo.setAdminAccess('operator', true, operatorActor)
+    repo.setAdminAccess('operator', true, operatorActor)
     expect(repo.isAdmin('operator')).toBe(true)
     expect(repo.isAdmin('customer')).toBe(false)
-    repo.setAdminAccess('operator', false)
-    repo.setAdminAccess('operator', false)
+    repo.setAdminAccess('operator', false, operatorActor)
+    repo.setAdminAccess('operator', false, operatorActor)
     expect(repo.isAdmin('operator')).toBe(false)
-    expect(() => repo.setAdminAccess('missing', true)).toThrow('User was not found')
+    expect(() => repo.setAdminAccess('missing', true, operatorActor)).toThrow('User was not found')
     expect(db.prepare('SELECT count(*) AS n FROM user').get()).toEqual({ n: 2 })
     expect(() =>
-      db.prepare("INSERT INTO admin_memberships (user_id) VALUES ('missing')").run(),
+      db.prepare("INSERT INTO user_roles (user_id, role) VALUES ('missing', 'ADMIN')").run(),
     ).toThrow(/FOREIGN KEY/)
-    db.prepare("INSERT INTO admin_memberships (user_id) VALUES ('operator')").run()
+    db.prepare(
+      "INSERT INTO user_roles (user_id, role) VALUES ('operator', 'ADMIN') ON CONFLICT(user_id) DO UPDATE SET role = 'ADMIN'",
+    ).run()
     db.prepare("DELETE FROM user WHERE id = 'operator'").run()
     expect(repo.isAdmin('operator')).toBe(false)
   } finally {
@@ -61,12 +64,40 @@ it('runs the operator command against only its configured database and rejects i
     expect(command('grant', 'operator').status).toBe(0)
     const check = createDatabase(databasePath)
     expect(createAdminRepository(check).isAdmin('operator')).toBe(true)
+    expect(
+      check
+        .prepare(
+          'SELECT source,actor_user_id,actor_name,actor_role,action,target_id,changes_json FROM activity_events',
+        )
+        .all(),
+    ).toEqual([
+      {
+        source: 'OPERATOR',
+        actor_user_id: null,
+        actor_name: 'Operator command',
+        actor_role: null,
+        action: 'USER_ROLE_CHANGED',
+        target_id: 'operator',
+        changes_json: JSON.stringify([{ field: 'ROLE', before: 'CUSTOMER', after: 'ADMIN' }]),
+      },
+    ])
     check.close()
     expect(command('revoke', 'operator').status).toBe(0)
     expect(command('grant', 'unknown').status).toBe(1)
     expect(command('bad', 'operator').status).toBe(1)
     expect(command('grant').status).toBe(1)
     expect(command('grant', 'operator', 'extra').status).toBe(1)
+    const final = createDatabase(databasePath)
+    try {
+      expect(final.prepare('SELECT count(*) AS n FROM activity_events').get()).toEqual({ n: 2 })
+      expect(
+        final.prepare('SELECT changes_json FROM activity_events ORDER BY id DESC LIMIT 1').get(),
+      ).toEqual({
+        changes_json: JSON.stringify([{ field: 'ROLE', before: 'ADMIN', after: 'CUSTOMER' }]),
+      })
+    } finally {
+      final.close()
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }

@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path'
 import { loadConfig } from '../../config/env.js'
 import { createDatabase } from '../../database/connection.js'
 import { createAdminRepository } from './admin.repository.js'
+import { operatorActor } from '../activity/activity.types.js'
 
 const args = process.argv.slice(2).filter((arg) => arg !== '--')
 if (args.length !== 2 || !['grant', 'revoke'].includes(args[0]) || !args[1].trim()) {
@@ -15,7 +16,7 @@ if (args.length !== 2 || !['grant', 'revoke'].includes(args[0]) || !args[1].trim
     mkdirSync(dirname(path), { recursive: true })
     const db = createDatabase(path)
     try {
-      createAdminRepository(db).setAdminAccess(args[1], args[0] === 'grant')
+      createAdminRepository(db).setAdminAccess(args[1], args[0] === 'grant', operatorActor)
     } finally {
       db.close()
     }

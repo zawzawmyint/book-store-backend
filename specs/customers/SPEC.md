@@ -1,6 +1,8 @@
-# The Quiet Shelf API — admin customer directory specification
+# The Quiet Shelf API — historical admin customer directory specification
 
-> **Status:** Implemented. **Date:** 2026-10-03.
+> **Status:** Historical compatibility record. Implemented 2026-10-03; superseded 2026-10-05 by [the user directory specification](../users/SPEC.md).
+>
+> The `adminCustomers` and `setCustomerAdminAccess` names below are retained GraphQL compatibility fields with their original types. New clients use `adminUsers` and `setUserRole`; this document does not describe the current canonical contract. The current Staff-aware role model is in [the staff roles specification](../staff/SPEC.md).
 
 ## Goal and agreed scope
 

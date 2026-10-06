@@ -38,7 +38,6 @@ export function createCatalogRepository(db: Database.Database): CatalogRepositor
       return { total, items }
     },
     getBook(id: string) {
-      if (!/^\d+$/.test(id)) return null
       return (
         orm
           .select()
