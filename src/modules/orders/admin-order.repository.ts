@@ -7,7 +7,14 @@ import { ValidationError, ConflictError } from '../../shared/errors.js'
 import type Database from 'better-sqlite3'
 import { and, count, desc, eq, inArray, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
-import { orders, orderItems, orderStatusEvents, books } from '../../database/schema.js'
+import {
+  orders,
+  orderItems,
+  orderStatusEvents,
+  books,
+  paymentOperations,
+} from '../../database/schema.js'
+import { orderPayment } from '../payments/payment.types.js'
 
 export function createAdminOrderRepository(db: Database.Database) {
   const orm = drizzle(db)
@@ -28,6 +35,7 @@ export function createAdminOrderRepository(db: Database.Database) {
     return rows.map((row) => ({
       ...row,
       id: String(row.id),
+      payment: orderPayment(row),
       items: lines
         .filter((line) => line.orderId === row.id)
         .map(({ title, quantity, unitPriceCents }) => ({ title, quantity, unitPriceCents })),
@@ -52,7 +60,11 @@ export function createAdminOrderRepository(db: Database.Database) {
   return {
     history,
     get,
-    setStatus(input: z.infer<typeof setOrderStatusSchema>, actor: ActivityActor) {
+    setStatus(
+      input: z.infer<typeof setOrderStatusSchema>,
+      actor: ActivityActor,
+      sessionClosed = false,
+    ) {
       return orm.transaction(
         (tx) => {
           const before = tx
@@ -72,9 +84,22 @@ export function createAdminOrderRepository(db: Database.Database) {
                 : []
           if (!allowed.includes(input.status))
             throw new ValidationError('This order status transition is not allowed')
+          if (
+            before.paymentRequired &&
+            input.status !== 'CANCELLED' &&
+            (before.paymentStatus !== 'PAID' || before.cancellationIntent)
+          )
+            throw new ValidationError('Verified payment is required before processing this order')
+          if (
+            before.paymentRequired &&
+            input.status === 'CANCELLED' &&
+            before.paymentStatus === 'PENDING' &&
+            !sessionClosed
+          )
+            throw new ValidationError('Pending payment session must be closed before cancellation')
           const update = tx
             .update(orders)
-            .set({ status: input.status })
+            .set({ status: input.status, cancellationIntent: null })
             .where(and(eq(orders.id, before.id), eq(orders.status, input.expectedStatus)))
             .run()
           if (update.changes !== 1) throw new ConflictError('Order status changed')
@@ -120,7 +145,7 @@ export function createAdminOrderRepository(db: Database.Database) {
               })
             }
           }
-          if (actor.source !== 'GRAPHQL')
+          if (actor.source === 'OPERATOR')
             throw new ValidationError('Order processing requires an account')
           tx.insert(orderStatusEvents)
             .values({
@@ -131,6 +156,7 @@ export function createAdminOrderRepository(db: Database.Database) {
               actorUserId: actor.userId,
               actorName: actor.name,
               actorRole: actor.role,
+              actorType: actor.source === 'SYSTEM' ? 'SYSTEM' : 'USER',
             })
             .run()
           insertActivity(tx, actor, {
@@ -140,6 +166,33 @@ export function createAdminOrderRepository(db: Database.Database) {
             targetName: `Order request #${input.id}`,
             changes: [{ field: 'ORDER_STATUS', before: before.status, after: input.status }],
           })
+          if (
+            input.status === 'CANCELLED' &&
+            before.paymentRequired &&
+            before.paymentStatus === 'PAID'
+          ) {
+            tx.update(orders)
+              .set({ paymentStatus: 'REFUND_PENDING' })
+              .where(eq(orders.id, before.id))
+              .run()
+            tx.insert(paymentOperations)
+              .values({
+                id: `refund:${before.id}:1`,
+                orderId: before.id,
+                kind: 'REFUND',
+                createdAt: Date.now(),
+                retryAt: 0,
+              })
+              .onConflictDoNothing()
+              .run()
+            insertActivity(tx, actor, {
+              action: 'ORDER_PAYMENT_CHANGED',
+              targetType: 'ORDER',
+              targetId: input.id,
+              targetName: `Order request #${input.id}`,
+              changes: [{ field: 'ORDER_PAYMENT_STATUS', before: 'PAID', after: 'REFUND_PENDING' }],
+            })
+          }
           return get(input.id)!
         },
         { behavior: 'immediate' },

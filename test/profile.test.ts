@@ -4,6 +4,8 @@ import type Database from 'better-sqlite3'
 import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/database/connection.js'
 import { seedBooks } from '../src/database/seed.js'
+import { randomUUID } from 'node:crypto'
+import { FakePaymentProvider } from './fake-payment-provider.js'
 
 const options = {
   frontendOrigin: 'http://localhost:5173',
@@ -17,7 +19,7 @@ let app: Awaited<ReturnType<typeof createApp>>
 beforeEach(async () => {
   db = createDatabase(':memory:')
   seedBooks(db)
-  app = await createApp(db, options)
+  app = await createApp(db, options, { provider: new FakePaymentProvider() })
 })
 afterEach(() => db.close())
 
@@ -44,7 +46,7 @@ it('renames the signed-in account, keeps past order snapshots, and rejects other
     .set('Origin', options.frontendOrigin)
     .set('Cookie', ada)
     .send({
-      query: 'mutation { placeOrder(input: { items: [{ bookId: "1", quantity: 1 }] }) { id } }',
+      query: `mutation { createCheckout(input: { requestKey: "${randomUUID()}", items: [{ bookId: "1", quantity: 1 }] }) { order { id } } }`,
     })
   expect(placed.body.errors).toBeUndefined()
   const renamed = await authPost('/api/auth/update-user', ada, { name: '  Ada Updated  ' })
@@ -64,7 +66,7 @@ it('renames the signed-in account, keeps past order snapshots, and rejects other
     .set('Origin', options.frontendOrigin)
     .set('Cookie', nextCookies)
     .send({
-      query: 'mutation { placeOrder(input: { items: [{ bookId: "1", quantity: 1 }] }) { id } }',
+      query: `mutation { createCheckout(input: { requestKey: "${randomUUID()}", items: [{ bookId: "1", quantity: 1 }] }) { order { id } } }`,
     })
   expect(later.body.errors).toBeUndefined()
   const names = db

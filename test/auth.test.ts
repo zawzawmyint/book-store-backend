@@ -6,6 +6,8 @@ import type Database from 'better-sqlite3'
 import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/database/connection.js'
 import { seedBooks } from '../src/database/seed.js'
+import { randomUUID } from 'node:crypto'
+import { FakePaymentProvider } from './fake-payment-provider.js'
 
 const authOptions = {
   frontendOrigin: 'http://localhost:5173',
@@ -13,7 +15,7 @@ const authOptions = {
   authSecret: 'test-secret-that-is-at-least-thirty-two-characters-long',
 }
 const orderMutation =
-  'mutation ($input: PlaceOrderInput!) { placeOrder(input: $input) { id totalCents } }'
+  'mutation ($input: CreateCheckoutInput!) { createCheckout(input: $input) { order { id totalCents } } }'
 const historyQuery =
   'query { myOrders { total items { id totalCents createdAt items { title quantity unitPriceCents } } } }'
 
@@ -24,7 +26,7 @@ describe('customer authentication and order ownership', () => {
   beforeEach(async () => {
     db = createDatabase(':memory:')
     seedBooks(db)
-    app = await createApp(db, authOptions)
+    app = await createApp(db, authOptions, { provider: new FakePaymentProvider() })
   })
 
   afterEach(() => db.close())
@@ -45,7 +47,7 @@ describe('customer authentication and order ownership', () => {
       .set('Origin', authOptions.frontendOrigin)
       .send({
         query: orderMutation,
-        variables: { input: { items: [{ bookId: '1', quantity: 1 }] } },
+        variables: { input: { requestKey: randomUUID(), items: [{ bookId: '1', quantity: 1 }] } },
       })
     expect(result.body.errors[0].extensions.code).toBe('UNAUTHENTICATED')
     expect(db.prepare('SELECT COUNT(*) AS count FROM orders').get()).toEqual({ count: 0 })
@@ -61,7 +63,7 @@ describe('customer authentication and order ownership', () => {
       .set('Cookie', adaCookies)
       .send({
         query: orderMutation,
-        variables: { input: { items: [{ bookId: '1', quantity: 2 }] } },
+        variables: { input: { requestKey: randomUUID(), items: [{ bookId: '1', quantity: 2 }] } },
       })
     expect(placed.body.errors).toBeUndefined()
     const stored = db.prepare('SELECT user_id, customer_name, email FROM orders').get() as {
@@ -80,7 +82,7 @@ describe('customer authentication and order ownership', () => {
       .send({ query: historyQuery })
     expect(ownHistory.body.errors).toBeUndefined()
     expect(ownHistory.body.data.myOrders.total).toBe(1)
-    expect(ownHistory.body.data.myOrders.items[0].id).toBe(placed.body.data.placeOrder.id)
+    expect(ownHistory.body.data.myOrders.items[0].id).toBe(placed.body.data.createCheckout.order.id)
 
     const otherHistory = await request(app)
       .post('/graphql')

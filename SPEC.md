@@ -1,10 +1,13 @@
 # The Quiet Shelf API specification
 
-> This document describes implemented behavior. See [the authentication feature spec](specs/authentication/SPEC.md) for the detailed account contract and [the demo-login feature spec](specs/demo-login/SPEC.md) for optional local demo accounts.
+> This document describes implemented behavior. See [the Stripe checkout feature spec](specs/stripe-checkout/SPEC.md) for test-payment details, [the authentication feature spec](specs/authentication/SPEC.md) for the account contract, and [the demo-login feature spec](specs/demo-login/SPEC.md) for optional local demo accounts.
 
 > The implemented role and permission model is defined in [the staff roles specification](specs/staff/SPEC.md), with user-directory compatibility details in [the user directory specification](specs/users/SPEC.md).
 
 ## Purpose and current scope
+
+The implemented [Stripe checkout specification](specs/stripe-checkout/SPEC.md)
+defines hosted card payments in Stripe test mode, payment expiry, and full refunds.
 
 The implemented [order workflow specification](specs/order-workflow/SPEC.md)
 defines request processing, status history, inventory restoration, and its
@@ -12,12 +15,15 @@ fresh-database migration policy.
 
 The implemented [activity history specification](specs/activity/SPEC.md) defines atomic change recording and Admin-only history queries. Its additive migration has not been applied to a production database.
 
-Provide a GraphQL catalog and authenticated order-request API for the separate storefront. The API records requests but does not take payment or arrange delivery.
+Provide a GraphQL catalog and authenticated checkout API for the separate storefront.
+New orders require Stripe hosted Checkout in test mode; delivery is not integrated.
 
 ## HTTP surface
 
 - `POST /graphql` accepts GraphQL operations. Module schemas composed in `src/graphql/schema.ts` are the authoritative field and type contract.
 - `GET /health` returns `{ "status": "ok" }`.
+- `POST /api/payments/stripe/webhook` verifies Stripe's signed test-mode events. It
+  is a provider endpoint, not a browser API, and has no cookie/origin requirement.
 - Better Auth handles email-and-password account requests and cookie sessions under `/api/auth/*`. A signed-in user can update their own display name and change their password on those existing routes. Name updates trim to 1–120 characters. Email, image, role, and user ID stay unchanged. Password changes require the current password and a new password of 8–128 characters, revoke other sessions, and keep the current browser session. Later order requests use the saved name; existing orders keep their stored contact snapshots. See [the account profile spec](specs/profile/SPEC.md).
 - Browser access to `/graphql` and `/api/auth/*` is limited by the configured `FRONTEND_ORIGIN` CORS origin. Authenticated GraphQL POST requests require that origin and JSON content.
 
@@ -32,12 +38,28 @@ Provide a GraphQL catalog and authenticated order-request API for the separate s
 
 ## Order requests
 
-- `placeOrder(input)` requires a Better Auth session and accepts 1 to 20 distinct book lines. Each line has a book ID and quantity from 1 to 10. Customer name, email, and user ID come from the server session.
+- `createCheckout(input)` requires a Better Auth session and accepts 1 to 20 distinct
+  book lines plus a UUID request key. Each line has a book ID and quantity from 1 to
+  10. Customer name, email, and user ID come from the server session. `placeOrder`
+  remains deprecated for schema compatibility and rejects new placement.
 - Module-local Zod schemas require numeric-string book IDs and integer quantities. Services translate the first input failure into GraphQL `extensions.code: BAD_USER_INPUT`; exact validation wording is not a stable API guarantee. Missing sessions return `UNAUTHENTICATED`. The repository checks book existence and stock and calculates totals from stored prices.
-- In one SQLite transaction, the server writes the order and its line items and reduces stock. A failed validation or stock check leaves no partial order.
-- The response contains an order ID, Submitted status, total in cents, and line titles, quantities, and unit prices. The same transaction creates the initial status event with the authenticated customer's recorded name and role.
+- In one SQLite transaction, the server writes a pending payment-required order and
+  its line items, reserves stock, and creates the initial status event. A failed
+  validation or stock check leaves no partial order. Stripe work happens outside the
+  transaction through durable operations.
+- The response contains the order and a hosted checkout URL while its session is
+  open. Saved totals are USD book totals only: no delivery charge, fees, or tax.
+  Payment confirmation is provider evidence, never a browser return URL.
 - `myOrders(limit, offset)` requires a session, lists only the session user's orders newest first, and returns at most 50 per page. `myOrder(id)` has the same owner scope and returns the customer-safe status timeline; a missing or non-owned ID returns null. No query claims an order by matching email.
-- Requests move from Submitted to Accepted to Completed, or from Submitted/Accepted to Cancelled with a 1–500-character trimmed customer-visible reason. Completed and Cancelled are terminal. Repeating the current requested status is a no-op; stale different transitions return CONFLICT. Cancellation restores saved quantities once, including archived books, and records its stock and status activity atomically. Email verification, self-service password recovery, payment, shipping, email notification, customer cancellation, reopening, bulk processing, and line edits are not implemented. An admin can set another account's password through `resetUserPassword`.
+- Payment-required requests move from Submitted to Accepted to Completed only after
+  verified payment. They may expire, or be cancelled with a 1–500-character trimmed
+  customer-visible reason; a paid cancellation queues one full refund. Completed and
+  Cancelled are terminal, and Completed means handling finished, not delivery.
+  Repeating the current requested status is a no-op; stale different transitions
+  return CONFLICT. Cancellation restores saved quantities once, including archived
+  books. Legacy migrated orders are explicitly `LEGACY_UNPAID`, retain the prior
+  workflow, and have no payment action. Shipping, customer cancellation, partial
+  refunds, live payments, and line edits are not implemented.
 
 ## Store administration
 
@@ -58,11 +80,21 @@ Provide a GraphQL catalog and authenticated order-request API for the separate s
 - Migration `0004_sad_reavers` copies existing `admin_memberships` to `user_roles` as Admin and drops `admin_memberships`. Before applying it to production, stop writers and make a consistent SQLite backup. Do not run an older backend binary against that migrated database; rollback requires restoring the pre-migration backup with compatible application versions.
 - Migration `0005_panoramic_invisible_woman` adds the additive `activity_events` table and its indexes without changing existing business data. Apply it through the migration wrapper with writers stopped and a consistent SQLite backup. A prior compatible binary can ignore the table but will leave a documented logging gap; preserve the table during rollback.
 - Migration `0006_serious_killraven` adds order statuses and timeline events. It is supported only for fresh or empty pre-workflow order data. Do not run it against a populated old-order database: its guard fails safely and requires an explicit local reset/reseed or a separately designed data migration. Never make that reset automatic or apply it to production data.
+- Migration `0007_youthful_crystal` adds payment records and marks existing workflow
+  orders `LEGACY_UNPAID` without changing their IDs, lines, totals, history, or
+  processing rules. Back up persisted data before applying it.
 - Development seeds twelve sample books once. Production does not seed automatically; `bun run db:seed` is explicit. `bun run demo:seed` is a separate local-only account seed that refuses production before opening the database; it neither seeds nor resets catalog/order data.
-- `DATABASE_PATH`, `PORT`, `FRONTEND_ORIGIN`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`, and `NODE_ENV` are validated at startup. The database file is runtime data and is not committed.
+- `DATABASE_PATH`, `PORT`, `FRONTEND_ORIGIN`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`,
+  `NODE_ENV`, and the Stripe checkout configuration are validated at startup. Checkout
+  is disabled by default and enabled only with test server and webhook signing secrets;
+  live keys and live provider resources are rejected. The database file is runtime data
+  and is not committed.
 - Bun 1.3.14 manages dependencies using committed `bun.lock` and `bun install --frozen-lockfile` for reproducible installs. Node.js 24 or later remains the runtime.
 
 ## Acceptance checks
 
-- `bun run test` covers catalog queries and distinct genres, sign-up/sign-in/sign-out, session-scoped order history/detail, workflow permissions/transitions/conflicts, price snapshots, cancellation restoration and atomic rollback, migration guards, seed behavior, configuration validation, and activity permissions, snapshots, aliases, filters, and atomic rollback.
+- `bun run test` covers catalog queries and distinct genres, account flows,
+  session-scoped orders, payment/provider confirmation and recovery, payment-aware
+  workflow permissions/transitions, refunds, migration guards, configuration, and
+  Activity atomicity.
 - Run `bun run lint` and `bun run build` for static and build checks.

@@ -7,6 +7,7 @@ import type { activityInputSchema } from './activity.validation.js'
 import { activityChangeSchema } from './activity.types.js'
 import type {
   ActivityAction,
+  ActorType,
   ActivityField,
   ActivitySource,
   ActivityTargetType,
@@ -41,6 +42,7 @@ export function createActivityRepository(db: Database.Database) {
           .map(({ changesJson, ...row }) => ({
             ...row,
             actorRole: row.actorRole as UserRole | null,
+            actorType: row.actorType as ActorType,
             action: row.action as ActivityAction,
             source: row.source as ActivitySource,
             targetType: row.targetType as ActivityTargetType,

@@ -4,6 +4,8 @@ import type Database from 'better-sqlite3'
 import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/database/connection.js'
 import { seedBooks } from '../src/database/seed.js'
+import { FakePaymentProvider } from './fake-payment-provider.js'
+import { randomUUID } from 'node:crypto'
 
 const options = {
   frontendOrigin: 'http://localhost:5173',
@@ -17,7 +19,7 @@ let customer: string[]
 beforeEach(async () => {
   db = createDatabase(':memory:')
   seedBooks(db)
-  app = await createApp(db, options)
+  app = await createApp(db, options, { provider: new FakePaymentProvider() })
   for (const email of ['admin@example.com', 'customer@example.com']) {
     const res = await request(app)
       .post('/api/auth/sign-up/email')
@@ -26,7 +28,7 @@ beforeEach(async () => {
     expect(res.status).toBe(200)
     if (email.startsWith('admin')) {
       cookies = res.headers['set-cookie'] as string[]
-      db.prepare('INSERT INTO user_roles (user_id, role) VALUES (?, \'ADMIN\')').run(res.body.user.id)
+      db.prepare("INSERT INTO user_roles (user_id, role) VALUES (?, 'ADMIN')").run(res.body.user.id)
     } else customer = res.headers['set-cookie'] as string[]
   }
 })
@@ -58,7 +60,7 @@ it('creates trimmed books, preserves checkout stock on metadata edits, and appli
     archived: false,
   })
   const placed = await gql(
-    'mutation { placeOrder(input: { items: [{ bookId: "1", quantity: 2 }] }) { id } }',
+    `mutation { createCheckout(input: { requestKey:"${randomUUID()}", items: [{ bookId: "1", quantity: 2 }] }) { order { id } } }`,
   )
   expect(placed.body.errors).toBeUndefined()
   expect((await gql(update, { input: details })).body.data.updateBook.stock).toBe(10)
@@ -70,13 +72,15 @@ it('creates trimmed books, preserves checkout stock on metadata edits, and appli
 
 it('archives atomically, removes public books and genres, retains old snapshots, and restores', async () => {
   await gql(update, { input: details })
-  await gql('mutation { placeOrder(input: { items: [{ bookId: "1", quantity: 1 }] }) { id } }')
+  await gql(
+    `mutation { createCheckout(input: { requestKey:"${randomUUID()}", items: [{ bookId: "1", quantity: 1 }] }) { order { id } } }`,
+  )
   const archived = await gql('mutation { setBookArchived(id: "1", archived: true) { archived } }')
   expect(archived.body.errors).toBeUndefined()
   expect((await gql('{ book(id: "1") { id } genres }')).body.data).toMatchObject({ book: null })
   expect((await gql('{ genres }')).body.data.genres).not.toContain('Unique genre')
   const failed = await gql(
-    'mutation { placeOrder(input: { items: [{ bookId: "2", quantity: 1 }, { bookId: "1", quantity: 1 }] }) { id } }',
+    `mutation { createCheckout(input: { requestKey:"${randomUUID()}", items: [{ bookId: "2", quantity: 1 }, { bookId: "1", quantity: 1 }] }) { order { id } } }`,
   )
   expect(failed.body.errors[0].extensions.code).toBe('BAD_USER_INPUT')
   expect(db.prepare('SELECT count(*) AS count FROM orders').get()).toEqual({ count: 1 })

@@ -58,21 +58,22 @@ query BrowseBooks {
 ```
 
 ```graphql
-mutation RequestBooks {
-  placeOrder(input: { items: [{ bookId: "1", quantity: 1 }] }) {
-    id
-    status
-    totalCents
-    items {
-      title
-      quantity
-      unitPriceCents
-    }
+mutation StartCheckout {
+  createCheckout(input: { items: [{ bookId: "1", quantity: 1 }], requestKey: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }) {
+    checkoutUrl
+    order { id status totalCents payment { status currency } }
   }
 }
 ```
 
-The order mutation requires a Better Auth session. It uses the session user's name and email, validates the lines, reads current prices, checks stock, and atomically saves a Submitted order, its initial timeline event, and stock changes. The browser never supplies an order total or user ID. `myOrders(limit, offset)` and `myOrder(id)` return only the signed-in user's requests; the detail timeline never includes staff attribution. The GraphQL endpoint is the catalog and order API; Better Auth handles account requests under `/api/auth/*`.
+Checkout requires a Better Auth session. It uses the session user's name and email,
+validates the lines, reads current prices, reserves stock, and saves a Submitted order
+with its initial timeline event. The browser never supplies an order total or user ID.
+The hosted URL is Stripe test mode only; payment confirmation comes from signed webhook
+or provider reconciliation, not the redirect. `myOrders(limit, offset)` and `myOrder(id)`
+return only the signed-in user's requests; the detail timeline never includes staff
+attribution. The GraphQL endpoint is the catalog and checkout API; Better Auth handles
+account requests under `/api/auth/*`.
 
 ## Architecture
 
@@ -110,6 +111,7 @@ src/
       order.validation.ts Order Zod input schema
       order.service.ts   Order application rules
       order.repository.ts Transactional Drizzle queries
+    payments/             Provider, durable-operation, and recovery boundary
   shared/errors.ts       Application validation error
 test/                     API and database integration tests
 drizzle/                  Committed SQL migrations and metadata
@@ -152,4 +154,8 @@ bun run build
 
 After changing a module GraphQL schema, run `bun run codegen` here to refresh the committed resolver types. If a frontend operation uses the new schema, start the API and run `bun run codegen` in the frontend repository too.
 
-Tests run against an in-memory SQLite database. This API records **order requests** without payment or delivery. Email verification and self-service password recovery are deferred. An admin can still set another account's password. Before serving real customer accounts or accepting real orders, add those email flows, payment or fulfillment, customer communication, operational monitoring, and deployment specific security controls.
+Tests run against an in-memory SQLite database. New orders use Stripe hosted Checkout
+in test mode; delivery is not integrated. Email verification and self-service password
+recovery are deferred. An admin can still set another account's password. Before a live
+launch, specify and implement live-payment, fulfillment, customer communication,
+monitoring, and deployment controls.

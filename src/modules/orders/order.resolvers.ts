@@ -1,23 +1,36 @@
-import type { MyOrder, MyOrdersPage, OrderReceipt } from '../../graphql/generated/resolvers.js'
+import type {
+  MyOrder,
+  MyOrdersPage,
+  OrderReceipt,
+  CheckoutResult,
+} from '../../graphql/generated/resolvers.js'
 import type Database from 'better-sqlite3'
 import type { MutationResolvers, QueryResolvers } from '../../graphql/generated/resolvers.js'
 import type { GraphQLContext } from '../../graphql/context.js'
 import { rethrowResolverError } from '../../graphql/errors.js'
 import { createOrderRepository } from './order.repository.js'
 import { createOrderService } from './order.service.js'
-import { createAdminOrderRepository } from './admin-order.repository.js'
-import { createAdminOrderService } from './admin-order.service.js'
+import type { createPaymentService } from '../payments/payment.service.js'
 import { createPermissionGuard } from '../admin/admin.authorization.js'
 import { createAdminRepository } from '../admin/admin.repository.js'
 import { requireUser } from '../../shared/authentication.js'
 
-export function createOrderResolvers(db: Database.Database): {
+export function createOrderResolvers(
+  db: Database.Database,
+  payments: ReturnType<typeof createPaymentService>,
+): {
   Query: Pick<QueryResolvers<GraphQLContext>, 'myOrders' | 'myOrder'>
-  Mutation: Pick<MutationResolvers<GraphQLContext>, 'placeOrder' | 'setOrderStatus'>
+  Mutation: Pick<
+    MutationResolvers<GraphQLContext>,
+    | 'placeOrder'
+    | 'setOrderStatus'
+    | 'createCheckout'
+    | 'resumeCheckout'
+    | 'refreshOrderPayment'
+    | 'retryOrderRefund'
+  >
 } {
   const service = createOrderService(createOrderRepository(db))
-  const workspace = createAdminOrderRepository(db)
-  const workflow = createAdminOrderService(workspace)
   const roles = createAdminRepository(db)
   const guard = createPermissionGuard(roles.getUserRole)
   return {
@@ -40,15 +53,47 @@ export function createOrderResolvers(db: Database.Database): {
       },
     },
     Mutation: {
-      setOrderStatus: (_, args, context) => {
+      setOrderStatus: async (_, args, context) => {
         const user = guard(context.user, 'PROCESS_ORDERS')
         try {
-          return workflow.setStatus(args.input, {
+          return await payments.setOrderStatus(args.input, {
             source: 'GRAPHQL',
             userId: user.id,
             name: user.name,
             role: roles.getUserRole(user.id),
           })
+        } catch (error) {
+          return rethrowResolverError(error)
+        }
+      },
+      createCheckout: async (_, args, context) => {
+        const user = requireUser(context.user)
+        try {
+          return (await payments.createCheckout(args.input, user)) as CheckoutResult
+        } catch (error) {
+          return rethrowResolverError(error)
+        }
+      },
+      resumeCheckout: async (_, args, context) => {
+        const user = requireUser(context.user)
+        try {
+          return (await payments.resumeCheckout(args.orderId, user)) as CheckoutResult
+        } catch (error) {
+          return rethrowResolverError(error)
+        }
+      },
+      refreshOrderPayment: async (_, args, context) => {
+        const user = requireUser(context.user)
+        try {
+          return (await payments.refreshOrderPayment(args.orderId, user)) as MyOrder
+        } catch (error) {
+          return rethrowResolverError(error)
+        }
+      },
+      retryOrderRefund: async (_, args, context) => {
+        guard(context.user, 'PROCESS_ORDERS')
+        try {
+          return await payments.retryOrderRefund(args.orderId)
         } catch (error) {
           return rethrowResolverError(error)
         }

@@ -9,6 +9,7 @@ import { createAuth, type AuthOptions } from './auth.js'
 import type { GraphQLContext } from './graphql/context.js'
 import { createResolvers } from './graphql/resolvers.js'
 import { typeDefs } from './graphql/schema.js'
+import { createPaymentService, type PaymentOptions } from './modules/payments/payment.service.js'
 
 const authBodyLimit = 64 * 1024
 
@@ -22,16 +23,57 @@ function clientIp(req: express.Request, trustedProxyIp?: string) {
   return peer
 }
 
-export async function createApp(db: Database.Database, options: AuthOptions) {
+export async function createApp(
+  db: Database.Database,
+  options: AuthOptions,
+  paymentOptions: Omit<PaymentOptions, 'frontendOrigin'> = {},
+) {
+  const payments = createPaymentService(db, {
+    ...paymentOptions,
+    frontendOrigin: options.frontendOrigin,
+  })
   const auth = createAuth(db, options)
   const server = new ApolloServer<GraphQLContext>({
     typeDefs,
-    resolvers: createResolvers(db),
+    resolvers: createResolvers(db, payments),
   })
   await server.start()
   const app = express()
   app.disable('x-powered-by')
   app.get('/health', (_req, res) => res.json({ status: 'ok' }))
+  app.locals.payments = payments
+  app.post(
+    '/api/payments/stripe/webhook',
+    express.raw({ type: 'application/json', limit: '100kb' }),
+    async (req, res) => {
+      if (!paymentOptions.provider) {
+        res.sendStatus(503)
+        return
+      }
+      let event
+      try {
+        event = paymentOptions.provider.verifyWebhook(req.body, req.get('stripe-signature') ?? '')
+        if (
+          !event ||
+          typeof event.id !== 'string' ||
+          !event.id ||
+          typeof event.type !== 'string' ||
+          !event.type ||
+          typeof event.resourceId !== 'string'
+        )
+          throw new Error('Invalid event envelope')
+      } catch {
+        res.sendStatus(400)
+        return
+      }
+      try {
+        await payments.handleEvent(event)
+        res.sendStatus(200)
+      } catch {
+        res.sendStatus(503)
+      }
+    },
+  )
   app.all(
     '/api/auth/*splat',
     cors({ origin: options.frontendOrigin, credentials: true }),

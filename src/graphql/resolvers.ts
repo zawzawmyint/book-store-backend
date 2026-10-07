@@ -8,9 +8,13 @@ import { createAdminResolvers } from '../modules/admin/admin.resolvers.js'
 import { createAdminBookResolvers } from '../modules/books/admin-book.resolvers.js'
 import { createAdminOrderResolvers } from '../modules/orders/admin-order.resolvers.js'
 import { createActivityResolvers } from '../modules/activity/activity.resolvers.js'
+import type { createPaymentService } from '../modules/payments/payment.service.js'
 
-export function createResolvers(db: Database.Database): Resolvers<GraphQLContext> {
-  const orderResolvers = createOrderResolvers(db)
+export function createResolvers(
+  db: Database.Database,
+  payments: ReturnType<typeof createPaymentService>,
+): Resolvers<GraphQLContext> {
+  const orderResolvers = createOrderResolvers(db, payments)
   const adminBooks = createAdminBookResolvers(db)
   const admin = createAdminResolvers(db)
   const workspaceOrders = createAdminOrderRepository(db)

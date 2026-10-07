@@ -2,19 +2,15 @@ import { describe, expect, it, vi } from 'vitest'
 import { createBookService } from '../src/modules/books/book.service.js'
 import { createOrderService } from '../src/modules/orders/order.service.js'
 import { ValidationError } from '../src/shared/errors.js'
+import { checkoutInputSchema } from '../src/modules/payments/payment.validation.js'
+import { validated } from '../src/shared/validation.js'
 
 describe('service input validation', () => {
   const valid = {
     items: [{ bookId: '1', quantity: 1 }],
   }
   const customer = { id: 'user-1', name: 'Ada Reader', email: 'ada@example.com' }
-  it('forwards session contact and validated order lines, and normalizes search', () => {
-    const saveOrder = vi.fn()
-    createOrderService({ getOrderForUser: vi.fn(), saveOrder, listOrders: vi.fn() }).placeOrder(
-      valid,
-      customer,
-    )
-    expect(saveOrder).toHaveBeenCalledWith(customer, valid.items)
+  it('normalizes catalog search', () => {
     const listBooks = vi.fn(() => ({ total: 0, items: [] }))
     createBookService({ listBooks, listGenres: () => [], getBook: () => null }).listBooks(
       '  Gatsby  ',
@@ -53,14 +49,13 @@ describe('service input validation', () => {
       ],
     },
   ])('rejects invalid order input before writes: %j', (override) => {
-    const saveOrder = vi.fn()
     expect(() =>
-      createOrderService({ getOrderForUser: vi.fn(), saveOrder, listOrders: vi.fn() }).placeOrder(
-        { ...valid, ...override },
-        customer,
-      ),
+      validated(checkoutInputSchema, {
+        ...valid,
+        ...override,
+        requestKey: '00000000-0000-4000-8000-000000000001',
+      }),
     ).toThrow(ValidationError)
-    expect(saveOrder).not.toHaveBeenCalled()
   })
 
   it.each([
