@@ -8,6 +8,7 @@
     "node": ">=24"
   },
   "scripts": {
+    "demo:seed": "tsx src/database/demo-seed-cli.ts",
     "admin:access": "tsx src/modules/admin/admin-access-cli.ts",
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",

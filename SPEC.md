@@ -1,6 +1,6 @@
 # The Quiet Shelf API specification
 
-> This document describes implemented behavior. See [the authentication feature spec](specs/authentication/SPEC.md) for the detailed account contract.
+> This document describes implemented behavior. See [the authentication feature spec](specs/authentication/SPEC.md) for the detailed account contract and [the demo-login feature spec](specs/demo-login/SPEC.md) for optional local demo accounts.
 
 > The implemented role and permission model is defined in [the staff roles specification](specs/staff/SPEC.md), with user-directory compatibility details in [the user directory specification](specs/users/SPEC.md).
 
@@ -53,7 +53,7 @@ Provide a GraphQL catalog and authenticated order-request API for the separate s
 - The migration wrapper verifies the original `user_version = 1` schema before adopting its baseline in the Drizzle journal, preserving existing catalog and order data. Fresh databases run the baseline. Unsupported versions or legacy schemas fail startup.
 - Migration `0004_sad_reavers` copies existing `admin_memberships` to `user_roles` as Admin and drops `admin_memberships`. Before applying it to production, stop writers and make a consistent SQLite backup. Do not run an older backend binary against that migrated database; rollback requires restoring the pre-migration backup with compatible application versions.
 - Migration `0005_panoramic_invisible_woman` adds the additive `activity_events` table and its indexes without changing existing business data. Apply it through the migration wrapper with writers stopped and a consistent SQLite backup. A prior compatible binary can ignore the table but will leave a documented logging gap; preserve the table during rollback.
-- Development seeds twelve sample books once. Production does not seed automatically; `bun run db:seed` is explicit.
+- Development seeds twelve sample books once. Production does not seed automatically; `bun run db:seed` is explicit. `bun run demo:seed` is a separate local-only account seed that refuses production before opening the database; it neither seeds nor resets catalog/order data.
 - `DATABASE_PATH`, `PORT`, `FRONTEND_ORIGIN`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`, and `NODE_ENV` are validated at startup. The database file is runtime data and is not committed.
 - Bun 1.3.14 manages dependencies using committed `bun.lock` and `bun install --frozen-lockfile` for reproducible installs. Node.js 24 or later remains the runtime.
 
