@@ -6,6 +6,9 @@
 
 ## Purpose and current scope
 
+Proposed next feature: [order workflow](specs/order-workflow/SPEC.md). It is not
+implemented and does not change the current read-only order-processing behavior.
+
 The implemented [activity history specification](specs/activity/SPEC.md) defines atomic change recording and Admin-only history queries. Its additive migration has not been applied to a production database.
 
 Provide a GraphQL catalog and authenticated order-request API for the separate storefront. The API records requests but does not take payment or arrange delivery.
