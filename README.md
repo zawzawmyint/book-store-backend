@@ -2,7 +2,7 @@
 
 An Express + GraphQL + Drizzle + SQLite bookstore API with Zod input validation. This folder is its own Git repository and runs independently from the frontend.
 
-See [SPEC.md](SPEC.md) for the implemented API behavior, [specs/authentication/SPEC.md](specs/authentication/SPEC.md) for the account feature contract, [specs/staff/SPEC.md](specs/staff/SPEC.md) for roles and permissions, [specs/users/SPEC.md](specs/users/SPEC.md) for user-directory compatibility, and [specs/activity/SPEC.md](specs/activity/SPEC.md) for the Admin-only activity contract.
+See [SPEC.md](SPEC.md) for the implemented API behavior, [specs/authentication/SPEC.md](specs/authentication/SPEC.md) for the account feature contract, [specs/demo-login/SPEC.md](specs/demo-login/SPEC.md) for local demo accounts, [specs/staff/SPEC.md](specs/staff/SPEC.md) for roles and permissions, [specs/users/SPEC.md](specs/users/SPEC.md) for user-directory compatibility, and [specs/activity/SPEC.md](specs/activity/SPEC.md) for the Admin-only activity contract.
 
 ## Development workflow
 
@@ -24,6 +24,18 @@ The backend's `bunfig.toml` disables dependency install scripts. Its SQLite driv
 The API starts at `http://localhost:4000/graphql`; Better Auth serves `/api/auth/*`, and `GET /health` returns a health response. SQLite migrations run on startup. Development seeds twelve catalog books once; production does not seed automatically. Use `bun run db:seed` only when you intentionally want the sample catalog. The `data/` directory is ignored by Git. Configure `PORT`, `DATABASE_PATH`, `FRONTEND_ORIGIN`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`, and `NODE_ENV` in `.env`. Set `BETTER_AUTH_URL` to the public storefront origin that proxies `/api/auth` (localhost:5173 in development). The secret must be random and at least 32 characters; do not use the schema generator's test secret in a running server.
 
 Auth request bodies are capped at 64 KiB. Sign-up and account updates trim names and enforce 1–120 characters. Rate limiting uses the direct socket address by default and ignores caller-supplied forwarding headers. Behind a reverse proxy, set `AUTH_TRUSTED_PROXY_IP` to its peer IP only when that proxy **overwrites** `X-Real-IP` and direct access to the API is blocked. Without this setting, customers behind the proxy share one rate-limit bucket.
+
+## Local demo accounts
+
+For local development only, run `bun run demo:seed` from this directory after
+configuring `.env`. It creates or verifies Demo Customer, Staff, and Admin accounts
+with the shared password `BookstoreDemo123!`; see
+[the backend demo-login specification](specs/demo-login/SPEC.md) for their emails
+and repeat-seed behavior. The command refuses production before opening the
+database, does not seed or reset catalog/order data, and does not provide an HTTP
+endpoint. If a demo password was changed, reset it manually through the existing
+Admin user-management UI before running the command again; a detected password
+mismatch leaves demo accounts and roles unchanged.
 
 ## GraphQL examples
 
