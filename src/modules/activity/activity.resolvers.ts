@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3'
 import type { GraphQLContext } from '../../graphql/context.js'
 import type { QueryResolvers } from '../../graphql/generated/resolvers.js'
-import { asGraphQLError } from '../../graphql/errors.js'
+import { rethrowResolverError } from '../../graphql/errors.js'
 import { createPermissionGuard } from '../admin/admin.authorization.js'
 import { createAdminRepository } from '../admin/admin.repository.js'
 import { createActivityRepository } from './activity.repository.js'
@@ -20,7 +20,7 @@ export function createActivityResolvers(
           Object.fromEntries(Object.entries(args).filter(([, value]) => value != null)),
         )
       } catch (error) {
-        return asGraphQLError(error)
+        return rethrowResolverError(error)
       }
     },
   }

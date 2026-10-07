@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3'
 import type { AuthenticatedUser, GraphQLContext } from '../../graphql/context.js'
 import type { QueryResolvers, MutationResolvers } from '../../graphql/generated/resolvers.js'
-import { asGraphQLError } from '../../graphql/errors.js'
+import { rethrowResolverError } from '../../graphql/errors.js'
 import { createPermissionGuard, type Permission } from '../admin/admin.authorization.js'
 import { createAdminRepository } from '../admin/admin.repository.js'
 import { createAdminBookService } from './admin-book.service.js'
@@ -26,7 +26,7 @@ export function createAdminBookResolvers(db: Database.Database): {
     try {
       return action(user)
     } catch (error) {
-      return asGraphQLError(error)
+      return rethrowResolverError(error)
     }
   }
   return {

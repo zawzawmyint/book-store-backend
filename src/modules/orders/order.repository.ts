@@ -8,7 +8,7 @@ import type { OrderRepository } from './order.types.js'
 export function createOrderRepository(db: Database.Database): OrderRepository {
   const orm = drizzle(db)
   return {
-    getOrder(userId, id) {
+    getOrderForUser(userId, id) {
       const row = orm
         .select()
         .from(orders)

@@ -35,7 +35,7 @@ export type CustomerOrder = OrderHistory['items'][number] & {
   }[]
 }
 export interface OrderRepository {
-  getOrder(userId: string, id: string): CustomerOrder | null
+  getOrderForUser(userId: string, id: string): CustomerOrder | null
   saveOrder(customer: OrderCustomer, items: OrderItemInput[]): OrderReceipt
   listOrders(userId: string, limit: number, offset: number): OrderHistory
 }

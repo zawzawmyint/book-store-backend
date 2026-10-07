@@ -2,7 +2,7 @@ import type { MyOrder, MyOrdersPage, OrderReceipt } from '../../graphql/generate
 import type Database from 'better-sqlite3'
 import type { MutationResolvers, QueryResolvers } from '../../graphql/generated/resolvers.js'
 import type { GraphQLContext } from '../../graphql/context.js'
-import { asGraphQLError } from '../../graphql/errors.js'
+import { rethrowResolverError } from '../../graphql/errors.js'
 import { createOrderRepository } from './order.repository.js'
 import { createOrderService } from './order.service.js'
 import { createAdminOrderRepository } from './admin-order.repository.js'
@@ -27,7 +27,7 @@ export function createOrderResolvers(db: Database.Database): {
         try {
           return service.myOrder(user.id, args.id) as MyOrder | null
         } catch (error) {
-          return asGraphQLError(error)
+          return rethrowResolverError(error)
         }
       },
       myOrders: (_, args, context) => {
@@ -35,7 +35,7 @@ export function createOrderResolvers(db: Database.Database): {
         try {
           return service.myOrders(user.id, args.limit ?? 20, args.offset ?? 0) as MyOrdersPage
         } catch (error) {
-          return asGraphQLError(error)
+          return rethrowResolverError(error)
         }
       },
     },
@@ -50,7 +50,7 @@ export function createOrderResolvers(db: Database.Database): {
             role: roles.getUserRole(user.id),
           })
         } catch (error) {
-          return asGraphQLError(error)
+          return rethrowResolverError(error)
         }
       },
       placeOrder: (_, args, context) => {
@@ -58,7 +58,7 @@ export function createOrderResolvers(db: Database.Database): {
         try {
           return service.placeOrder(args.input, user) as OrderReceipt
         } catch (error) {
-          return asGraphQLError(error)
+          return rethrowResolverError(error)
         }
       },
     },

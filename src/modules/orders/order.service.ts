@@ -5,7 +5,7 @@ import { orderInputSchema, orderPageSchema } from './order.validation.js'
 export function createOrderService(repository: OrderRepository) {
   return {
     myOrder(userId: string, id: string) {
-      return repository.getOrder(userId, validated(numericIdSchema, id))
+      return repository.getOrderForUser(userId, validated(numericIdSchema, id))
     },
     placeOrder(input: OrderInput, customer: OrderCustomer) {
       const order = validated(orderInputSchema, input)
