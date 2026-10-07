@@ -1,3 +1,4 @@
+import { seedSubmittedOrder } from './order-fixtures.js'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import request from 'supertest'
 import type Database from 'better-sqlite3'
@@ -35,9 +36,12 @@ beforeEach(async () => {
       customerId = res.body.user.id as string
     }
   }
-  db.prepare(
-    "INSERT INTO orders (user_id, customer_name, email, total_cents) VALUES (?, 'Bea Reader', 'customer@example.com', 100)",
-  ).run(customerId)
+  seedSubmittedOrder(db, {
+    userId: customerId,
+    name: 'Bea Reader',
+    email: 'customer@example.com',
+    totalCents: 100,
+  })
 })
 afterEach(() => db.close())
 

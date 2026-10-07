@@ -8,6 +8,7 @@ export const activityActions = [
   'BOOK_RESTORED',
   'USER_ROLE_CHANGED',
   'USER_PASSWORD_RESET',
+  'ORDER_STATUS_CHANGED',
 ] as const
 export const activityFields = [
   'TITLE',
@@ -18,6 +19,7 @@ export const activityFields = [
   'STOCK',
   'ARCHIVED',
   'ROLE',
+  'ORDER_STATUS',
 ] as const
 export const activityChangeSchema = z
   .object({

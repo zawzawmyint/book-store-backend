@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3'
 import type { QueryResolvers } from '../../graphql/generated/resolvers.js'
-import { asGraphQLError } from '../../graphql/errors.js'
+import { rethrowResolverError } from '../../graphql/errors.js'
 import { createCatalogRepository } from './book.repository.js'
 import { createBookService } from './book.service.js'
 
@@ -12,7 +12,7 @@ export function createBookResolvers(db: Database.Database): QueryResolvers {
       try {
         return service.listBooks(args.search ?? undefined, args.limit, args.offset)
       } catch (error) {
-        return asGraphQLError(error)
+        return rethrowResolverError(error)
       }
     },
     book: (_, args) => service.getBook(args.id),

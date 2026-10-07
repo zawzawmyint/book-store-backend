@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3'
 import type { MutationResolvers, QueryResolvers } from '../../graphql/generated/resolvers.js'
 import { UserRole } from '../../graphql/generated/resolvers.js'
 import type { AuthenticatedUser, GraphQLContext } from '../../graphql/context.js'
-import { asGraphQLError } from '../../graphql/errors.js'
+import { rethrowResolverError } from '../../graphql/errors.js'
 import { validated } from '../../shared/validation.js'
 import { createPermissionGuard } from './admin.authorization.js'
 import { createAdminRepository } from './admin.repository.js'
@@ -31,7 +31,7 @@ export function createAdminResolvers(db: Database.Database): {
     try {
       return action(user)
     } catch (error) {
-      return asGraphQLError(error)
+      return rethrowResolverError(error)
     }
   }
   const adminUsers = (
@@ -81,7 +81,7 @@ export function createAdminResolvers(db: Database.Database): {
       await repository.resetUserPassword(userId, newPassword, repository.getActivityActor(actor.id))
       return repository.getUser(userId)
     } catch (error) {
-      return asGraphQLError(error)
+      return rethrowResolverError(error)
     }
   }
   return {

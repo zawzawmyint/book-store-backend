@@ -1,14 +1,14 @@
 # The Quiet Shelf API — order workflow
 
-> **Status:** Proposed. **Date:** 2026-10-07. No workflow code or migration has been implemented.
+> **Status:** Implemented. **Date:** 2026-10-07. Migration `0006_serious_killraven` and the paired storefront contract are delivered.
 
 ## Goal
 
 Let Staff and Admin process new order requests, let customers follow their own
 requests, and preserve correct stock and historical prices. Coordinate with
 [the frontend specification](../../../frontend/specs/order-workflow/SPEC.md).
-Current behavior remains governed by [the root specification](../../SPEC.md),
-[Staff permissions](../staff/SPEC.md), and [Activity](../activity/SPEC.md).
+The root specification, [Staff permissions](../staff/SPEC.md), and
+[Activity](../activity/SPEC.md) record the shared delivered behavior.
 
 ## Scope and decisions
 
@@ -57,7 +57,7 @@ The original cancellation reason remains unchanged on a repeated cancellation.
   Staff/Admin attribution is available through workspace detail and Admin Activity;
   customer reads do not expose staff IDs, names, roles, or general Activity records.
 
-## Proposed GraphQL contract
+## GraphQL contract
 
 These definitions are additions/changes to `src/modules/orders/order.schema.ts`,
 not a second schema. Existing fields retain their names and behavior.
@@ -127,10 +127,10 @@ extend type Mutation {
 
 ## Persistence and migration
 
-- Add non-null `orders.status`, constrained to the four enum values and defaulting
-  to SUBMITTED. New order writes explicitly set SUBMITTED and create their initial
-  event. Only the fresh-database migration path is supported for this feature;
-  do not upgrade a populated old database by inventing statuses or history.
+- `orders.status` is non-null, constrained to the four enum values, and defaults to
+  SUBMITTED. New order writes explicitly set SUBMITTED and create their initial
+  event. Fresh and zero-order pre-workflow databases can migrate. Do not upgrade a
+  populated old database by inventing statuses or history.
 - Add `order_status_events`: integer primary key, non-null order FK, nullable
   from_status, non-null to_status, UTC created_at, nullable cancellation_reason,
   nullable actor_user_id with ON DELETE SET NULL, non-null actor_name and actor_role
@@ -140,8 +140,12 @@ extend type Mutation {
   authenticated server attribution; creation failure rolls back stock/order/history.
 - Once the new workflow is running, preserve request IDs, user links, lines,
   contact snapshots, prices, totals, and createdAt through every transition.
-- Define source schema in `src/database/schema.ts`; generate migration SQL/metadata
-  through `bun run db:generate`. Do not prescribe a migration number before generation.
+- `src/database/schema.ts` is the source schema. Generated migration
+  `0006_serious_killraven` and its Drizzle metadata add the table and status column.
+  Its generated copy projection explicitly supplies `SUBMITTED`; the migration wrapper
+  rejects a populated pre-workflow `orders` table before any journal or schema write,
+  so it cannot invent missing historical state. Empty old and fresh databases may
+  migrate normally.
 - Extend ActivityAction with ORDER_STATUS_CHANGED, ActivityTargetType with ORDER,
   and ActivityField with ORDER_STATUS. Reuse event writer with target name
   `Order request #<id>` and status before/after values; do not put customer email or
@@ -169,29 +173,29 @@ Cancellation never deletes the order, rewrites snapshots, or unarchives a book.
 
 ## Implementation boundaries
 
-- Extend existing order repository/service/validation/types/schema/resolvers and
-  admin-order repository/service/resolvers. Preserve current module boundaries.
-- Update `admin.authorization.ts`, Activity schema/types/validation, schema source,
-  and migration files. Add shared CONFLICT translation where necessary.
-- Generate backend resolver types with `bun run codegen`; coordinate frontend
-  operations/codegen. Do not edit generated types manually.
-- Synchronize implemented order, auth, Staff, Activity, and root documentation only
-  after verified delivery; current exclusions remain current until then.
+- The implementation extends the existing order repository/service/validation/types/schema/resolvers and
+  admin-order repository/service/resolvers while preserving module boundaries.
+- It updates `admin.authorization.ts`, Activity schema/types/validation, the schema
+  source, migration files, and shared CONFLICT translation.
+- Backend resolver types were generated with `bun run codegen`; the frontend operations
+  and generated types were coordinated without hand-editing generated output.
+- The order, auth, Staff, Activity, and root documentation are synchronized with this
+  verified delivery.
 
 ## Acceptance criteria and verification
 
-- [ ] New placement atomically creates Submitted status/history and deducts stock once.
-- [ ] Staff/Admin can perform only allowed transitions; Customers/guests cannot.
-- [ ] A fresh migrated database is reseeded with sample books and the three demo
+- [x] New placement atomically creates Submitted status/history and deducts stock once.
+- [x] Staff/Admin can perform only allowed transitions; Customers/guests cannot.
+- [x] A fresh migrated database is reseeded with sample books and the three demo
       accounts, with no old requests or orphan records retained.
-- [ ] Customer details cannot disclose another account's orders or staff attribution.
-- [ ] All status filters return correct totals/pages.
-- [ ] Cancellation restores quantities once, including archived books and duplicate
+- [x] Customer details cannot disclose another account's orders or staff attribution.
+- [x] All status filters return correct totals/pages.
+- [x] Cancellation restores quantities once, including archived books and duplicate
       stored lines; repeats/concurrent requests do not double-restock or duplicate events.
-- [ ] Inventory/history/Activity failures roll back the entire transition.
-- [ ] Current prices and later stock adjustments do not change saved order amounts.
-- [ ] Terminal/invalid transitions and stale writes return the specified errors.
-- [ ] Status/timeline attribution and Admin Activity remain correct after role/name changes.
+- [x] Inventory/history/Activity failures roll back the entire transition.
+- [x] Current prices and later stock adjustments do not change saved order amounts.
+- [x] Terminal/invalid transitions and stale writes return the specified errors.
+- [x] Status/timeline attribution and Admin Activity remain correct after role/name changes.
 
 Use migration, service/API, permission, owner-isolation, transaction rollback, and
 concurrency regressions. Run backend tests/lint/build/codegen and paired browser
@@ -209,8 +213,17 @@ and production upgrades are out of scope. Stop writers before any local rollback
 reset/reseed against the prior schema and compatible code. Deploy backend/generated
 frontend together; new Activity enum values require updated consumers.
 
-## Review decisions
+## Delivery and verification
 
-The user approved discarding existing local data on 2026-10-07. Cancellation
-reason and terminal/no-reopen rules remain proposed defaults for this first delivery.
-Implementation starts only after the paired specs are reviewed and accepted.
+The user approved discarding existing local data on 2026-10-07. The explicit local
+setup stopped the writer, verified the configured development database path, removed
+only that SQLite database and sidecars, then migrated and ran `db:seed` and
+`demo:seed`. It produced twelve sample books, the three demo users, and no orders.
+This is not startup behavior and does not authorize a production reset.
+
+Backend coverage includes migration guards, service/API permission and transition
+rules, owner isolation, stock restoration for archived and duplicate lines, atomic
+rollback, concurrent attempts, immutable snapshots, and attribution after role/name
+changes. Code generation, the 102-test Vitest suite, lint, and production build
+passed. The paired frontend full Playwright suite passed 32 journeys,
+including Customer, Staff, and Admin completion/cancellation flows.

@@ -28,7 +28,7 @@ export const activityInputSchema = z
     actorUserId: id.optional(),
     action: z.enum(activityActions).optional(),
     changedField: z.enum(activityFields).optional(),
-    targetType: z.enum(['BOOK', 'USER']).optional(),
+    targetType: z.enum(['BOOK', 'USER', 'ORDER']).optional(),
     targetId: id.optional(),
     from: utc.optional(),
     to: utc.optional(),

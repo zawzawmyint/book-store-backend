@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3'
-import type { Resolvers } from './generated/resolvers.js'
+import { createAdminOrderRepository } from '../modules/orders/admin-order.repository.js'
+import type { AdminOrderStatusEvent, Resolvers } from './generated/resolvers.js'
 import { createBookResolvers } from '../modules/books/book.resolvers.js'
 import { createOrderResolvers } from '../modules/orders/order.resolvers.js'
 import type { GraphQLContext } from './context.js'
@@ -12,7 +13,11 @@ export function createResolvers(db: Database.Database): Resolvers<GraphQLContext
   const orderResolvers = createOrderResolvers(db)
   const adminBooks = createAdminBookResolvers(db)
   const admin = createAdminResolvers(db)
+  const workspaceOrders = createAdminOrderRepository(db)
   return {
+    AdminOrder: {
+      history: (order) => workspaceOrders.history(order.id) as AdminOrderStatusEvent[],
+    },
     Query: {
       ...createBookResolvers(db),
       ...orderResolvers.Query,

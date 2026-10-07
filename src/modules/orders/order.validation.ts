@@ -1,3 +1,4 @@
+import { numericIdSchema } from '../../shared/validation.js'
 import { z } from 'zod'
 
 export const orderInputSchema = z.object({
@@ -23,4 +24,24 @@ export const orderInputSchema = z.object({
 export const orderPageSchema = z.object({
   limit: z.number().int().min(1).max(50),
   offset: z.number().int().min(0),
+})
+
+export const orderStatuses = ['SUBMITTED', 'ACCEPTED', 'COMPLETED', 'CANCELLED'] as const
+export const setOrderStatusSchema = z
+  .object({
+    id: numericIdSchema,
+    expectedStatus: z.enum(orderStatuses),
+    status: z.enum(orderStatuses),
+    cancellationReason: z.string().trim().min(1).max(500).nullish(),
+  })
+  .superRefine((input, ctx) => {
+    if (input.status === 'CANCELLED' ? !input.cancellationReason : input.cancellationReason != null)
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Cancellation reason is required only for cancellation',
+        path: ['cancellationReason'],
+      })
+  })
+export const adminOrderPageSchema = orderPageSchema.extend({
+  status: z.enum(['ALL', ...orderStatuses]).default('ALL'),
 })
