@@ -12,16 +12,15 @@ The root specification, [Staff permissions](../staff/SPEC.md), and
 
 ## Scope and decisions
 
-- New requests start as Submitted; Staff and Admin may accept, complete, or cancel.
+- New payment-required requests start Submitted and pending payment; Staff and Admin may accept or complete only after verified payment. Legacy unpaid orders retain the historical workflow.
 - Customer order details expose current status and a read-only status timeline.
 - Staff/Admin can filter order lists and see the responsible person and time.
 - Admin Activity records workflow changes; cancellation records restored book stock.
-- No payment, refunds, shipping, email notifications, customer cancellation,
-  edits to saved order lines, reopening, bulk actions, or configurable workflow.
-- **Agreed local data policy:** existing development data may be deleted. Introduce
+- Stripe hosted test payment, expiry, and full refunds are delivered by [the checkout specification](../stripe-checkout/SPEC.md). Shipping, email notifications, customer cancellation, edits to saved order lines, reopening, bulk actions, and configurable workflow remain out of scope.
+- **Historical workflow introduction policy (migration 0006 only):** existing development data may be deleted. Introduce
   this feature with a fresh local database and reseed sample books and demo accounts.
   Old orders, custom catalog edits, accounts, sessions, and Activity are discarded.
-  No legacy-order state, preservation, or compatibility UI is required.
+  This does not apply to Stripe migration 0007, which preserves existing workflow orders as Legacy unpaid.
 - Cancellation requires a trimmed, customer-visible reason of 1–500 characters.
   Staff and Admin may process every new request; no assignment or ownership system.
 - Completed means the store finished handling the request. It asserts neither
@@ -64,6 +63,7 @@ not a second schema. Existing fields retain their names and behavior.
 
 ```graphql
 enum OrderStatus { SUBMITTED ACCEPTED COMPLETED CANCELLED }
+enum ActorType { USER SYSTEM }
 enum OrderStatusFilter { ALL SUBMITTED ACCEPTED COMPLETED CANCELLED }
 
 type OrderStatusEvent {
@@ -80,7 +80,8 @@ type AdminOrderStatusEvent {
   createdAt: String!
   cancellationReason: String
   actorName: String!
-  actorRole: UserRole!
+  actorType: ActorType!
+  actorRole: UserRole
 }
 type MyOrder {
   id: ID!

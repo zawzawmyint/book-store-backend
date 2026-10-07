@@ -21,6 +21,7 @@ export type OrderHistory = {
     createdAt: string
     status: OrderStatus
     totalCents: number
+    payment: import('../payments/payment.types.js').OrderPayment
     items: OrderReceipt['items']
   }[]
 }

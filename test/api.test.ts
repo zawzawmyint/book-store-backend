@@ -4,9 +4,11 @@ import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/database/connection.js'
 import { seedBooks } from '../src/database/seed.js'
 import type Database from 'better-sqlite3'
+import { randomUUID } from 'node:crypto'
+import { FakePaymentProvider } from './fake-payment-provider.js'
 
 const query = `query Books($search: String) { books(search: $search) { total items { id title author priceCents stock } } }`
-const mutation = `mutation Order($input: PlaceOrderInput!) { placeOrder(input: $input) { id totalCents items { title quantity unitPriceCents } } }`
+const mutation = `mutation Order($input: CreateCheckoutInput!) { createCheckout(input: $input) { order { id totalCents items { title quantity unitPriceCents } } } }`
 const authOptions = {
   frontendOrigin: 'http://localhost:5173',
   authBaseURL: 'http://localhost:4000',
@@ -21,7 +23,7 @@ describe('book store GraphQL API', () => {
   beforeEach(async () => {
     db = createDatabase(':memory:')
     seedBooks(db)
-    app = await createApp(db, authOptions)
+    app = await createApp(db, authOptions, { provider: new FakePaymentProvider() })
     const signUp = await request(app)
       .post('/api/auth/sign-up/email')
       .set('Origin', authOptions.frontendOrigin)
@@ -86,6 +88,7 @@ describe('book store GraphQL API', () => {
         query: mutation,
         variables: {
           input: {
+            requestKey: randomUUID(),
             items: [{ bookId: '1', quantity: 0 }],
           },
         },
@@ -112,13 +115,14 @@ describe('book store GraphQL API', () => {
         query: mutation,
         variables: {
           input: {
+            requestKey: randomUUID(),
             items: [{ bookId: '1', quantity: 2 }],
           },
         },
       })
     expect(order.body.errors).toBeUndefined()
-    expect(order.body.data.placeOrder.totalCents).toBe(
-      order.body.data.placeOrder.items[0].unitPriceCents * 2,
+    expect(order.body.data.createCheckout.order.totalCents).toBe(
+      order.body.data.createCheckout.order.items[0].unitPriceCents * 2,
     )
     expect(db.prepare('SELECT COUNT(*) AS count FROM orders').get()).toEqual({ count: 1 })
     expect(
@@ -136,6 +140,7 @@ describe('book store GraphQL API', () => {
         query: mutation,
         variables: {
           input: {
+            requestKey: randomUUID(),
             items: [{ bookId: '1', quantity: 2 }],
           },
         },
@@ -154,6 +159,7 @@ describe('book store GraphQL API', () => {
         query: mutation,
         variables: {
           input: {
+            requestKey: randomUUID(),
             items: [
               { bookId: '1', quantity: 1 },
               { bookId: '2', quantity: 1 },
@@ -180,6 +186,7 @@ describe('book store GraphQL API', () => {
         query: mutation,
         variables: {
           input: {
+            requestKey: randomUUID(),
             items: [
               { bookId: '1', quantity: 1 },
               { bookId: '2', quantity: 1 },

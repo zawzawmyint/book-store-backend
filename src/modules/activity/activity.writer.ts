@@ -25,6 +25,7 @@ export function insertActivity(
       actorUserId: actor.userId,
       actorName: actor.name,
       actorRole: actor.role,
+      actorType: actor.source === 'SYSTEM' ? 'SYSTEM' : 'USER',
       source: actor.source,
       action: event.action,
       targetType: event.targetType,

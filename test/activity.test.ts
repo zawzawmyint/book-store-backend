@@ -8,6 +8,8 @@ import { operatorActor } from '../src/modules/activity/activity.types.js'
 import { seedBooks } from '../src/database/seed.js'
 import { activityInputSchema } from '../src/modules/activity/activity.validation.js'
 import { createActivityRepository } from '../src/modules/activity/activity.repository.js'
+import { FakePaymentProvider } from './fake-payment-provider.js'
+import { randomUUID } from 'node:crypto'
 
 const details = {
   title: 'Title',
@@ -158,7 +160,7 @@ describe('activity API', () => {
   beforeEach(async () => {
     db = createDatabase(':memory:')
     seedBooks(db)
-    app = await createApp(db, options)
+    app = await createApp(db, options, { provider: new FakePaymentProvider() })
     for (const role of ['admin', 'staff', 'customer']) {
       const response = await request(app)
         .post('/api/auth/sign-up/email')
@@ -244,7 +246,10 @@ describe('activity API', () => {
     )
     await gql(`mutation{adjustBookStock(id:"${id}",delta:-1){id}}`, staff)
     await gql(`mutation{setBookArchived(id:"${id}",archived:true){id}}`, staff)
-    await gql(`mutation{placeOrder(input:{items:[{bookId:"${id}",quantity:1}]}){id}}`, customer)
+    await gql(
+      `mutation{createCheckout(input:{requestKey:"${randomUUID()}",items:[{bookId:"${id}",quantity:1}]}){order{id}}}`,
+      customer,
+    )
     const result = (await gql(history)).body.data.adminActivity
     expect(result.total).toBe(3)
     expect(result.items[0]).toMatchObject({

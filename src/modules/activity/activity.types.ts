@@ -9,6 +9,7 @@ export const activityActions = [
   'USER_ROLE_CHANGED',
   'USER_PASSWORD_RESET',
   'ORDER_STATUS_CHANGED',
+  'ORDER_PAYMENT_CHANGED',
 ] as const
 export const activityFields = [
   'TITLE',
@@ -20,6 +21,7 @@ export const activityFields = [
   'ARCHIVED',
   'ROLE',
   'ORDER_STATUS',
+  'ORDER_PAYMENT_STATUS',
 ] as const
 export const activityChangeSchema = z
   .object({
@@ -32,6 +34,13 @@ export type ActivityChange = z.infer<typeof activityChangeSchema>
 export type ActivityActor =
   | { source: 'GRAPHQL'; userId: string; name: string; role: 'CUSTOMER' | 'STAFF' | 'ADMIN' }
   | { source: 'OPERATOR'; userId: null; name: 'Operator command'; role: null }
+  | { source: 'SYSTEM'; userId: null; name: 'Payment system'; role: null }
+export const systemActor: ActivityActor = {
+  source: 'SYSTEM',
+  userId: null,
+  name: 'Payment system',
+  role: null,
+}
 export const operatorActor: ActivityActor = {
   source: 'OPERATOR',
   userId: null,

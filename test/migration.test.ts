@@ -8,6 +8,72 @@ import { migrateDatabase } from '../src/database/migrations.js'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 
+it('preserves populated workflow orders, history and legacy payment exemption additively', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'stripe-migration-')),
+    db = new Database(':memory:')
+  try {
+    mkdirSync(join(directory, 'meta'))
+    const journal = JSON.parse(
+      readFileSync(new URL('../drizzle/meta/_journal.json', import.meta.url), 'utf8'),
+    ) as { entries: { tag: string }[] }
+    journal.entries = journal.entries.slice(0, 7)
+    writeFileSync(join(directory, 'meta', '_journal.json'), JSON.stringify(journal))
+    for (const entry of journal.entries)
+      copyFileSync(
+        new URL(`../drizzle/${entry.tag}.sql`, import.meta.url),
+        join(directory, `${entry.tag}.sql`),
+      )
+    db.pragma('foreign_keys=ON')
+    migrate(drizzle(db), { migrationsFolder: directory })
+    db.exec(`INSERT INTO user(id,name,email) VALUES ('buyer','Buyer','buyer@example.com');
+      INSERT INTO books(id,title,author,genre,description,price_cents,stock,archived) VALUES (42,'Saved','Author','Genre','Description',100,5,1);
+      INSERT INTO orders(id,user_id,customer_name,email,total_cents,status) VALUES (9,'buyer','Saved buyer','buyer@example.com',200,'ACCEPTED');
+      INSERT INTO order_items(order_id,book_id,title,quantity,unit_price_cents) VALUES (9,42,'Snapshot',2,100);
+      INSERT INTO order_status_events(order_id,from_status,to_status,actor_user_id,actor_name,actor_role) VALUES (9,NULL,'SUBMITTED','buyer','Saved buyer','CUSTOMER'),(9,'SUBMITTED','ACCEPTED','buyer','Staff snapshot','STAFF');`)
+    const snapshots = ['user', 'books', 'order_items'].map((table) =>
+      db.prepare(`SELECT * FROM ${table}`).all(),
+    )
+    const beforeOrder = db
+      .prepare('SELECT id,user_id,customer_name,email,total_cents,status,created_at FROM orders')
+      .get()
+    const beforeHistory = db
+      .prepare(
+        'SELECT id,from_status,to_status,actor_name,actor_role FROM order_status_events ORDER BY id',
+      )
+      .all()
+    migrateDatabase(db)
+    migrateDatabase(db)
+    expect(
+      ['user', 'books', 'order_items'].map((table) => db.prepare(`SELECT * FROM ${table}`).all()),
+    ).toEqual(snapshots)
+    expect(
+      db
+        .prepare('SELECT id,user_id,customer_name,email,total_cents,status,created_at FROM orders')
+        .get(),
+    ).toEqual(beforeOrder)
+    expect(
+      db
+        .prepare(
+          'SELECT id,from_status,to_status,actor_name,actor_role FROM order_status_events ORDER BY id',
+        )
+        .all(),
+    ).toEqual(beforeHistory)
+    expect(db.prepare('SELECT payment_required,payment_status FROM orders').get()).toEqual({
+      payment_required: 0,
+      payment_status: 'LEGACY_UNPAID',
+    })
+    expect(db.prepare('SELECT actor_type FROM order_status_events').all()).toEqual([
+      { actor_type: 'USER' },
+      { actor_type: 'USER' },
+    ])
+    expect(db.prepare('SELECT * FROM payment_operations').all()).toEqual([])
+    expect(db.pragma('foreign_key_check')).toEqual([])
+  } finally {
+    db.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 it('rejects a populated Staff schema before changing business data', () => {
   const directory = mkdtempSync(join(tmpdir(), 'activity-migration-'))
   const db = new Database(':memory:')
@@ -152,7 +218,7 @@ describe('Drizzle migration adoption', () => {
     const db = createDatabase(':memory:')
     try {
       expect(db.prepare('SELECT COUNT(*) AS count FROM __drizzle_migrations').get()).toEqual({
-        count: 7,
+        count: 8,
       })
       expect(() =>
         db
@@ -241,7 +307,7 @@ it('adopts an empty original legacy order schema and enforces workflow and monet
     db.pragma('foreign_keys=ON')
     migrateDatabase(db)
     migrateDatabase(db)
-    expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({ n: 7 })
+    expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({ n: 8 })
     expect(db.prepare('SELECT * FROM order_status_events').all()).toEqual([])
     expect(() =>
       db.exec(

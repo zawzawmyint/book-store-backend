@@ -4,6 +4,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { books, orders, orderItems, orderStatusEvents, userRoles } from '../../database/schema.js'
 import { ValidationError } from '../../shared/errors.js'
 import type { OrderRepository } from './order.types.js'
+import { orderPayment } from '../payments/payment.types.js'
 
 export function createOrderRepository(db: Database.Database): OrderRepository {
   const orm = drizzle(db)
@@ -20,6 +21,7 @@ export function createOrderRepository(db: Database.Database): OrderRepository {
         createdAt: row.createdAt,
         totalCents: row.totalCents,
         status: row.status,
+        payment: orderPayment(row),
         items: orm
           .select({
             title: orderItems.title,
@@ -123,12 +125,7 @@ export function createOrderRepository(db: Database.Database): OrderRepository {
       const where = eq(orders.userId, userId)
       const total = orm.select({ value: count() }).from(orders).where(where).get()?.value ?? 0
       const rows = orm
-        .select({
-          id: orders.id,
-          createdAt: orders.createdAt,
-          totalCents: orders.totalCents,
-          status: orders.status,
-        })
+        .select()
         .from(orders)
         .where(where)
         .orderBy(desc(orders.createdAt), desc(orders.id))
@@ -159,6 +156,7 @@ export function createOrderRepository(db: Database.Database): OrderRepository {
           createdAt: row.createdAt,
           status: row.status,
           totalCents: row.totalCents,
+          payment: orderPayment(row),
           items: lines
             .filter((line) => line.orderId === row.id)
             .map(({ title, quantity, unitPriceCents }) => ({ title, quantity, unitPriceCents })),

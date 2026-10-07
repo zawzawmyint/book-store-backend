@@ -19,7 +19,7 @@ Provide accountability for Staff/Admin catalog changes and Admin/operator accoun
 
 **Out of scope**
 
-- Customer shopping, automatic checkout stock deductions, browsing, searches, login events, failed attempts, own-profile/password changes, and seed/migration backfills.
+- Customer shopping, checkout stock reservations, browsing, searches, login events, failed attempts, own-profile/password changes, and seed/migration backfills. Safe payment-state changes are recorded separately as system-attributed order payment activity by [the Stripe checkout feature](../stripe-checkout/SPEC.md).
 - Staff access to history, activity exports, undo, notifications, automatic retention cleanup, tamper-proof infrastructure, and logging arbitrary external SQL writes.
 
 ## Current system and design constraints

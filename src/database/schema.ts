@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import { user } from './auth-schema.js'
 
 export { user, session, account, verification } from './auth-schema.js'
@@ -11,7 +11,10 @@ export const activityEvents = sqliteTable(
     actorUserId: text('actor_user_id').references(() => user.id, { onDelete: 'set null' }),
     actorName: text('actor_name').notNull(),
     actorRole: text('actor_role', { enum: ['CUSTOMER', 'STAFF', 'ADMIN'] }),
-    source: text('source', { enum: ['GRAPHQL', 'OPERATOR'] }).notNull(),
+    actorType: text('actor_type', { enum: ['USER', 'SYSTEM'] })
+      .notNull()
+      .default('USER'),
+    source: text('source', { enum: ['GRAPHQL', 'OPERATOR', 'SYSTEM'] }).notNull(),
     action: text('action', {
       enum: [
         'BOOK_CREATED',
@@ -22,6 +25,7 @@ export const activityEvents = sqliteTable(
         'USER_ROLE_CHANGED',
         'USER_PASSWORD_RESET',
         'ORDER_STATUS_CHANGED',
+        'ORDER_PAYMENT_CHANGED',
       ],
     }).notNull(),
     targetType: text('target_type', { enum: ['BOOK', 'USER', 'ORDER'] }).notNull(),
@@ -78,6 +82,29 @@ export const orders = sqliteTable(
     customerName: text('customer_name').notNull(),
     email: text('email').notNull(),
     totalCents: integer('total_cents').notNull(),
+    paymentRequired: integer('payment_required', { mode: 'boolean' }).notNull().default(false),
+    paymentStatus: text('payment_status', {
+      enum: [
+        'LEGACY_UNPAID',
+        'PENDING',
+        'PAID',
+        'EXPIRED',
+        'REFUND_PENDING',
+        'REFUNDED',
+        'REFUND_FAILED',
+      ],
+    })
+      .notNull()
+      .default('LEGACY_UNPAID'),
+    currency: text('currency').notNull().default('usd'),
+    expiresAt: text('expires_at'),
+    paidAt: text('paid_at'),
+    refundedAt: text('refunded_at'),
+    stripeSessionId: text('stripe_session_id'),
+    stripePaymentIntentId: text('stripe_payment_intent_id'),
+    stripeRefundId: text('stripe_refund_id'),
+    checkoutUrl: text('checkout_url'),
+    cancellationIntent: text('cancellation_intent'),
     status: text('status', { enum: ['SUBMITTED', 'ACCEPTED', 'COMPLETED', 'CANCELLED'] })
       .notNull()
       .default('SUBMITTED'),
@@ -92,6 +119,16 @@ export const orders = sqliteTable(
     ),
     check('orders_total_nonnegative', sql`${table.totalCents} >= 0`),
     index('orders_user_created_idx').on(table.userId, table.createdAt),
+    uniqueIndex('orders_session_unique').on(table.stripeSessionId),
+    uniqueIndex('orders_intent_unique').on(table.stripePaymentIntentId),
+    uniqueIndex('orders_refund_unique').on(table.stripeRefundId),
+    index('orders_payment_pending_idx').on(table.paymentStatus, table.expiresAt),
+    check('orders_payment_required_boolean', sql`${table.paymentRequired} IN (0,1)`),
+    check(
+      'orders_payment_valid',
+      sql`${table.paymentStatus} IN ('LEGACY_UNPAID','PENDING','PAID','EXPIRED','REFUND_PENDING','REFUNDED','REFUND_FAILED')`,
+    ),
+    check('orders_currency_usd', sql`${table.currency} = 'usd'`),
   ],
 )
 
@@ -132,7 +169,10 @@ export const orderStatusEvents = sqliteTable(
     cancellationReason: text('cancellation_reason'),
     actorUserId: text('actor_user_id').references(() => user.id, { onDelete: 'set null' }),
     actorName: text('actor_name').notNull(),
-    actorRole: text('actor_role', { enum: ['CUSTOMER', 'STAFF', 'ADMIN'] }).notNull(),
+    actorRole: text('actor_role', { enum: ['CUSTOMER', 'STAFF', 'ADMIN'] }),
+    actorType: text('actor_type', { enum: ['USER', 'SYSTEM'] })
+      .notNull()
+      .default('USER'),
   },
   (table) => [
     index('order_status_events_order_idx').on(table.orderId, table.id),
@@ -146,7 +186,63 @@ export const orderStatusEvents = sqliteTable(
     ),
     check(
       'order_status_events_role_valid',
-      sql`${table.actorRole} IN ('CUSTOMER','STAFF','ADMIN')`,
+      sql`(${table.actorType} = 'USER' AND ${table.actorRole} IN ('CUSTOMER','STAFF','ADMIN')) OR (${table.actorType} = 'SYSTEM' AND ${table.actorRole} IS NULL)`,
     ),
   ],
+)
+
+export const checkoutRequests = sqliteTable(
+  'checkout_requests',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id),
+    requestKey: text('request_key').notNull(),
+    linesJson: text('lines_json').notNull(),
+    orderId: integer('order_id')
+      .notNull()
+      .references(() => orders.id),
+  },
+  (table) => [
+    uniqueIndex('checkout_requests_owner_key').on(table.userId, table.requestKey),
+    uniqueIndex('checkout_requests_order').on(table.orderId),
+  ],
+)
+
+export const paymentOperations = sqliteTable(
+  'payment_operations',
+  {
+    id: text('id').primaryKey(),
+    orderId: integer('order_id')
+      .notNull()
+      .references(() => orders.id),
+    kind: text('kind', { enum: ['CREATE_SESSION', 'REFUND'] }).notNull(),
+    state: text('state', { enum: ['PENDING', 'DONE', 'FAILED', 'MANUAL'] })
+      .notNull()
+      .default('PENDING'),
+    createdAt: integer('created_at').notNull(),
+    retryAt: integer('retry_at').notNull(),
+    leaseUntil: integer('lease_until').notNull().default(0),
+    leaseToken: text('lease_token'),
+    attempts: integer('attempts').notNull().default(0),
+    safeError: text('safe_error'),
+  },
+  (table) => [
+    index('payment_operations_due').on(table.state, table.retryAt, table.leaseUntil),
+    check('payment_operations_kind', sql`${table.kind} IN ('CREATE_SESSION','REFUND')`),
+    check('payment_operations_state', sql`${table.state} IN ('PENDING','DONE','FAILED','MANUAL')`),
+  ],
+)
+
+export const paymentEvents = sqliteTable(
+  'payment_events',
+  {
+    id: text('id').primaryKey(),
+    resourceId: text('resource_id').notNull(),
+    type: text('type').notNull(),
+    receivedAt: integer('received_at').notNull(),
+    processedAt: integer('processed_at'),
+    safeError: text('safe_error'),
+  },
+  (table) => [index('payment_events_pending').on(table.processedAt)],
 )

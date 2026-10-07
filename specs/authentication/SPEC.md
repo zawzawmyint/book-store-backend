@@ -15,9 +15,9 @@ Require a Better Auth session for order requests and expose each customer's own 
 ## Scope
 
 - Enable Better Auth email-and-password sign-up, sign-in, sign-out, and persistent browser sessions. Successful sign-up establishes a session immediately. **Email verification is not required** in this release.
-- Require a valid session for `placeOrder`, `myOrders`, and owner-scoped `myOrder`. Leave catalog queries and `/health` public.
+- Require a valid session for `createCheckout`, `myOrders`, and owner-scoped `myOrder`. Leave catalog queries and `/health` public. Deprecated `placeOrder` cannot create an unpaid order.
 - Store order ownership by Better Auth user ID. Do not assign historical guest orders to accounts; the later workflow migration requires fresh or zero-order data as documented in [the order-workflow specification](../order-workflow/SPEC.md).
-- Defer email verification, password reset and other email flows, social login, guest checkout, claiming past orders, payment, and shipping. Admin roles, originally outside this account feature, are now delivered by [the admin feature](../admin/SPEC.md).
+- Defer email verification, password reset and other email flows, social login, guest checkout, claiming past orders, and shipping. Stripe hosted test payment is delivered by [the checkout specification](../stripe-checkout/SPEC.md). Admin roles, originally outside this account feature, are now delivered by [the admin feature](../admin/SPEC.md).
 
 ## HTTP and GraphQL contract
 
@@ -52,7 +52,7 @@ Require a Better Auth session for order requests and expose each customer's own 
 ## Acceptance criteria
 
 - Sign-up, sign-in, session restoration, and sign-out work against the same SQLite database as orders.
-- Direct unauthenticated or expired-session calls to `placeOrder`, `myOrders`, and `myOrder` return `UNAUTHENTICATED`; no order or stock change occurs.
+- Direct unauthenticated or expired-session calls to `createCheckout`, `myOrders`, and `myOrder` return `UNAUTHENTICATED`; no order or stock change occurs.
 - A signed-in order uses the session user ID and contact details and appears only in that user's history. Another account and a signed-out request cannot read it.
 - The historical authentication migration leaves guest orders unclaimed. The later workflow migration blocks populated pre-workflow orders; an explicit development reset or separately designed data migration is required for them.
 - Invalid lines still return `BAD_USER_INPUT`; failed orders remain atomic.

@@ -1,15 +1,15 @@
 import { validated, numericIdSchema } from '../../shared/validation.js'
 import type { OrderCustomer, OrderInput, OrderRepository } from './order.types.js'
-import { orderInputSchema, orderPageSchema } from './order.validation.js'
+import { orderPageSchema } from './order.validation.js'
+import { ValidationError } from '../../shared/errors.js'
 
 export function createOrderService(repository: OrderRepository) {
   return {
     myOrder(userId: string, id: string) {
       return repository.getOrderForUser(userId, validated(numericIdSchema, id))
     },
-    placeOrder(input: OrderInput, customer: OrderCustomer) {
-      const order = validated(orderInputSchema, input)
-      return repository.saveOrder(customer, order.items)
+    placeOrder(_input: OrderInput, _customer: OrderCustomer) {
+      throw new ValidationError('Use createCheckout to place a paid order')
     },
     myOrders(userId: string, limit: number, offset: number) {
       const page = validated(orderPageSchema, { limit, offset })

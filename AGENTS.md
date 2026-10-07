@@ -1,6 +1,6 @@
 # Repository guidance
 
-This repository owns the Express, Apollo Server, Drizzle, and SQLite API. Read `README.md` for setup and `SPEC.md` when changing API behavior. For authentication or account order work, also read `specs/authentication/SPEC.md`.
+This repository owns the Express, Apollo Server, Drizzle, and SQLite API. Read `README.md` for setup and `SPEC.md` when changing API behavior. For authentication or account order work, also read `specs/authentication/SPEC.md`; for payment behavior, read `specs/stripe-checkout/SPEC.md`.
 
 ## Spec-driven and test-driven workflow
 
@@ -24,7 +24,7 @@ Use this order for future implementation work. Existing specs describe the curre
 - Define GraphQL types and resolvers in each module; compose them in `src/graphql/schema.ts` and `src/graphql/resolvers.ts`.
 - Regenerate `src/graphql/generated/resolvers.ts` with `bun run codegen` after schema changes. Do not hand-edit it.
 - Define input validation and normalization in module-local `*.validation.ts` Zod schemas invoked by services. Keep GraphQL contracts, API input schemas, and persistence schemas separate. Keep business rules in services and Drizzle queries in repositories; preserve input limits and `BAD_USER_INPUT` errors.
-- Keep order pricing and stock changes in one database transaction. Calculate totals from stored prices, not client values.
+- Keep local order pricing, stock changes, and payment state transitions in their required database transactions. Calculate totals from stored prices, not client values; never hold a SQLite transaction across a provider network call.
 - Define tables and constraints in `src/database/schema.ts`. Generate migrations with `bun run db:generate` and commit SQL and metadata in `drizzle/`. Apply them with `bun run db:migrate`, whose wrapper verifies and adopts supported legacy databases before Drizzle migration tracking. The order-workflow migration deliberately rejects populated pre-workflow orders rather than inventing status history; use an explicit, authorized development reset or a separately designed data migration. Direct `drizzle-kit migrate` bypasses legacy adoption. Do not edit or commit runtime SQLite files in `data/`.
 - Keep configuration in `src/config/env.ts` and update `.env.example` when an environment variable changes.
 - Keep Better Auth's Express handler before JSON body parsing, derive order identity from the server session, and generate auth tables with `auth.cli.ts` before generating Drizzle migrations. Do not claim legacy guest orders by email.

@@ -27,6 +27,9 @@ describe('bootstrap', () => {
       authSecret,
       trustedProxyIp: undefined,
       nodeEnv: 'development',
+      stripeCheckoutEnabled: false,
+      stripeSecretKey: undefined,
+      stripeWebhookSecret: undefined,
     })
     expect(() => loadConfig({})).toThrow(/BETTER_AUTH_SECRET/)
     expect(() => loadConfig({ PORT: '0' })).toThrow(/PORT/)

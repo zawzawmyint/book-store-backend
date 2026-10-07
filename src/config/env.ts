@@ -8,6 +8,9 @@ export type AppConfig = {
   authSecret: string
   trustedProxyIp?: string
   nodeEnv: 'development' | 'test' | 'production'
+  stripeCheckoutEnabled: boolean
+  stripeSecretKey?: string
+  stripeWebhookSecret?: string
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
@@ -58,5 +61,25 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     throw new Error('Production auth and frontend origins must use HTTPS')
   }
 
-  return { port, databasePath, frontendOrigin, authBaseURL, authSecret, trustedProxyIp, nodeEnv }
+  const stripeCheckoutEnabled = env.STRIPE_CHECKOUT_ENABLED === 'true'
+  if (env.STRIPE_CHECKOUT_ENABLED && !['true', 'false'].includes(env.STRIPE_CHECKOUT_ENABLED))
+    throw new Error('STRIPE_CHECKOUT_ENABLED must be true or false')
+  const stripeSecretKey = env.STRIPE_SECRET_KEY || undefined
+  const stripeWebhookSecret = env.STRIPE_WEBHOOK_SECRET || undefined
+  if (stripeSecretKey && !/^sk_test_[A-Za-z0-9]+$/.test(stripeSecretKey))
+    throw new Error('STRIPE_SECRET_KEY must be a test server key')
+  if (stripeCheckoutEnabled && (!stripeSecretKey || !stripeWebhookSecret?.startsWith('whsec_')))
+    throw new Error('Enabled Stripe checkout requires test server and webhook signing secrets')
+  return {
+    port,
+    databasePath,
+    frontendOrigin,
+    authBaseURL,
+    authSecret,
+    trustedProxyIp,
+    nodeEnv,
+    stripeCheckoutEnabled,
+    stripeSecretKey,
+    stripeWebhookSecret,
+  }
 }
