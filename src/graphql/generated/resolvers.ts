@@ -1,6 +1,8 @@
 import type { GraphQLResolveInfo } from 'graphql';
+import type { WorkspaceOrder } from '../../modules/orders/order.types.js';
 export type Maybe<T> = T | null;
 export type InputMaybe<T> = Maybe<T>;
+export type Omit<T, K extends keyof T> = Pick<T, Exclude<keyof T, K>>;
 export type RequireFields<T, K extends keyof T> = Omit<T, K> & { [P in K]-?: NonNullable<T[P]> };
 /** All built-in and custom scalars, mapped to their actual values */
 export type Scalars = {
@@ -74,6 +76,7 @@ export type Query = {
   adminBook?: Maybe<AdminBook>;
   adminOrders: AdminOrdersPage;
   adminOrder?: Maybe<AdminOrder>;
+  myOrder?: Maybe<MyOrder>;
   myOrders: MyOrdersPage;
   viewer?: Maybe<Viewer>;
   adminUsers: AdminUsersPage;
@@ -115,10 +118,16 @@ export type QueryAdminBookArgs = {
 export type QueryAdminOrdersArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
   offset?: InputMaybe<Scalars['Int']['input']>;
+  status?: InputMaybe<OrderStatusFilter>;
 };
 
 
 export type QueryAdminOrderArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryMyOrderArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -167,6 +176,41 @@ export type QueryAdminActivityArgs = {
   offset?: InputMaybe<Scalars['Int']['input']>;
 };
 
+export enum OrderStatus {
+  Submitted = 'SUBMITTED',
+  Accepted = 'ACCEPTED',
+  Completed = 'COMPLETED',
+  Cancelled = 'CANCELLED'
+}
+
+export enum OrderStatusFilter {
+  All = 'ALL',
+  Submitted = 'SUBMITTED',
+  Accepted = 'ACCEPTED',
+  Completed = 'COMPLETED',
+  Cancelled = 'CANCELLED'
+}
+
+export type OrderStatusEvent = {
+  __typename?: 'OrderStatusEvent';
+  id: Scalars['ID']['output'];
+  fromStatus?: Maybe<OrderStatus>;
+  toStatus: OrderStatus;
+  createdAt: Scalars['String']['output'];
+  cancellationReason?: Maybe<Scalars['String']['output']>;
+};
+
+export type AdminOrderStatusEvent = {
+  __typename?: 'AdminOrderStatusEvent';
+  id: Scalars['ID']['output'];
+  fromStatus?: Maybe<OrderStatus>;
+  toStatus: OrderStatus;
+  createdAt: Scalars['String']['output'];
+  cancellationReason?: Maybe<Scalars['String']['output']>;
+  actorName: Scalars['String']['output'];
+  actorRole: UserRole;
+};
+
 export type OrderItem = {
   __typename?: 'OrderItem';
   title: Scalars['String']['output'];
@@ -179,6 +223,7 @@ export type OrderReceipt = {
   id: Scalars['ID']['output'];
   totalCents: Scalars['Int']['output'];
   items: Array<OrderItem>;
+  status: OrderStatus;
 };
 
 export type OrderHistoryEntry = {
@@ -187,6 +232,17 @@ export type OrderHistoryEntry = {
   createdAt: Scalars['String']['output'];
   totalCents: Scalars['Int']['output'];
   items: Array<OrderItem>;
+  status: OrderStatus;
+};
+
+export type MyOrder = {
+  __typename?: 'MyOrder';
+  id: Scalars['ID']['output'];
+  createdAt: Scalars['String']['output'];
+  totalCents: Scalars['Int']['output'];
+  items: Array<OrderItem>;
+  status: OrderStatus;
+  history: Array<OrderStatusEvent>;
 };
 
 export type MyOrdersPage = {
@@ -204,6 +260,8 @@ export type AdminOrder = {
   createdAt: Scalars['String']['output'];
   totalCents: Scalars['Int']['output'];
   items: Array<OrderItem>;
+  status: OrderStatus;
+  history: Array<AdminOrderStatusEvent>;
 };
 
 export type AdminOrdersPage = {
@@ -221,9 +279,17 @@ export type PlaceOrderInput = {
   items: Array<OrderItemInput>;
 };
 
+export type SetOrderStatusInput = {
+  id: Scalars['ID']['input'];
+  expectedStatus: OrderStatus;
+  status: OrderStatus;
+  cancellationReason?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type Mutation = {
   __typename?: 'Mutation';
   placeOrder: OrderReceipt;
+  setOrderStatus: AdminOrder;
   createBook: AdminBook;
   updateBook: AdminBook;
   adjustBookStock: AdminBook;
@@ -241,6 +307,11 @@ export type Mutation = {
 
 export type MutationPlaceOrderArgs = {
   input: PlaceOrderInput;
+};
+
+
+export type MutationSetOrderStatusArgs = {
+  input: SetOrderStatusInput;
 };
 
 
@@ -359,7 +430,8 @@ export enum ActivityAction {
   BookArchived = 'BOOK_ARCHIVED',
   BookRestored = 'BOOK_RESTORED',
   UserRoleChanged = 'USER_ROLE_CHANGED',
-  UserPasswordReset = 'USER_PASSWORD_RESET'
+  UserPasswordReset = 'USER_PASSWORD_RESET',
+  OrderStatusChanged = 'ORDER_STATUS_CHANGED'
 }
 
 export enum ActivityField {
@@ -370,12 +442,14 @@ export enum ActivityField {
   PriceCents = 'PRICE_CENTS',
   Stock = 'STOCK',
   Archived = 'ARCHIVED',
-  Role = 'ROLE'
+  Role = 'ROLE',
+  OrderStatus = 'ORDER_STATUS'
 }
 
 export enum ActivityTargetType {
   Book = 'BOOK',
-  User = 'USER'
+  User = 'USER',
+  Order = 'ORDER'
 }
 
 export enum ActivitySource {
@@ -497,14 +571,20 @@ export type ResolversTypes = {
   AdminBookDetailsInput: AdminBookDetailsInput;
   CreateBookInput: CreateBookInput;
   Query: ResolverTypeWrapper<Record<PropertyKey, never>>;
+  OrderStatus: OrderStatus;
+  OrderStatusFilter: OrderStatusFilter;
+  OrderStatusEvent: ResolverTypeWrapper<OrderStatusEvent>;
+  AdminOrderStatusEvent: ResolverTypeWrapper<AdminOrderStatusEvent>;
   OrderItem: ResolverTypeWrapper<OrderItem>;
   OrderReceipt: ResolverTypeWrapper<OrderReceipt>;
   OrderHistoryEntry: ResolverTypeWrapper<OrderHistoryEntry>;
+  MyOrder: ResolverTypeWrapper<MyOrder>;
   MyOrdersPage: ResolverTypeWrapper<MyOrdersPage>;
-  AdminOrder: ResolverTypeWrapper<AdminOrder>;
-  AdminOrdersPage: ResolverTypeWrapper<AdminOrdersPage>;
+  AdminOrder: ResolverTypeWrapper<WorkspaceOrder>;
+  AdminOrdersPage: ResolverTypeWrapper<Omit<AdminOrdersPage, 'items'> & { items: Array<ResolversTypes['AdminOrder']> }>;
   OrderItemInput: OrderItemInput;
   PlaceOrderInput: PlaceOrderInput;
+  SetOrderStatusInput: SetOrderStatusInput;
   Mutation: ResolverTypeWrapper<Record<PropertyKey, never>>;
   UserRole: UserRole;
   Viewer: ResolverTypeWrapper<Viewer>;
@@ -536,14 +616,18 @@ export type ResolversParentTypes = {
   AdminBookDetailsInput: AdminBookDetailsInput;
   CreateBookInput: CreateBookInput;
   Query: Record<PropertyKey, never>;
+  OrderStatusEvent: OrderStatusEvent;
+  AdminOrderStatusEvent: AdminOrderStatusEvent;
   OrderItem: OrderItem;
   OrderReceipt: OrderReceipt;
   OrderHistoryEntry: OrderHistoryEntry;
+  MyOrder: MyOrder;
   MyOrdersPage: MyOrdersPage;
-  AdminOrder: AdminOrder;
-  AdminOrdersPage: AdminOrdersPage;
+  AdminOrder: WorkspaceOrder;
+  AdminOrdersPage: Omit<AdminOrdersPage, 'items'> & { items: Array<ResolversParentTypes['AdminOrder']> };
   OrderItemInput: OrderItemInput;
   PlaceOrderInput: PlaceOrderInput;
+  SetOrderStatusInput: SetOrderStatusInput;
   Mutation: Record<PropertyKey, never>;
   Viewer: Viewer;
   AdminUser: AdminUser;
@@ -592,8 +676,9 @@ export type QueryResolvers<ContextType = any, ParentType extends ResolversParent
   book?: Resolver<Maybe<ResolversTypes['Book']>, ParentType, ContextType, RequireFields<QueryBookArgs, 'id'>>;
   adminBooks?: Resolver<ResolversTypes['AdminBooksPage'], ParentType, ContextType, RequireFields<QueryAdminBooksArgs, 'filter' | 'lowStockOnly' | 'limit' | 'offset'>>;
   adminBook?: Resolver<Maybe<ResolversTypes['AdminBook']>, ParentType, ContextType, RequireFields<QueryAdminBookArgs, 'id'>>;
-  adminOrders?: Resolver<ResolversTypes['AdminOrdersPage'], ParentType, ContextType, RequireFields<QueryAdminOrdersArgs, 'limit' | 'offset'>>;
+  adminOrders?: Resolver<ResolversTypes['AdminOrdersPage'], ParentType, ContextType, RequireFields<QueryAdminOrdersArgs, 'limit' | 'offset' | 'status'>>;
   adminOrder?: Resolver<Maybe<ResolversTypes['AdminOrder']>, ParentType, ContextType, RequireFields<QueryAdminOrderArgs, 'id'>>;
+  myOrder?: Resolver<Maybe<ResolversTypes['MyOrder']>, ParentType, ContextType, RequireFields<QueryMyOrderArgs, 'id'>>;
   myOrders?: Resolver<ResolversTypes['MyOrdersPage'], ParentType, ContextType, RequireFields<QueryMyOrdersArgs, 'limit' | 'offset'>>;
   viewer?: Resolver<Maybe<ResolversTypes['Viewer']>, ParentType, ContextType>;
   adminUsers?: Resolver<ResolversTypes['AdminUsersPage'], ParentType, ContextType, RequireFields<QueryAdminUsersArgs, 'role' | 'limit' | 'offset'>>;
@@ -601,6 +686,24 @@ export type QueryResolvers<ContextType = any, ParentType extends ResolversParent
   adminCustomers?: Resolver<ResolversTypes['AdminCustomersPage'], ParentType, ContextType, RequireFields<QueryAdminCustomersArgs, 'role' | 'limit' | 'offset'>>;
   adminCustomer?: Resolver<ResolversTypes['AdminCustomer'], ParentType, ContextType, RequireFields<QueryAdminCustomerArgs, 'id'>>;
   adminActivity?: Resolver<ResolversTypes['ActivityPage'], ParentType, ContextType, Partial<QueryAdminActivityArgs>>;
+};
+
+export type OrderStatusEventResolvers<ContextType = any, ParentType extends ResolversParentTypes['OrderStatusEvent'] = ResolversParentTypes['OrderStatusEvent']> = {
+  id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  fromStatus?: Resolver<Maybe<ResolversTypes['OrderStatus']>, ParentType, ContextType>;
+  toStatus?: Resolver<ResolversTypes['OrderStatus'], ParentType, ContextType>;
+  createdAt?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  cancellationReason?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+};
+
+export type AdminOrderStatusEventResolvers<ContextType = any, ParentType extends ResolversParentTypes['AdminOrderStatusEvent'] = ResolversParentTypes['AdminOrderStatusEvent']> = {
+  id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  fromStatus?: Resolver<Maybe<ResolversTypes['OrderStatus']>, ParentType, ContextType>;
+  toStatus?: Resolver<ResolversTypes['OrderStatus'], ParentType, ContextType>;
+  createdAt?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  cancellationReason?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+  actorName?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  actorRole?: Resolver<ResolversTypes['UserRole'], ParentType, ContextType>;
 };
 
 export type OrderItemResolvers<ContextType = any, ParentType extends ResolversParentTypes['OrderItem'] = ResolversParentTypes['OrderItem']> = {
@@ -613,6 +716,7 @@ export type OrderReceiptResolvers<ContextType = any, ParentType extends Resolver
   id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
   totalCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   items?: Resolver<Array<ResolversTypes['OrderItem']>, ParentType, ContextType>;
+  status?: Resolver<ResolversTypes['OrderStatus'], ParentType, ContextType>;
 };
 
 export type OrderHistoryEntryResolvers<ContextType = any, ParentType extends ResolversParentTypes['OrderHistoryEntry'] = ResolversParentTypes['OrderHistoryEntry']> = {
@@ -620,6 +724,16 @@ export type OrderHistoryEntryResolvers<ContextType = any, ParentType extends Res
   createdAt?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   totalCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   items?: Resolver<Array<ResolversTypes['OrderItem']>, ParentType, ContextType>;
+  status?: Resolver<ResolversTypes['OrderStatus'], ParentType, ContextType>;
+};
+
+export type MyOrderResolvers<ContextType = any, ParentType extends ResolversParentTypes['MyOrder'] = ResolversParentTypes['MyOrder']> = {
+  id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  createdAt?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  totalCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  items?: Resolver<Array<ResolversTypes['OrderItem']>, ParentType, ContextType>;
+  status?: Resolver<ResolversTypes['OrderStatus'], ParentType, ContextType>;
+  history?: Resolver<Array<ResolversTypes['OrderStatusEvent']>, ParentType, ContextType>;
 };
 
 export type MyOrdersPageResolvers<ContextType = any, ParentType extends ResolversParentTypes['MyOrdersPage'] = ResolversParentTypes['MyOrdersPage']> = {
@@ -635,6 +749,8 @@ export type AdminOrderResolvers<ContextType = any, ParentType extends ResolversP
   createdAt?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   totalCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   items?: Resolver<Array<ResolversTypes['OrderItem']>, ParentType, ContextType>;
+  status?: Resolver<ResolversTypes['OrderStatus'], ParentType, ContextType>;
+  history?: Resolver<Array<ResolversTypes['AdminOrderStatusEvent']>, ParentType, ContextType>;
 };
 
 export type AdminOrdersPageResolvers<ContextType = any, ParentType extends ResolversParentTypes['AdminOrdersPage'] = ResolversParentTypes['AdminOrdersPage']> = {
@@ -644,6 +760,7 @@ export type AdminOrdersPageResolvers<ContextType = any, ParentType extends Resol
 
 export type MutationResolvers<ContextType = any, ParentType extends ResolversParentTypes['Mutation'] = ResolversParentTypes['Mutation']> = {
   placeOrder?: Resolver<ResolversTypes['OrderReceipt'], ParentType, ContextType, RequireFields<MutationPlaceOrderArgs, 'input'>>;
+  setOrderStatus?: Resolver<ResolversTypes['AdminOrder'], ParentType, ContextType, RequireFields<MutationSetOrderStatusArgs, 'input'>>;
   createBook?: Resolver<ResolversTypes['AdminBook'], ParentType, ContextType, RequireFields<MutationCreateBookArgs, 'input'>>;
   updateBook?: Resolver<ResolversTypes['AdminBook'], ParentType, ContextType, RequireFields<MutationUpdateBookArgs, 'id' | 'input'>>;
   adjustBookStock?: Resolver<ResolversTypes['AdminBook'], ParentType, ContextType, RequireFields<MutationAdjustBookStockArgs, 'id' | 'delta'>>;
@@ -718,9 +835,12 @@ export type Resolvers<ContextType = any> = {
   AdminBook?: AdminBookResolvers<ContextType>;
   AdminBooksPage?: AdminBooksPageResolvers<ContextType>;
   Query?: QueryResolvers<ContextType>;
+  OrderStatusEvent?: OrderStatusEventResolvers<ContextType>;
+  AdminOrderStatusEvent?: AdminOrderStatusEventResolvers<ContextType>;
   OrderItem?: OrderItemResolvers<ContextType>;
   OrderReceipt?: OrderReceiptResolvers<ContextType>;
   OrderHistoryEntry?: OrderHistoryEntryResolvers<ContextType>;
+  MyOrder?: MyOrderResolvers<ContextType>;
   MyOrdersPage?: MyOrdersPageResolvers<ContextType>;
   AdminOrder?: AdminOrderResolvers<ContextType>;
   AdminOrdersPage?: AdminOrdersPageResolvers<ContextType>;

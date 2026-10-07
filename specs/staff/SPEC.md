@@ -6,22 +6,23 @@
 
 Add a limited STAFF role so employees can maintain the catalog and inspect order requests. Administrators retain full store access and exclusive authority over user management and book archive/restore. Coordinate with [the frontend spec](../../../frontend/specs/staff/SPEC.md). Extend the implemented [user directory contract](../users/SPEC.md).
 
-The following activity exclusion was the historical scope of this Staff delivery and is superseded by [the activity history specification](../activity/SPEC.md): Staff changes are now recorded, while reading history remains Admin-only. Invitations, staff creation forms, configurable roles, multiple roles per user, owner/super-admin roles, approval workflows, and order processing/status changes are still excluded.
+The following exclusions were the historical scope of this Staff delivery and are superseded where linked: Staff changes are recorded while reading history remains Admin-only under [Activity](../activity/SPEC.md), and Staff/Admin order processing is defined by [Order workflow](../order-workflow/SPEC.md). Invitations, staff creation forms, configurable roles, multiple roles per user, owner/super-admin roles, and approval workflows remain excluded.
 
 ## Role and permission rules
 
 - CUSTOMER retains shopping, own orders, and own profile/password access.
-- STAFF retains those shopping capabilities and gains catalog reading, book creation, metadata/price editing, stock adjustments, and reading all saved order requests.
+- STAFF retains those shopping capabilities and gains catalog reading, book creation, metadata/price editing, stock adjustments, reading all saved order requests, and processing their allowed status transitions.
 - ADMIN retains existing capabilities, including shopping, plus user directory/detail access, role assignment, another user's password reset, and archive/restore.
 - Staff may read and edit archived books and adjust their stock under the existing rules, but cannot archive or restore them. A new book is active under the existing creation defaults.
 - Staff cannot read the user directory or arbitrary user details, reset another user's password, or change anyone's role. Order contact snapshots remain visible through order queries; this does not grant access to the user directory.
 
-Use a small server-owned permission map in the existing admin module, with permissions `MANAGE_CATALOG`, `VIEW_ORDERS`, `ARCHIVE_BOOKS`, and `MANAGE_USERS`. STAFF receives the first two; ADMIN receives all four; CUSTOMER receives none. No permission administration UI or permission tables are required.
+The server-owned permission map includes `PROCESS_ORDERS`, `MANAGE_CATALOG`, `VIEW_ORDERS`, `ARCHIVE_BOOKS`, `MANAGE_USERS`, and `VIEW_ACTIVITY`. STAFF receives the first three; ADMIN receives all six; CUSTOMER receives none. No permission administration UI or permission tables are required.
 
 Enforce these checks on the existing API:
 
 - `adminBooks`, `adminBook`, `createBook`, `updateBook`, `adjustBookStock`: MANAGE_CATALOG.
 - `adminOrders`, `adminOrder`: VIEW_ORDERS.
+- `setOrderStatus`: PROCESS_ORDERS. The allowed transitions and cancellation rules are in the [order workflow](../order-workflow/SPEC.md).
 - `setBookArchived`: ARCHIVE_BOOKS.
 - `adminUsers`, `adminUser`, `setUserRole`, `resetUserPassword`, and all retained user-management compatibility fields: MANAGE_USERS.
 - `viewer` remains available for any signed-in user; its role comes from current storage.
@@ -82,9 +83,9 @@ Adding STAFF to output enums requires client updates: old clients may not unders
 - [x] CUSTOMER cannot access workspace APIs; direct requests, aliases, and mixed operations enforce each permission.
 - [x] Viewer and directory filters correctly report all three roles; missing role rows resolve to CUSTOMER.
 - [x] Demotion takes effect on the next request; self/final-admin demotion and operator recovery work. Accounts, credentials, shopping, and saved order price/contact snapshots remain intact.
-- [x] Fresh/current/supported-legacy migrations preserve admins and data; role constraints and foreign-key cascade prevent invalid/duplicate/orphan role rows.
+- [x] The historical Staff migration preserves admins and data; role constraints and foreign-key cascade prevent invalid/duplicate/orphan role rows. The later order-workflow migration separately supports fresh or zero-order databases and blocks populated pre-workflow orders.
 - [x] Boolean compatibility mutations map true to ADMIN and false to CUSTOMER through the shared setter; legacy query contracts remain usable.
-- [x] No staff-facing history access, invitations, or new order workflow is introduced. Activity recording is delivered separately.
+- [x] Staff has no activity-history access or invitations. Its delivered order-processing permission is covered by the separate order-workflow specification.
 - [x] Codegen, bun run test, bun run lint, bun run build, and coordinated frontend browser checks pass.
 
 ## Validation and open decisions

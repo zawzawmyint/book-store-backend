@@ -12,6 +12,7 @@ const config: CodegenConfig = {
       plugins: ['typescript', 'typescript-resolvers'],
       config: {
         useTypeImports: true,
+        mappers: { AdminOrder: '../../modules/orders/order.types.js#WorkspaceOrder' },
         scalars: { ID: { input: 'string', output: 'string | number' } },
       },
     },

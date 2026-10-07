@@ -6,7 +6,7 @@
 
 ## Goal and agreed scope
 
-Let store administrators manage books and inventory and view all order requests through the existing GraphQL API. Deliver the full feature in phases: access control, catalog and inventory management, then order viewing. The matching user experience is defined in [the frontend spec](../../../frontend/specs/admin/SPEC.md).
+Let store administrators manage books and inventory and view all order requests through the existing GraphQL API. This historical feature delivered access control, catalog/inventory management, and order viewing; the subsequent [order workflow](../order-workflow/SPEC.md) adds Staff/Admin processing. The matching user experience is defined in [the frontend spec](../../../frontend/specs/admin/SPEC.md).
 
 The user selected this phased scope, including order viewing. The contracts and limits below are delivered design decisions for review.
 
@@ -108,7 +108,7 @@ extend type Mutation {
 - `placeOrder` rejects any archived line with `BAD_USER_INPUT`, even when stock remains. Check archive eligibility inside the same transaction as pricing and stock deduction. If archive wins first, checkout fails without partial writes; if checkout wins first, its completed order remains valid.
 - A saved cart containing an archived book receives a visible unavailable-book error and retains the cart. Restoring a book returns it to public queries; existing orders always retain their captured title and price.
 
-## Phase 3 — order viewing contract
+## Phase 3 — order viewing contract (superseded where noted)
 
 ```graphql
 type AdminOrder {
@@ -134,7 +134,7 @@ extend type Query {
 - Detail returns null for a well-formed missing ID and `BAD_USER_INPUT` for a malformed ID after authorization. Preserve the existing timestamp format and `OrderItem` shape; retrieve lines in line-item ID order.
 - Return stored customer contact, total, and item snapshots. Never recalculate historical orders using current catalog metadata or prices. Do not associate guest orders with accounts by email.
 - Contact details are available only through authorized admin queries. Public catalog queries and `myOrders` must not expose another customer's contact or order data.
-- This phase is read-only. No status field, processing mutation, order search, deletion, or export is included.
+- This phase originally delivered read-only viewing. The [order workflow](../order-workflow/SPEC.md) supersedes that limitation with statuses, `setOrderStatus`, owner-safe and attributed histories, and status filtering. Order search, deletion, and export remain excluded.
 
 ## Data, migration, and compatibility
 
@@ -168,7 +168,7 @@ extend type Query {
 
 ## Delivered decisions
 
-The delivered defaults are operator-managed membership, stock deltas rather than absolute replacement, a low-stock threshold of 5, metadata edits with last-write-wins behavior, and order viewing without processing. No unresolved requirements remain for this release.
+The delivered defaults are operator-managed membership, stock deltas rather than absolute replacement, a low-stock threshold of 5, and metadata edits with last-write-wins behavior. The separate implemented order workflow supersedes read-only order administration. No unresolved requirements remain for this historical release.
 
 ## Verification evidence
 

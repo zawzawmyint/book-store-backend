@@ -3,11 +3,23 @@ import type { AuthenticatedUser } from '../../graphql/context.js'
 import { requireUser } from '../../shared/authentication.js'
 
 export type Permission =
-  'MANAGE_CATALOG' | 'VIEW_ORDERS' | 'ARCHIVE_BOOKS' | 'MANAGE_USERS' | 'VIEW_ACTIVITY'
+  | 'PROCESS_ORDERS'
+  | 'MANAGE_CATALOG'
+  | 'VIEW_ORDERS'
+  | 'ARCHIVE_BOOKS'
+  | 'MANAGE_USERS'
+  | 'VIEW_ACTIVITY'
 
 const rolePermissions: Readonly<Record<'ADMIN' | 'STAFF' | 'CUSTOMER', readonly Permission[]>> = {
-  ADMIN: ['MANAGE_CATALOG', 'VIEW_ORDERS', 'ARCHIVE_BOOKS', 'MANAGE_USERS', 'VIEW_ACTIVITY'],
-  STAFF: ['MANAGE_CATALOG', 'VIEW_ORDERS'],
+  ADMIN: [
+    'PROCESS_ORDERS',
+    'MANAGE_CATALOG',
+    'VIEW_ORDERS',
+    'ARCHIVE_BOOKS',
+    'MANAGE_USERS',
+    'VIEW_ACTIVITY',
+  ],
+  STAFF: ['PROCESS_ORDERS', 'MANAGE_CATALOG', 'VIEW_ORDERS'],
   CUSTOMER: [],
 }
 

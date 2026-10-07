@@ -8,7 +8,7 @@ import { migrateDatabase } from '../src/database/migrations.js'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 
-it('adds empty activity history to a populated Staff schema without changing existing business data', () => {
+it('rejects a populated Staff schema before changing business data', () => {
   const directory = mkdtempSync(join(tmpdir(), 'activity-migration-'))
   const db = new Database(':memory:')
   try {
@@ -36,11 +36,9 @@ it('adds empty activity history to a populated Staff schema without changing exi
     `)
     const tables = ['user', 'user_roles', 'account', 'session', 'books', 'orders', 'order_items']
     const before = tables.map((table) => db.prepare(`SELECT * FROM ${table}`).all())
-    migrateDatabase(db)
-    migrateDatabase(db)
+    expect(() => migrateDatabase(db)).toThrow('Order workflow requires a fresh database')
     expect(tables.map((table) => db.prepare(`SELECT * FROM ${table}`).all())).toEqual(before)
-    expect(db.prepare('SELECT * FROM activity_events').all()).toEqual([])
-    expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({ n: 6 })
+    expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({ n: 5 })
     expect(db.pragma('foreign_key_check')).toEqual([])
   } finally {
     db.close()
@@ -92,7 +90,7 @@ it('migrates populated admin memberships to roles without losing admins or ident
   }
 })
 
-it('upgrades the current authenticated schema preserving accounts, sessions, and owned orders', () => {
+it('rejects a populated authenticated schema without changing accounts, sessions or orders', () => {
   const directory = mkdtempSync(join(tmpdir(), 'admin-current-migration-'))
   const db = new Database(':memory:')
   try {
@@ -120,22 +118,12 @@ it('upgrades the current authenticated schema preserving accounts, sessions, and
     const before = ['user', 'account', 'session', 'orders', 'order_items'].map((table) =>
       db.prepare(`SELECT * FROM ${table}`).all(),
     )
-    migrateDatabase(db)
+    expect(() => migrateDatabase(db)).toThrow('Order workflow requires a fresh database')
     expect(
       ['user', 'account', 'session', 'orders', 'order_items'].map((table) =>
         db.prepare(`SELECT * FROM ${table}`).all(),
       ),
     ).toEqual(before)
-    expect(db.prepare('SELECT id, stock, archived FROM books').get()).toEqual({
-      id: 42,
-      stock: 7,
-      archived: 0,
-    })
-    expect(
-      db.prepare("SELECT count(*) AS count FROM user_roles WHERE role = 'ADMIN'").get(),
-    ).toEqual({
-      count: 0,
-    })
     expect(db.pragma('foreign_key_check')).toEqual([])
   } finally {
     db.close()
@@ -164,7 +152,7 @@ describe('Drizzle migration adoption', () => {
     const db = createDatabase(':memory:')
     try {
       expect(db.prepare('SELECT COUNT(*) AS count FROM __drizzle_migrations').get()).toEqual({
-        count: 6,
+        count: 7,
       })
       expect(() =>
         db
@@ -178,7 +166,7 @@ describe('Drizzle migration adoption', () => {
     }
   })
 
-  it('adopts a version-one database and preserves catalog, orders, lines and stock across reopen', () => {
+  it('rejects an order-bearing version-one database without recording migration history', () => {
     const directory = mkdtempSync(join(tmpdir(), 'book-store-migration-'))
     const path = join(directory, 'legacy.sqlite')
     try {
@@ -197,45 +185,19 @@ describe('Drizzle migration adoption', () => {
       } finally {
         legacy.close()
       }
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const db = createDatabase(path)
-        try {
-          expect(db.prepare('SELECT id, price_cents, stock FROM books').all()).toEqual([
-            { id: 42, price_cents: 1234, stock: 7 },
-          ])
-          expect(db.prepare('SELECT id, user_id, total_cents FROM orders').all()).toEqual([
-            { id: 9, user_id: null, total_cents: 2468 },
-          ])
-          expect(db.prepare('SELECT order_id, book_id, quantity FROM order_items').all()).toEqual([
-            { order_id: 9, book_id: 42, quantity: 2 },
-          ])
-          expect(db.prepare('SELECT COUNT(*) AS count FROM __drizzle_migrations').get()).toEqual({
-            count: 6,
-          })
-          expect(db.pragma('foreign_keys', { simple: true })).toBe(1)
-          expect(
-            db
-              .prepare('SELECT archived, length(description) AS size FROM books WHERE id = 42')
-              .get(),
-          ).toEqual({ archived: 0, size: 6000 })
-          expect(
-            db.prepare("SELECT count(*) AS count FROM user_roles WHERE role = 'ADMIN'").get(),
-          ).toEqual({
-            count: 0,
-          })
-          expect(() => db.prepare('UPDATE books SET archived = 2 WHERE id = 42').run()).toThrow(
-            /CHECK/,
-          )
-        } finally {
-          db.close()
-        }
-      }
+      expect(() => createDatabase(path)).toThrow('Order workflow requires a fresh database')
+      const unchanged = new Database(path)
+      expect(unchanged.prepare('SELECT count(*) AS n FROM orders').get()).toEqual({ n: 1 })
+      expect(
+        unchanged.pragma('table_info(orders)').map((row: { name: string }) => row.name),
+      ).not.toContain('status')
+      unchanged.close()
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
   })
 
-  it('adopts the original schema without monetary CHECK clauses and protects existing data', () => {
+  it('rejects order-bearing original schemas without monetary CHECK clauses', () => {
     const db = new Database(':memory:')
     try {
       db.exec(`
@@ -247,17 +209,7 @@ describe('Drizzle migration adoption', () => {
         INSERT INTO order_items VALUES (11, 9, 42, 'Legacy', 2, 1234);
       `)
       db.pragma('user_version = 1')
-      migrateDatabase(db)
-      expect(db.prepare('SELECT id, user_id, total_cents FROM orders').all()).toEqual([
-        { id: 9, user_id: null, total_cents: 2468 },
-      ])
-      expect(() => db.prepare('UPDATE orders SET total_cents = -1 WHERE id = 9').run()).toThrow()
-      expect(() =>
-        db.prepare('UPDATE order_items SET unit_price_cents = -1 WHERE id = 11').run(),
-      ).toThrow()
-      expect(db.prepare('SELECT COUNT(*) AS count FROM __drizzle_migrations').get()).toEqual({
-        count: 6,
-      })
+      expect(() => migrateDatabase(db)).toThrow('Order workflow requires a fresh database')
     } finally {
       db.close()
     }
@@ -275,4 +227,34 @@ describe('Drizzle migration adoption', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
+})
+
+it('adopts an empty original legacy order schema and enforces workflow and monetary checks', () => {
+  const db = new Database(':memory:')
+  try {
+    db.exec(`
+   CREATE TABLE books (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, author TEXT NOT NULL, genre TEXT NOT NULL, description TEXT NOT NULL, price_cents INTEGER NOT NULL CHECK(price_cents >= 0), stock INTEGER NOT NULL CHECK(stock >= 0));
+   CREATE TABLE orders (id INTEGER PRIMARY KEY AUTOINCREMENT, customer_name TEXT NOT NULL, email TEXT NOT NULL, total_cents INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')));
+   CREATE TABLE order_items (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL REFERENCES orders(id), book_id INTEGER NOT NULL REFERENCES books(id), title TEXT NOT NULL, quantity INTEGER NOT NULL CHECK(quantity > 0), unit_price_cents INTEGER NOT NULL);
+  `)
+    db.pragma('user_version=1')
+    db.pragma('foreign_keys=ON')
+    migrateDatabase(db)
+    migrateDatabase(db)
+    expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({ n: 7 })
+    expect(db.prepare('SELECT * FROM order_status_events').all()).toEqual([])
+    expect(() =>
+      db.exec(
+        "INSERT INTO orders(customer_name,email,total_cents,status) VALUES ('Reader','reader@example.com',1,'INVALID')",
+      ),
+    ).toThrow(/CHECK/)
+    expect(() =>
+      db.exec(
+        "INSERT INTO orders(customer_name,email,total_cents) VALUES ('Reader','reader@example.com',-1)",
+      ),
+    ).toThrow()
+    expect(db.pragma('foreign_key_check')).toEqual([])
+  } finally {
+    db.close()
+  }
 })

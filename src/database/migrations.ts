@@ -8,7 +8,9 @@ const migrationsFolder = fileURLToPath(new URL('../../drizzle/', import.meta.url
 
 // The old user_version=1 schema is equivalent to the first Drizzle migration.
 // Verify it before recording that baseline; do not recreate tables containing orders.
-function verifyLegacySchema(db: Database.Database): { table: 'orders' | 'order_items'; column: string }[] {
+function verifyLegacySchema(
+  db: Database.Database,
+): { table: 'orders' | 'order_items'; column: string }[] {
   const expected = {
     books: ['id', 'title', 'author', 'genre', 'description', 'price_cents', 'stock'],
     orders: ['id', 'customer_name', 'email', 'total_cents', 'created_at'],
@@ -98,6 +100,16 @@ function verifyLegacySchema(db: Database.Database): { table: 'orders' | 'order_i
 export function migrateDatabase(db: Database.Database): void {
   const version = db.pragma('user_version', { simple: true }) as number
   if (version > 1) throw new Error(`Unsupported database version: ${version}`)
+  const columns = db.pragma('table_info(orders)') as { name: string }[]
+  if (
+    columns.length &&
+    !columns.some((column) => column.name === 'status') &&
+    db.prepare('SELECT 1 FROM orders LIMIT 1').get()
+  ) {
+    throw new Error(
+      'Order workflow requires a fresh database; reset and reseed development data explicitly',
+    )
+  }
   const config = { migrationsFolder }
   db.transaction(() => {
     const journal = db

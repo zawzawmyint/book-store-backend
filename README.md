@@ -2,7 +2,7 @@
 
 An Express + GraphQL + Drizzle + SQLite bookstore API with Zod input validation. This folder is its own Git repository and runs independently from the frontend.
 
-See [SPEC.md](SPEC.md) for the implemented API behavior, [specs/authentication/SPEC.md](specs/authentication/SPEC.md) for the account feature contract, [specs/demo-login/SPEC.md](specs/demo-login/SPEC.md) for local demo accounts, [specs/staff/SPEC.md](specs/staff/SPEC.md) for roles and permissions, [specs/users/SPEC.md](specs/users/SPEC.md) for user-directory compatibility, and [specs/activity/SPEC.md](specs/activity/SPEC.md) for the Admin-only activity contract.
+See [SPEC.md](SPEC.md) for the implemented API behavior, [specs/authentication/SPEC.md](specs/authentication/SPEC.md) for the account feature contract, [specs/order-workflow/SPEC.md](specs/order-workflow/SPEC.md) for request processing, [specs/demo-login/SPEC.md](specs/demo-login/SPEC.md) for local demo accounts, [specs/staff/SPEC.md](specs/staff/SPEC.md) for roles and permissions, [specs/users/SPEC.md](specs/users/SPEC.md) for user-directory compatibility, and [specs/activity/SPEC.md](specs/activity/SPEC.md) for the Admin-only activity contract.
 
 ## Development workflow
 
@@ -61,6 +61,7 @@ query BrowseBooks {
 mutation RequestBooks {
   placeOrder(input: { items: [{ bookId: "1", quantity: 1 }] }) {
     id
+    status
     totalCents
     items {
       title
@@ -71,7 +72,7 @@ mutation RequestBooks {
 }
 ```
 
-The order mutation requires a Better Auth session. It uses the session user's name and email, validates the lines, reads current prices, checks stock, and saves the order and stock changes in one SQLite transaction. The browser never supplies an order total or user ID. `myOrders(limit, offset)` returns only the signed-in user's requests. The GraphQL endpoint is the catalog and order API; Better Auth handles account requests under `/api/auth/*`.
+The order mutation requires a Better Auth session. It uses the session user's name and email, validates the lines, reads current prices, checks stock, and atomically saves a Submitted order, its initial timeline event, and stock changes. The browser never supplies an order total or user ID. `myOrders(limit, offset)` and `myOrder(id)` return only the signed-in user's requests; the detail timeline never includes staff attribution. The GraphQL endpoint is the catalog and order API; Better Auth handles account requests under `/api/auth/*`.
 
 ## Architecture
 
@@ -116,7 +117,7 @@ drizzle/                  Committed SQL migrations and metadata
 
 ## Admin access and operations
 
-The storefront has three roles: Customer, Staff, and Admin. Signup creates a Customer; `user_roles` is the sole server-owned role authority, with no row also resolving to Customer. Staff can manage catalog metadata, prices, and stock and read order requests. Admin adds archive/restore and user management, including role assignment and another user's password reset. All three roles can still use normal shopping and their own account profile. See [the staff roles spec](specs/staff/SPEC.md). The deprecated Boolean access mutations and customer-named GraphQL fields remain only for compatible clients.
+The storefront has three roles: Customer, Staff, and Admin. Signup creates a Customer; `user_roles` is the sole server-owned role authority, with no row also resolving to Customer. Staff can manage catalog metadata, prices, and stock; read order requests; and process allowed status transitions. Admin adds archive/restore and user management, including role assignment and another user's password reset. All three roles can still use normal shopping and their own account profile. See [the staff roles spec](specs/staff/SPEC.md). The deprecated Boolean access mutations and customer-named GraphQL fields remain only for compatible clients.
 
 Start the API to apply migrations, or run `bun run db:migrate` using the configured `.env`. Register the intended account through the storefront, verify the account identity, and obtain its exact user ID from the signed-in `viewer { id role }` GraphQL query or the local database. Run these operator commands **from this backend directory**, against the intended `DATABASE_PATH`:
 
@@ -129,7 +130,7 @@ Both commands are idempotent and reject unknown users. They do not create accoun
 
 Metadata edits exclude stock; inventory changes are signed deltas applied to current stored stock. A lost mutation response leaves the result uncertain: check inventory and decide deliberately before submitting another adjustment. Archive hides books and rejects new checkout lines while preserving earlier order snapshots; restore uses the same book ID. Low stock means five or fewer units.
 
-The Activity API records successful catalog changes, role changes, and another-user password resets in the same transaction as the business write. `adminActivity` is Admin-only; Staff changes are attributed but Staff cannot read history. It has a default limit of 20, maximum 50, newest-first ordering, and actor/action/changed-field/target/UTC-range filters. The log starts after the updated backend runs with `0005_panoramic_invisible_woman` applied; prior changes are not backfilled. The operator command records an `OPERATOR` event named **Operator command**, never an inferred person.
+The Activity API records successful catalog changes, role changes, another-user password resets, and order status changes in the same transaction as the business write. Cancellation also records each restored book stock change. `adminActivity` is Admin-only; Staff changes are attributed but Staff cannot read history. It has a default limit of 20, maximum 50, newest-first ordering, and actor/action/changed-field/target/UTC-range filters. The log starts after the updated backend runs with `0005_panoramic_invisible_woman` applied; prior changes are not backfilled. The operator command records an `OPERATOR` event named **Operator command**, never an inferred person.
 
 Before migrating persisted data, stop writers and make a consistent SQLite backup (including any required WAL state, or use SQLite's backup API). The staff-role migration copies old admin memberships as Admin and drops the old table. Activity migration `0005_panoramic_invisible_woman` is additive and preserves existing data; an earlier compatible binary may ignore its table but will not record events. Preserve the table and document any resulting history gap, or restore the matching pre-migration backup with compatible application versions. The test suites use isolated databases and do not grant development/production access.
 
@@ -139,7 +140,7 @@ See [the admin spec](specs/admin/SPEC.md) for the full contract.
 
 Edit `src/database/schema.ts`, then run `bun run db:generate` and review and commit the generated SQL and metadata in `drizzle/`. Better Auth table updates begin with `auth.cli.ts` and the Better Auth schema generator; review `src/database/auth-schema.ts` before generating a Drizzle migration. Apply migrations with `bun run db:migrate`; startup uses the same wrapper. Drizzle Kit is configured in `drizzle.config.ts`.
 
-The wrapper verifies the original `user_version = 1` schema and foreign keys before recording the matching Drizzle baseline, preserving catalog and order data. Fresh databases run the baseline normally. Unsupported legacy schemas or versions fail startup. Keep `drizzle/` beside the built application when deploying. Use the wrapper for existing databases: direct `drizzle-kit migrate` bypasses legacy adoption. Back up database files before applying schema changes.
+The wrapper verifies the original `user_version = 1` schema and foreign keys before recording the matching Drizzle baseline. Fresh and zero-order pre-workflow databases migrate normally. A populated pre-workflow orders table without `status` fails before migration writes; use an explicitly authorized development reset/reseed or a separately designed data migration rather than fabricating status history. It never resets a database automatically. Unsupported legacy schemas or versions fail startup. Keep `drizzle/` beside the built application when deploying. Use the wrapper for existing databases: direct `drizzle-kit migrate` bypasses legacy adoption. Back up database files before applying schema changes.
 
 ## Checks
 

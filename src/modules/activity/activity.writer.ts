@@ -12,7 +12,7 @@ export function insertActivity(
   actor: ActivityActor,
   event: {
     action: (typeof activityActions)[number]
-    targetType: 'BOOK' | 'USER'
+    targetType: 'BOOK' | 'USER' | 'ORDER'
     targetId: string
     targetName: string
     changes: ActivityChange[]

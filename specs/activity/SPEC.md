@@ -15,7 +15,7 @@ Provide accountability for Staff/Admin catalog changes and Admin/operator accoun
 - Book creation, metadata/price edits, manual stock adjustments, archive and restore.
 - Role changes through `setUserRole`, both retained Boolean compatibility mutations, and `admin:access` grant/revoke.
 - Successful Admin password resets through canonical and compatibility mutations.
-- An Admin-only paginated activity query used for global activity and individual book history.
+- Order-status transitions and cancellation stock restoration, plus an Admin-only paginated activity query used for global activity and individual book history.
 
 **Out of scope**
 
@@ -37,12 +37,12 @@ Provide accountability for Staff/Admin catalog changes and Admin/operator accoun
 
 ## Storage and migration
 
-`activity_events` in [schema.ts](../../src/database/schema.ts) has an integer primary-key `id`; nullable `actor_user_id` referencing `user.id` with ON DELETE SET NULL; immutable `actor_name` and nullable `actor_role` snapshots; `source` (`GRAPHQL` or `OPERATOR`); `action`; `target_type` (`BOOK` or `USER`); opaque text `target_id`; `target_name` snapshot; validated `changes_json`; nullable integer `stock_delta`; and server-generated UTC `created_at`.
+`activity_events` in [schema.ts](../../src/database/schema.ts) has an integer primary-key `id`; nullable `actor_user_id` referencing `user.id` with ON DELETE SET NULL; immutable `actor_name` and nullable `actor_role` snapshots; `source` (`GRAPHQL` or `OPERATOR`); `action`; `target_type` (`BOOK`, `USER`, or `ORDER`); opaque text `target_id`; `target_name` snapshot; validated `changes_json`; nullable integer `stock_delta`; and server-generated UTC `created_at`.
 
 - User actors require a role snapshot; operator actors have null user ID/role and the name **Operator command**. Never infer a named human operator from a CLI invocation.
 - Target IDs deliberately have no cascading foreign key. Snapshot names preserve context if a book is renamed or an account disappears.
 - Each change has `{ field, before, after }`. Values are strings or null: text unchanged, integer cents/stock as base-10 strings, Boolean state as `true`/`false`, and roles as enum names. Null means no previous value for creation; missing changes are omitted.
-- Allowlist fields: TITLE, AUTHOR, GENRE, DESCRIPTION, PRICE_CENTS, STOCK, ARCHIVED, ROLE. Never serialize complete request, account, credential, or session objects. No passwords, hashes, tokens, cookies, IP addresses, or email snapshots.
+- Allowlist fields: TITLE, AUTHOR, GENRE, DESCRIPTION, PRICE_CENTS, STOCK, ARCHIVED, ROLE, ORDER_STATUS. Never serialize complete request, account, credential, or session objects. No passwords, hashes, tokens, cookies, IP addresses, email snapshots, or cancellation text.
 - Generated Drizzle migration `0005_panoramic_invisible_woman` and its metadata add indexes for newest-first listing, `(target_type, target_id, id)`, and actor lookup. Existing business data remains unchanged; the new log starts empty when the updated backend migrates a database.
 
 ## Events and atomic write behavior
@@ -53,6 +53,7 @@ Provide accountability for Staff/Admin catalog changes and Admin/operator accoun
 - `BOOK_ARCHIVED` / `BOOK_RESTORED`: archive-state transition only.
 - `USER_ROLE_CHANGED`: role before/after, including CLI recovery and Boolean compatibility mappings.
 - `USER_PASSWORD_RESET`: action/actor/target only, with an empty changes list. Hash before entering the transaction, then update credentials, revoke sessions, and insert the event together.
+- `ORDER_STATUS_CHANGED`: status before/after with an ORDER target named `Order request #<id>`; customer contact and cancellation-reason text are excluded. A cancellation also writes the existing `BOOK_STOCK_ADJUSTED` event for each restored book in the same transaction.
 - Unchanged normalized metadata, unchanged role/archive state, denied/invalid requests, and rolled-back writes produce no event. Creation produces one event; a successful reset produces one event even though password equality is never inspected.
 
 `src/modules/activity/` supplies event shapes, query schema/resolver/service/validation/repository, and a shared insertion function that receives the active transaction. [Book repositories/services](../../src/modules/books/admin-book.repository.ts), [admin repository/resolvers](../../src/modules/admin/admin.repository.ts), and [operator CLI](../../src/modules/admin/admin-access-cli.ts) pass server-owned actor context. Old values are read inside the transaction, normalized values are compared, and the write and event commit together. Compatibility fields delegate to the same audited write path exactly once; CLI call sites supply operator context explicitly.
@@ -72,7 +73,7 @@ Provide accountability for Staff/Admin catalog changes and Admin/operator accoun
 
 - [x] Each successful in-scope change creates exactly one matching event; combined metadata/price edits remain one event.
 - [x] Staff and Admin attribution, self-demotion actor role, and explicit operator-source recovery are correct.
-- [x] No-ops, rejected writes, and checkout stock reductions create no activity events.
+- [x] No-ops, rejected writes, and checkout stock reductions create no activity events; real order-status changes create one ORDER_STATUS_CHANGED event and cancellation restoration records stock events atomically.
 - [x] Admin can paginate/filter global and book history; every non-Admin request is denied before validation/lookup.
 - [x] Historical actor/target names remain readable after rename/deletion; existing records remain unmodified by migration.
 

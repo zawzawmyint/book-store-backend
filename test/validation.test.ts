@@ -10,7 +10,10 @@ describe('service input validation', () => {
   const customer = { id: 'user-1', name: 'Ada Reader', email: 'ada@example.com' }
   it('forwards session contact and validated order lines, and normalizes search', () => {
     const saveOrder = vi.fn()
-    createOrderService({ saveOrder, listOrders: vi.fn() }).placeOrder(valid, customer)
+    createOrderService({ getOrder: vi.fn(), saveOrder, listOrders: vi.fn() }).placeOrder(
+      valid,
+      customer,
+    )
     expect(saveOrder).toHaveBeenCalledWith(customer, valid.items)
     const listBooks = vi.fn(() => ({ total: 0, items: [] }))
     createBookService({ listBooks, listGenres: () => [], getBook: () => null }).listBooks(
@@ -52,7 +55,7 @@ describe('service input validation', () => {
   ])('rejects invalid order input before writes: %j', (override) => {
     const saveOrder = vi.fn()
     expect(() =>
-      createOrderService({ saveOrder, listOrders: vi.fn() }).placeOrder(
+      createOrderService({ getOrder: vi.fn(), saveOrder, listOrders: vi.fn() }).placeOrder(
         { ...valid, ...override },
         customer,
       ),
@@ -67,7 +70,11 @@ describe('service input validation', () => {
   ])('rejects invalid account order pagination: %j', ({ limit, offset }) => {
     const listOrders = vi.fn()
     expect(() =>
-      createOrderService({ saveOrder: vi.fn(), listOrders }).myOrders(customer.id, limit, offset),
+      createOrderService({ getOrder: vi.fn(), saveOrder: vi.fn(), listOrders }).myOrders(
+        customer.id,
+        limit,
+        offset,
+      ),
     ).toThrow(ValidationError)
     expect(listOrders).not.toHaveBeenCalled()
   })

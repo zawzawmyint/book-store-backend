@@ -16,7 +16,7 @@ export function createAdminOrderResolvers(
     adminOrders: (_, args, context) => {
       guard(context.user, 'VIEW_ORDERS')
       try {
-        return service.list(args.limit ?? 20, args.offset ?? 0)
+        return service.list(args.limit ?? 20, args.offset ?? 0, args.status ?? 'ALL')
       } catch (error) {
         return asGraphQLError(error)
       }

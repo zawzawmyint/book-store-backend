@@ -1,3 +1,4 @@
+import { seedSubmittedOrder } from './order-fixtures.js'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import request from 'supertest'
 import type Database from 'better-sqlite3'
@@ -24,9 +25,7 @@ beforeEach(async () => {
   insert.run('c-new', 'Newer Account', 'newer@example.com', 2_000, 2_000)
   insert.run('b-old', 'Older Account', 'older@example.com', 1_000, 1_000)
   insert.run('w-wild', '100% Account', 'wild_card@example.com', 500, 500)
-  db.prepare(
-    "INSERT INTO orders (customer_name, email, total_cents) VALUES ('Guest Only', 'guest-only@example.com', 100)",
-  ).run()
+  seedSubmittedOrder(db, { name: 'Guest Only', email: 'guest-only@example.com', totalCents: 100 })
   for (const email of ['admin@example.com', 'customer@example.com']) {
     const res = await request(app)
       .post('/api/auth/sign-up/email')
