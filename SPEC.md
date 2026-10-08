@@ -1,5 +1,9 @@
 # The Quiet Shelf API specification
 
+> **Implemented infrastructure:** [Database support](specs/database-support/SPEC.md) provides SQLite development/test and PostgreSQL production support with shared application behavior.
+
+> **Proposed next feature:** [Delivery](specs/delivery/SPEC.md) specifies delivery-only checkout and staff fulfillment. It is not implemented; current behavior below remains unchanged.
+
 > This document describes implemented behavior. See [the Stripe checkout feature spec](specs/stripe-checkout/SPEC.md) for test-payment details, [the authentication feature spec](specs/authentication/SPEC.md) for the account contract, and [the demo-login feature spec](specs/demo-login/SPEC.md) for optional local demo accounts.
 
 > The implemented role and permission model is defined in [the staff roles specification](specs/staff/SPEC.md), with user-directory compatibility details in [the user directory specification](specs/users/SPEC.md).
@@ -30,7 +34,7 @@ New orders require Stripe hosted Checkout in test mode; delivery is not integrat
 ## Catalog
 
 - `books(search, limit, offset)` returns `{ total, items }`. Defaults are `limit: 12` and `offset: 0`.
-- Search trims the input and matches title, author, or genre as case-insensitive SQLite `LIKE` text. SQL wildcard characters in input are treated literally.
+- Search trims the input and matches title, author, or genre as case-insensitive text. SQL wildcard characters in input are treated literally on both supported databases.
 - The service accepts search text up to 100 characters, a whole-number limit from 1 to 24, and a nonnegative whole-number offset.
 - `book(id)` returns one book or `null` when its ID is invalid, missing, or archived. Public lookups accept digit-only IDs, including leading zeroes such as `01`; this is distinct from strict positive safe-integer IDs used by administrative operations.
 - `genres` returns the distinct catalog genres in alphabetical order.
@@ -39,11 +43,10 @@ New orders require Stripe hosted Checkout in test mode; delivery is not integrat
 ## Order requests
 
 - `createCheckout(input)` requires a Better Auth session and accepts 1 to 20 distinct
-  book lines plus a UUID request key. Each line has a book ID and quantity from 1 to
-  10. Customer name, email, and user ID come from the server session. `placeOrder`
+  book lines plus a UUID request key. Each line has a book ID and quantity from 1 to 10. Customer name, email, and user ID come from the server session. `placeOrder`
   remains deprecated for schema compatibility and rejects new placement.
 - Module-local Zod schemas require numeric-string book IDs and integer quantities. Services translate the first input failure into GraphQL `extensions.code: BAD_USER_INPUT`; exact validation wording is not a stable API guarantee. Missing sessions return `UNAUTHENTICATED`. The repository checks book existence and stock and calculates totals from stored prices.
-- In one SQLite transaction, the server writes a pending payment-required order and
+- In one provider-scoped transaction, the server writes a pending payment-required order and
   its line items, reserves stock, and creates the initial status event. A failed
   validation or stock check leaves no partial order. Stripe work happens outside the
   transaction through durable operations.
@@ -75,17 +78,20 @@ New orders require Stripe hosted Checkout in test mode; delivery is not integrat
 
 ## Data and operation
 
-- Drizzle defines storefront tables in `src/database/schema.ts` and Better Auth's `user`, `session`, `account`, and `verification` tables in `src/database/auth-schema.ts`, retaining foreign keys and check constraints. Queries stay behind repository interfaces. SQL migrations and metadata are committed under `drizzle/`. Migrations run when the database opens; `bun run db:generate` generates changes and `bun run db:migrate` applies them explicitly through the compatibility wrapper.
-- The migration wrapper verifies the original `user_version = 1` schema before adopting its baseline in the Drizzle journal. Fresh and empty old databases can migrate. A populated pre-workflow orders table without `status` fails before any migration write, requiring an explicit development reset rather than inventing status history. Unsupported versions or legacy schemas fail startup.
-- Migration `0004_sad_reavers` copies existing `admin_memberships` to `user_roles` as Admin and drops `admin_memberships`. Before applying it to production, stop writers and make a consistent SQLite backup. Do not run an older backend binary against that migrated database; rollback requires restoring the pre-migration backup with compatible application versions.
-- Migration `0005_panoramic_invisible_woman` adds the additive `activity_events` table and its indexes without changing existing business data. Apply it through the migration wrapper with writers stopped and a consistent SQLite backup. A prior compatible binary can ignore the table but will leave a documented logging gap; preserve the table during rollback.
-- Migration `0006_serious_killraven` adds order statuses and timeline events. It is supported only for fresh or empty pre-workflow order data. Do not run it against a populated old-order database: its guard fails safely and requires an explicit local reset/reseed or a separately designed data migration. Never make that reset automatic or apply it to production data.
-- Migration `0007_youthful_crystal` adds payment records and marks existing workflow
+- Drizzle defines provider-specific storefront and Better Auth tables while preserving one logical data contract. SQLite definitions are in `src/database/schema.ts` and `auth-schema.ts`; PostgreSQL definitions are in `src/database/postgresql/`. Repositories expose asynchronous provider-neutral operations, while provider adapters own driver calls, transactions, locking, and migration details. SQLite SQL/migration metadata remain in `drizzle/`; PostgreSQL has an independent baseline in `drizzle/postgresql/`.
+- SQLite retains automatic migration and its legacy-adoption wrapper, which verifies the original `user_version = 1` schema before adopting its baseline. PostgreSQL migration is explicit through `bun run db:migrate`; startup verifies the migration journal and required relations before serving requests. A populated pre-workflow SQLite orders table without `status` fails before any migration write, requiring an explicit development reset rather than inventing status history. Unsupported SQLite legacy schemas or versions fail startup.
+- Historical SQLite migration/recovery notes: migration `0004_sad_reavers` copies existing `admin_memberships` to `user_roles` as Admin and drops `admin_memberships`. Before applying it to a persistent SQLite database, stop writers and make a consistent SQLite backup. Do not run an older backend binary against that migrated database; rollback requires restoring the pre-migration backup with compatible application versions.
+- Historical SQLite migration/recovery notes: migration `0005_panoramic_invisible_woman` adds the additive `activity_events` table and its indexes without changing existing business data. Apply it through the SQLite migration wrapper with writers stopped and a consistent SQLite backup. A prior compatible binary can ignore the table but will leave a documented logging gap; preserve the table during rollback.
+- Historical SQLite migration/recovery notes: migration `0006_serious_killraven` adds order statuses and timeline events. It is supported only for fresh or empty pre-workflow SQLite order data. Do not run it against a populated old-order SQLite database: its guard fails safely and requires an explicit local reset/reseed or a separately designed data migration. Never make that reset automatic or apply it to production data.
+- Historical SQLite migration/recovery notes: migration `0007_youthful_crystal` adds payment records and marks existing workflow
   orders `LEGACY_UNPAID` without changing their IDs, lines, totals, history, or
   processing rules. Back up persisted data before applying it.
-- Development seeds twelve sample books once. Production does not seed automatically; `bun run db:seed` is explicit. `bun run demo:seed` is a separate local-only account seed that refuses production before opening the database; it neither seeds nor resets catalog/order data.
-- `DATABASE_PATH`, `PORT`, `FRONTEND_ORIGIN`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`,
-  `NODE_ENV`, and the Stripe checkout configuration are validated at startup. Checkout
+- SQLite development seeds twelve sample books once. PostgreSQL never auto-seeds; `bun run db:seed` is explicit for either selected provider and refuses production before opening a database. `bun run demo:seed` is a separate local-only account seed that also refuses production before opening the database; neither seed command resets catalog/order data.
+- `DB_PROVIDER`, `DATABASE_PATH`, `DATABASE_URL`, `PG_POOL_MAX`, `PG_TLS_MODE`,
+  `PG_CA_FILE`, `PORT`, `FRONTEND_ORIGIN`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`,
+  `NODE_ENV`, and the Stripe checkout configuration are validated at startup. SQLite is
+  the development/test default; production requires PostgreSQL and verified TLS.
+  Checkout
   is disabled by default and enabled only with test server and webhook signing secrets;
   live keys and live provider resources are rejected. The database file is runtime data
   and is not committed.
@@ -98,3 +104,6 @@ New orders require Stripe hosted Checkout in test mode; delivery is not integrat
   workflow permissions/transitions, refunds, migration guards, configuration, and
   Activity atomicity.
 - Run `bun run lint` and `bun run build` for static and build checks.
+- `bun run test:postgres` provisions disposable PostgreSQL 17.10 and runs shared
+  provider-parity, migration, CLI, and compiled-application checks. Browser journeys
+  run against SQLite by default and PostgreSQL through `bun run test:postgres:browser`.

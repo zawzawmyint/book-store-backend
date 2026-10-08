@@ -1,15 +1,6 @@
-import type Database from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
-import { and, eq, gt, isNull, lte, sql } from 'drizzle-orm'
-import { drizzle } from 'drizzle-orm/better-sqlite3'
-import {
-  books,
-  checkoutRequests,
-  orderItems,
-  orders,
-  paymentEvents,
-  paymentOperations,
-} from '../../database/schema.js'
+import { normalizeStore, type DatabaseInput } from '../../database/persistence.js'
+import type { DomainStore, OrderRow, OperationRow } from '../../database/store.types.js'
 import { ConflictError, ValidationError } from '../../shared/errors.js'
 import { createOrderRepository } from '../orders/order.repository.js'
 import { createAdminOrderRepository } from '../orders/admin-order.repository.js'
@@ -17,27 +8,18 @@ import { insertActivity } from '../activity/activity.writer.js'
 import { systemActor, type ActivityActor } from '../activity/activity.types.js'
 import type { ProviderEvent, ProviderRefund, ProviderSession } from './payment.provider.js'
 import type { OrderCustomer, OrderItemInput } from '../orders/order.types.js'
-
-export function createPaymentRepository(db: Database.Database, now: () => number) {
-  const orm = drizzle(db),
-    customerOrders = createOrderRepository(db),
-    workflow = createAdminOrderRepository(db)
-  const get = (id: number) => orm.select().from(orders).where(eq(orders.id, id)).get()
-  const operation = (id: string) =>
-    orm.select().from(paymentOperations).where(eq(paymentOperations.id, id)).get()
-  function paymentChange(
+export function createPaymentRepository(input: DatabaseInput, now: () => number) {
+  const store = normalizeStore(input)
+  async function paymentChange(
+    tx: DomainStore,
     id: number,
-    status: typeof orders.$inferSelect.paymentStatus,
-    extra: Partial<typeof orders.$inferInsert> = {},
+    status: OrderRow['paymentStatus'],
+    extra: Partial<OrderRow> = {},
   ) {
-    const before = get(id)!
-    orm
-      .update(orders)
-      .set({ paymentStatus: status, ...extra })
-      .where(eq(orders.id, id))
-      .run()
+    const before = (await tx.order(id))!
+    await tx.updateOrder(id, { paymentStatus: status, ...extra })
     if (before.paymentStatus !== status)
-      insertActivity(orm, systemActor, {
+      await insertActivity(tx, systemActor, {
         action: 'ORDER_PAYMENT_CHANGED',
         targetType: 'ORDER',
         targetId: String(id),
@@ -45,29 +27,20 @@ export function createPaymentRepository(db: Database.Database, now: () => number
         changes: [{ field: 'ORDER_PAYMENT_STATUS', before: before.paymentStatus, after: status }],
       })
   }
-  function queueRefund(id: number) {
-    const existing = orm
-      .select()
-      .from(paymentOperations)
-      .where(and(eq(paymentOperations.orderId, id), eq(paymentOperations.kind, 'REFUND')))
-      .all()
-    if (
-      existing.some((op) => op.state === 'PENDING' || op.state === 'DONE' || op.state === 'MANUAL')
-    )
-      return
-    paymentChange(id, 'REFUND_PENDING', { stripeRefundId: null })
-    orm
-      .insert(paymentOperations)
-      .values({
-        id: `refund:${id}:${existing.length + 1}`,
-        orderId: id,
-        kind: 'REFUND',
-        createdAt: now(),
-        retryAt: 0,
-      })
-      .run()
+  async function queueRefund(tx: DomainStore, id: number) {
+    await tx.order(id)
+    const existing = await tx.refundOperations(id)
+    if (existing.some((op) => ['PENDING', 'DONE', 'MANUAL'].includes(op.state))) return
+    await paymentChange(tx, id, 'REFUND_PENDING', { stripeRefundId: null })
+    await tx.insertOperation({
+      id: `refund:${id}:${existing.length + 1}`,
+      orderId: id,
+      kind: 'REFUND',
+      createdAt: now(),
+      retryAt: 0,
+    })
   }
-  function sessionMatches(row: typeof orders.$inferSelect, s: ProviderSession) {
+  function sessionMatches(row: OrderRow, s: ProviderSession) {
     return (
       !s.livemode &&
       s.id === row.stripeSessionId &&
@@ -84,191 +57,185 @@ export function createPaymentRepository(db: Database.Database, now: () => number
           s.intentSucceeded))
     )
   }
-  function reconcileSession(s: ProviderSession, eventId?: string) {
-    return db
-      .transaction(() => {
-        if (
-          eventId &&
-          orm.select().from(paymentEvents).where(eq(paymentEvents.id, eventId)).get()?.processedAt
-        )
-          return
-        const row = orm.select().from(orders).where(eq(orders.stripeSessionId, s.id)).get()
-        if (!row) {
-          if (eventId) finishEvent(eventId)
-          return
-        }
-        if (!sessionMatches(row, s)) {
-          if (eventId) finishEvent(eventId, 'Provider resource did not match saved order')
-          else throw new ValidationError('Provider resource did not match saved order')
-          return
-        }
-        if (s.paid) {
-          if (row.paymentStatus === 'PENDING' || row.paymentStatus === 'EXPIRED') {
-            paymentChange(row.id, 'PAID', {
-              paidAt: new Date(now()).toISOString(),
-              stripePaymentIntentId: s.paymentIntentId,
-              checkoutUrl: null,
-            })
-            if (row.status === 'CANCELLED') queueRefund(row.id)
-          }
-        } else if (s.status === 'expired' && row.paymentStatus === 'PENDING') {
-          const intent = row.cancellationIntent
-            ? (JSON.parse(row.cancellationIntent) as {
-                input: Parameters<typeof workflow.setStatus>[0]
-                actor: ActivityActor
-              })
-            : null
-          workflow.setStatus(
-            intent?.input ?? {
-              id: String(row.id),
-              expectedStatus: row.status,
-              status: 'CANCELLED',
-              cancellationReason: 'Payment window expired',
-            },
-            intent?.actor ?? systemActor,
-            true,
-          )
-          paymentChange(row.id, 'EXPIRED', { checkoutUrl: null })
-        }
-        if (eventId) finishEvent(eventId)
-      })
-      .immediate()
+  async function finishEvent(tx: DomainStore, id: string, error?: string) {
+    await tx.updateEvent(id, { processedAt: now(), safeError: error ?? null })
   }
-  function finishEvent(id: string, error?: string) {
-    orm
-      .update(paymentEvents)
-      .set({ processedAt: now(), safeError: error ?? null })
-      .where(eq(paymentEvents.id, id))
-      .run()
+  async function reconcileSessionIn(tx: DomainStore, s: ProviderSession, eventId?: string) {
+    if (eventId && (await tx.event(eventId))?.processedAt) return
+    const row = await tx.orderBySession(s.id)
+    if (!row) {
+      if (eventId) await finishEvent(tx, eventId)
+      return
+    }
+    if (!sessionMatches(row, s)) {
+      if (eventId) await finishEvent(tx, eventId, 'Provider resource did not match saved order')
+      else throw new ValidationError('Provider resource did not match saved order')
+      return
+    }
+    if (s.paid) {
+      if (row.paymentStatus === 'PENDING' || row.paymentStatus === 'EXPIRED') {
+        await paymentChange(tx, row.id, 'PAID', {
+          paidAt: new Date(now()).toISOString(),
+          stripePaymentIntentId: s.paymentIntentId,
+          checkoutUrl: null,
+        })
+        if (row.status === 'CANCELLED') await queueRefund(tx, row.id)
+      }
+    } else if (s.status === 'expired' && row.paymentStatus === 'PENDING') {
+      const workflow = createAdminOrderRepository(tx)
+      const intent = row.cancellationIntent
+        ? (JSON.parse(row.cancellationIntent) as {
+            input: Parameters<typeof workflow.setStatus>[0]
+            actor: ActivityActor
+          })
+        : null
+      await workflow.setStatus(
+        intent?.input ?? {
+          id: String(row.id),
+          expectedStatus: row.status,
+          status: 'CANCELLED',
+          cancellationReason: 'Payment window expired',
+        },
+        intent?.actor ?? systemActor,
+        true,
+      )
+      await paymentChange(tx, row.id, 'EXPIRED', { checkoutUrl: null })
+    }
+    if (eventId) await finishEvent(tx, eventId)
+  }
+  async function reconcileRefundIn(tx: DomainStore, r: ProviderRefund, eventId?: string) {
+    if (eventId && (await tx.event(eventId))?.processedAt) return
+    const row = await tx.orderByRefund(r.id)
+    if (!row) {
+      if (eventId) await finishEvent(tx, eventId)
+      return
+    }
+    if (
+      r.livemode ||
+      r.paymentIntentId !== row.stripePaymentIntentId ||
+      r.orderId !== String(row.id) ||
+      r.amountCents !== row.totalCents ||
+      r.currency !== 'usd' ||
+      row.status !== 'CANCELLED'
+    ) {
+      if (eventId) await finishEvent(tx, eventId, 'Provider resource did not match saved order')
+      else throw new ValidationError('Provider resource did not match saved order')
+      return
+    }
+    if (row.paymentStatus !== 'REFUNDED')
+      await paymentChange(
+        tx,
+        row.id,
+        r.status === 'succeeded'
+          ? 'REFUNDED'
+          : r.status === 'failed'
+            ? 'REFUND_FAILED'
+            : 'REFUND_PENDING',
+        r.status === 'succeeded' ? { refundedAt: new Date(now()).toISOString() } : {},
+      )
+    if (r.status === 'failed')
+      for (const op of await tx.refundOperations(row.id))
+        if (op.state !== 'MANUAL')
+          await tx.updateOperation(op.id, { state: 'FAILED', safeError: 'Refund failed' })
+    if (eventId) await finishEvent(tx, eventId)
+  }
+  // Lock the order before its operation everywhere, preventing lease/order deadlocks.
+  async function owned(tx: DomainStore, op: OperationRow) {
+    await tx.order(op.orderId)
+    return (await tx.operation(op.id))?.leaseToken === op.leaseToken && !!op.leaseToken
   }
   return {
-    get,
-    operation,
-    customerOrders,
-    workflow,
-    lines(id: number) {
-      return orm.select().from(orderItems).where(eq(orderItems.orderId, id)).all()
-    },
+    get: (id: number) => store.order(id),
+    operation: (id: string) => store.operation(id),
+    customerOrders: createOrderRepository(store),
+    workflow: createAdminOrderRepository(store),
+    lines: (id: number) => store.lines([id]),
     reserve(input: { items: OrderItemInput[]; requestKey: string }, customer: OrderCustomer) {
-      return db
-        .transaction(() => {
-          const linesJson = JSON.stringify(
-            [...input.items].sort((a, b) => Number(a.bookId) - Number(b.bookId)),
-          )
-          const prior = orm
-            .select()
-            .from(checkoutRequests)
-            .where(
-              and(
-                eq(checkoutRequests.userId, customer.id),
-                eq(checkoutRequests.requestKey, input.requestKey),
-              ),
-            )
-            .get()
-          if (prior) {
-            if (prior.linesJson !== linesJson)
-              throw new ConflictError('Request key was already used with different books')
-            return get(prior.orderId)!
-          }
-          const total = input.items.reduce((sum, line) => {
-            const b = orm
-              .select()
-              .from(books)
-              .where(eq(books.id, Number(line.bookId)))
-              .get()
-            if (!b) throw new ValidationError(`Book ${line.bookId} was not found`)
-            return sum + b.priceCents * line.quantity
-          }, 0)
-          if (!Number.isSafeInteger(total) || total < 50 || total > 2147483647)
-            throw new ValidationError('Checkout total must be between 50 and 2147483647 cents')
-          const saved = customerOrders.saveOrder(customer, input.items),
-            id = Number(saved.id)
-          // Stable across retries; the minute guard avoids Stripe's 30-minute minimum
-          // rejecting a timestamp reduced by rounding or network latency.
-          orm
-            .update(orders)
-            .set({
-              paymentRequired: true,
-              paymentStatus: 'PENDING',
-              expiresAt: new Date(now() + 1860000).toISOString(),
-            })
-            .where(eq(orders.id, id))
-            .run()
-          orm
-            .insert(checkoutRequests)
-            .values({ userId: customer.id, requestKey: input.requestKey, linesJson, orderId: id })
-            .run()
-          orm
-            .insert(paymentOperations)
-            .values({
-              id: `checkout:${id}`,
-              orderId: id,
-              kind: 'CREATE_SESSION',
-              createdAt: now(),
-              retryAt: 0,
-            })
-            .run()
-          return get(id)!
+      return store.transaction(async (tx) => {
+        const sorted = [...input.items].sort((a, b) => Number(a.bookId) - Number(b.bookId)),
+          linesJson = JSON.stringify(sorted)
+        const prior = await tx.checkout(customer.id, input.requestKey)
+        if (prior) {
+          if (prior.linesJson !== linesJson)
+            throw new ConflictError('Request key was already used with different books')
+          return (await tx.order(prior.orderId))!
+        }
+        let total = 0
+        for (const line of sorted) {
+          const book = await tx.book(Number(line.bookId))
+          if (!book) throw new ValidationError(`Book ${line.bookId} was not found`)
+          total += book.priceCents * line.quantity
+        }
+        if (!Number.isSafeInteger(total) || total < 50 || total > 2147483647)
+          throw new ValidationError('Checkout total must be between 50 and 2147483647 cents')
+        const saved = await createOrderRepository(tx).saveOrder(customer, input.items),
+          id = Number(saved.id)
+        await tx.updateOrder(id, {
+          paymentRequired: true,
+          paymentStatus: 'PENDING',
+          expiresAt: new Date(now() + 1860000).toISOString(),
         })
-        .immediate()
-    },
-    claim(id: string) {
-      return db
-        .transaction(() => {
-          const op = operation(id)
-          if (!op || op.state !== 'PENDING' || op.leaseUntil > now() || op.retryAt > now())
-            return null
-          if (now() - op.createdAt >= 86400000) {
-            orm
-              .update(paymentOperations)
-              .set({
-                state: 'MANUAL',
-                safeError: 'Manual provider reconciliation required',
-                leaseUntil: 0,
-                leaseToken: null,
-              })
-              .where(eq(paymentOperations.id, id))
-              .run()
-            return null
-          }
-          const token = randomUUID()
-          orm
-            .update(paymentOperations)
-            .set({ leaseUntil: now() + 30000, leaseToken: token, attempts: op.attempts + 1 })
-            .where(eq(paymentOperations.id, id))
-            .run()
-          return { ...op, leaseToken: token, attempts: op.attempts + 1 }
+        await tx.insertCheckout({
+          userId: customer.id,
+          requestKey: input.requestKey,
+          linesJson,
+          orderId: id,
         })
-        .immediate()
+        await tx.insertOperation({
+          id: `checkout:${id}`,
+          orderId: id,
+          kind: 'CREATE_SESSION',
+          createdAt: now(),
+          retryAt: 0,
+        })
+        return (await tx.order(id))!
+      })
     },
-    completeSession(op: typeof paymentOperations.$inferSelect, s: ProviderSession) {
-      db.transaction(() => {
-        if (operation(op.id)?.leaseToken !== op.leaseToken) return
-        const row = get(op.orderId)!
-        // Association is saved before validating payment evidence, in the same transaction.
-        orm
-          .update(orders)
-          .set({
-            stripeSessionId: s.id,
-            checkoutUrl: s.url,
-            expiresAt: new Date(s.expiresAt * 1000).toISOString(),
+    async claim(id: string) {
+      const prior = await store.operation(id)
+      if (!prior) return null
+      return store.transaction(async (tx) => {
+        await tx.order(prior.orderId)
+        const op = await tx.operation(id)
+        if (!op || op.state !== 'PENDING' || op.leaseUntil > now() || op.retryAt > now())
+          return null
+        if (now() - op.createdAt >= 86400000) {
+          await tx.updateOperation(id, {
+            state: 'MANUAL',
+            safeError: 'Manual provider reconciliation required',
+            leaseUntil: 0,
+            leaseToken: null,
           })
-          .where(eq(orders.id, row.id))
-          .run()
-        reconcileSession(s)
-        orm
-          .update(paymentOperations)
-          .set({ state: 'DONE', leaseUntil: 0, leaseToken: null, safeError: null })
-          .where(eq(paymentOperations.id, op.id))
-          .run()
-      }).immediate()
+          return null
+        }
+        const token = randomUUID(),
+          attempts = op.attempts + 1
+        await tx.updateOperation(id, { leaseUntil: now() + 30000, leaseToken: token, attempts })
+        return { ...op, leaseToken: token, attempts }
+      })
     },
-    failOperation(op: typeof paymentOperations.$inferSelect, definitive: boolean) {
-      db.transaction(() => {
-        if (operation(op.id)?.leaseToken !== op.leaseToken) return
+    completeSession(op: OperationRow, s: ProviderSession) {
+      return store.transaction(async (tx) => {
+        if (!(await owned(tx, op))) return
+        await tx.updateOrder(op.orderId, {
+          stripeSessionId: s.id,
+          checkoutUrl: s.url,
+          expiresAt: new Date(s.expiresAt * 1000).toISOString(),
+        })
+        await reconcileSessionIn(tx, s)
+        await tx.updateOperation(
+          op.id,
+          { state: 'DONE', leaseUntil: 0, leaseToken: null, safeError: null },
+          op.leaseToken!,
+        )
+      })
+    },
+    failOperation(op: OperationRow, definitive: boolean) {
+      return store.transaction(async (tx) => {
+        if (!(await owned(tx, op))) return
         if (definitive) {
           if (op.kind === 'CREATE_SESSION') {
-            workflow.setStatus(
+            await createAdminOrderRepository(tx).setStatus(
               {
                 id: String(op.orderId),
                 expectedStatus: 'SUBMITTED',
@@ -278,158 +245,64 @@ export function createPaymentRepository(db: Database.Database, now: () => number
               systemActor,
               true,
             )
-            paymentChange(op.orderId, 'EXPIRED')
-          } else paymentChange(op.orderId, 'REFUND_FAILED')
+            await paymentChange(tx, op.orderId, 'EXPIRED')
+          } else await paymentChange(tx, op.orderId, 'REFUND_FAILED')
         }
-        orm
-          .update(paymentOperations)
-          .set({
+        await tx.updateOperation(
+          op.id,
+          {
             state: definitive ? 'FAILED' : 'PENDING',
             safeError: definitive ? 'Provider operation rejected' : 'Provider confirmation delayed',
             retryAt: now() + Math.min(60000 * 2 ** Math.min(op.attempts - 1, 5), 1800000),
             leaseUntil: 0,
             leaseToken: null,
-          })
-          .where(eq(paymentOperations.id, op.id))
-          .run()
-      }).immediate()
+          },
+          op.leaseToken!,
+        )
+      })
     },
-    saveRefund(op: typeof paymentOperations.$inferSelect, r: ProviderRefund) {
-      db.transaction(() => {
-        if (operation(op.id)?.leaseToken !== op.leaseToken) return
-        orm.update(orders).set({ stripeRefundId: r.id }).where(eq(orders.id, op.orderId)).run()
-        reconcileRefund(r)
-        orm
-          .update(paymentOperations)
-          .set({
+    saveRefund(op: OperationRow, r: ProviderRefund) {
+      return store.transaction(async (tx) => {
+        if (!(await owned(tx, op))) return
+        await tx.updateOrder(op.orderId, { stripeRefundId: r.id })
+        await reconcileRefundIn(tx, r)
+        await tx.updateOperation(
+          op.id,
+          {
             state: r.status === 'failed' ? 'FAILED' : 'DONE',
             leaseUntil: 0,
             leaseToken: null,
             safeError: r.status === 'failed' ? 'Refund failed' : null,
-          })
-          .where(eq(paymentOperations.id, op.id))
-          .run()
-      }).immediate()
+          },
+          op.leaseToken!,
+        )
+      })
     },
-    reconcileSession,
-    reconcileRefund,
-    queueRefund(id: number) {
-      db.transaction(() => queueRefund(id)).immediate()
-    },
+    reconcileSession: (s: ProviderSession, eventId?: string) =>
+      store.transaction((tx) => reconcileSessionIn(tx, s, eventId)),
+    reconcileRefund: (r: ProviderRefund, eventId?: string) =>
+      store.transaction((tx) => reconcileRefundIn(tx, r, eventId)),
+    queueRefund: (id: number) => store.transaction((tx) => queueRefund(tx, id)),
     cancellationIntent(id: number, intent: unknown) {
-      orm
-        .update(orders)
-        .set({ cancellationIntent: JSON.stringify(intent) })
-        .where(and(eq(orders.id, id), isNull(orders.cancellationIntent)))
-        .run()
+      return store.transaction(async (tx) => {
+        const row = await tx.order(id)
+        if (row && !row.cancellationIntent)
+          await tx.updateOrder(id, { cancellationIntent: JSON.stringify(intent) })
+      })
     },
-    queuedOperations() {
-      return orm
-        .select()
-        .from(paymentOperations)
-        .where(
-          and(
-            eq(paymentOperations.state, 'PENDING'),
-            lte(paymentOperations.retryAt, now()),
-            lte(paymentOperations.leaseUntil, now()),
-          ),
-        )
-        .limit(20)
-        .all()
-    },
-    pendingOrders(afterId = 0) {
-      return orm
-        .select()
-        .from(orders)
-        .where(
-          and(
-            eq(orders.paymentRequired, true),
-            gt(orders.id, afterId),
-            sql`(${orders.paymentStatus} IN ('PENDING','REFUND_PENDING') OR ${orders.cancellationIntent} IS NOT NULL)`,
-          ),
-        )
-        .orderBy(orders.id)
-        .limit(20)
-        .all()
-    },
-    queueEvent(event: ProviderEvent) {
-      orm
-        .insert(paymentEvents)
-        .values({ ...event, receivedAt: now() })
-        .onConflictDoNothing()
-        .run()
-    },
-    pendingEvents(afterId = '') {
-      return orm
-        .select()
-        .from(paymentEvents)
-        .where(and(isNull(paymentEvents.processedAt), gt(paymentEvents.id, afterId)))
-        .orderBy(paymentEvents.id)
-        .limit(20)
-        .all()
-    },
-    finishEvent,
-    recordMismatch(resourceId: string) {
-      orm
-        .insert(paymentEvents)
-        .values({
-          id: `review:${randomUUID()}`,
-          resourceId,
-          type: 'RECONCILIATION',
-          receivedAt: now(),
-          processedAt: now(),
-          safeError: 'Provider resource did not match saved order',
-        })
-        .run()
-    },
-  }
-  function reconcileRefund(r: ProviderRefund, eventId?: string) {
-    db.transaction(() => {
-      if (
-        eventId &&
-        orm.select().from(paymentEvents).where(eq(paymentEvents.id, eventId)).get()?.processedAt
-      )
-        return
-      const row = orm.select().from(orders).where(eq(orders.stripeRefundId, r.id)).get()
-      if (!row) {
-        if (eventId) finishEvent(eventId)
-        return
-      }
-      if (
-        r.livemode ||
-        r.paymentIntentId !== row.stripePaymentIntentId ||
-        r.orderId !== String(row.id) ||
-        r.amountCents !== row.totalCents ||
-        r.currency !== 'usd' ||
-        row.status !== 'CANCELLED'
-      ) {
-        if (eventId) finishEvent(eventId, 'Provider resource did not match saved order')
-        else throw new ValidationError('Provider resource did not match saved order')
-        return
-      }
-      if (row.paymentStatus !== 'REFUNDED')
-        paymentChange(
-          row.id,
-          r.status === 'succeeded'
-            ? 'REFUNDED'
-            : r.status === 'failed'
-              ? 'REFUND_FAILED'
-              : 'REFUND_PENDING',
-          r.status === 'succeeded' ? { refundedAt: new Date(now()).toISOString() } : {},
-        )
-      if (r.status === 'failed')
-        orm
-          .update(paymentOperations)
-          .set({ state: 'FAILED', safeError: 'Refund failed' })
-          .where(
-            and(
-              eq(paymentOperations.orderId, row.id),
-              eq(paymentOperations.kind, 'REFUND'),
-              sql`${paymentOperations.state} != 'MANUAL'`,
-            ),
-          )
-          .run()
-      if (eventId) finishEvent(eventId)
-    }).immediate()
+    queuedOperations: () => store.queuedOperations(now()),
+    pendingOrders: (id = 0) => store.pendingOrders(id),
+    queueEvent: (event: ProviderEvent) => store.insertEvent({ ...event, receivedAt: now() }),
+    pendingEvents: (id = '') => store.pendingEvents(id),
+    finishEvent: (id: string, error?: string) => finishEvent(store, id, error),
+    recordMismatch: (resourceId: string) =>
+      store.insertEvent({
+        id: `review:${randomUUID()}`,
+        resourceId,
+        type: 'RECONCILIATION',
+        receivedAt: now(),
+        processedAt: now(),
+        safeError: 'Provider resource did not match saved order',
+      }),
   }
 }

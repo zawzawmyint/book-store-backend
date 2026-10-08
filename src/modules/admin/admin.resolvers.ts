@@ -1,15 +1,14 @@
-import type Database from 'better-sqlite3'
 import type { MutationResolvers, QueryResolvers } from '../../graphql/generated/resolvers.js'
 import { UserRole } from '../../graphql/generated/resolvers.js'
 import type { AuthenticatedUser, GraphQLContext } from '../../graphql/context.js'
 import { rethrowResolverError } from '../../graphql/errors.js'
 import { validated } from '../../shared/validation.js'
 import { createPermissionGuard } from './admin.authorization.js'
-import { createAdminRepository } from './admin.repository.js'
+import type { createAdminRepository } from './admin.repository.js'
 import { ValidationError } from '../../shared/errors.js'
 import { adminUsersInputSchema, userPasswordSchema, userIdSchema } from './admin.validation.js'
 
-export function createAdminResolvers(db: Database.Database): {
+export function createAdminResolvers(repository: ReturnType<typeof createAdminRepository>): {
   Query: Pick<
     QueryResolvers<GraphQLContext>,
     'viewer' | 'adminUsers' | 'adminUser' | 'adminCustomers' | 'adminCustomer'
@@ -23,13 +22,15 @@ export function createAdminResolvers(db: Database.Database): {
     | 'resetCustomerPassword'
   >
 } {
-  const repository = createAdminRepository(db)
   const permissions = createPermissionGuard(repository.getUserRole)
   const guard = (user: GraphQLContext['user']) => permissions(user, 'MANAGE_USERS')
-  const run = <T>(context: GraphQLContext, action: (user: AuthenticatedUser) => T): T => {
-    const user = guard(context.user)
+  const run = async <T>(
+    context: GraphQLContext,
+    action: (user: AuthenticatedUser) => T,
+  ): Promise<Awaited<T>> => {
+    const user = await guard(context.user)
     try {
-      return action(user)
+      return await action(user)
     } catch (error) {
       return rethrowResolverError(error)
     }
@@ -61,33 +62,41 @@ export function createAdminResolvers(db: Database.Database): {
     args: { userId: string; enabled: boolean },
     context: GraphQLContext,
   ) =>
-    run(context, (user) => {
+    run(context, async (user) => {
       const userId = validated(userIdSchema, args.userId)
-      repository.setAdminAccess(userId, args.enabled, repository.getActivityActor(user.id))
-      return repository.getUser(userId)
+      await repository.setAdminAccess(
+        userId,
+        args.enabled,
+        await repository.getActivityActor(user.id),
+      )
+      return await repository.getUser(userId)
     })
   const resetUserPassword = async (
     _: unknown,
     args: { userId: string; newPassword: string },
     context: GraphQLContext,
   ) => {
-    const actor = guard(context.user)
+    const actor = await guard(context.user)
     try {
       const userId = validated(userIdSchema, args.userId)
       if (actor.id === userId) {
         throw new ValidationError('Change your own password from your profile.')
       }
       const newPassword = validated(userPasswordSchema, args.newPassword)
-      await repository.resetUserPassword(userId, newPassword, repository.getActivityActor(actor.id))
-      return repository.getUser(userId)
+      await repository.resetUserPassword(
+        userId,
+        newPassword,
+        await repository.getActivityActor(actor.id),
+      )
+      return await repository.getUser(userId)
     } catch (error) {
       return rethrowResolverError(error)
     }
   }
   return {
     Query: {
-      viewer: (_, _args, { user }) =>
-        user ? { id: user.id, role: repository.getUserRole(user.id) as UserRole } : null,
+      viewer: async (_, _args, { user }) =>
+        user ? { id: user.id, role: (await repository.getUserRole(user.id)) as UserRole } : null,
       adminUsers,
       adminUser,
       // Legacy fields share the canonical behavior and retain their schema types.
@@ -96,10 +105,14 @@ export function createAdminResolvers(db: Database.Database): {
     },
     Mutation: {
       setUserRole: (_, args, context) =>
-        run(context, (user) => {
+        run(context, async (user) => {
           const userId = validated(userIdSchema, args.userId)
-          repository.setUserRole(userId, args.role, repository.getActivityActor(user.id))
-          return repository.getUser(userId)
+          await repository.setUserRole(
+            userId,
+            args.role,
+            await repository.getActivityActor(user.id),
+          )
+          return await repository.getUser(userId)
         }),
       setUserAdminAccess,
       resetUserPassword,

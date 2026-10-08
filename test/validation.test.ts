@@ -25,14 +25,14 @@ describe('service input validation', () => {
     )
     expect(listBooks).not.toHaveBeenCalled()
   })
-  it('preserves nullable public lookups and leading-zero IDs before querying', () => {
+  it('preserves nullable public lookups and leading-zero IDs before querying', async () => {
     const getBook = vi.fn(() => null)
     const service = createBookService({ listBooks: vi.fn(), listGenres: () => [], getBook })
     for (const id of ['', 'abc', '-1', '1.5', ' 1 ']) {
-      expect(service.getBook(id)).toBeNull()
+      expect(await service.getBook(id)).toBeNull()
     }
     expect(getBook).not.toHaveBeenCalled()
-    service.getBook('01')
+    await service.getBook('01')
     expect(getBook).toHaveBeenCalledWith('01')
   })
   it.each([

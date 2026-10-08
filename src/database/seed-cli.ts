@@ -1,17 +1,15 @@
 import 'dotenv/config'
-import { mkdirSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
 import { loadConfig } from '../config/env.js'
-import { createDatabase } from './connection.js'
-import { seedBooks } from './seed.js'
+import { openDatabase } from './runtime.js'
+import { seedRuntimeBooks } from './runtime-seed.js'
 
-const { databasePath } = loadConfig()
-const path = resolve(databasePath)
-mkdirSync(dirname(path), { recursive: true })
-const db = createDatabase(path)
+const config = loadConfig()
+if (config.nodeEnv === 'production')
+  throw new Error('Sample catalog seeding is disabled in production')
+const database = await openDatabase(config)
 try {
-  seedBooks(db)
-  console.log(`Sample books seeded in ${path}`)
+  await seedRuntimeBooks(database.handle)
+  console.log('Sample catalog seed completed for the configured database.')
 } finally {
-  db.close()
+  await database.close()
 }

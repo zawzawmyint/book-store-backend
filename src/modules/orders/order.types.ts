@@ -36,9 +36,9 @@ export type CustomerOrder = OrderHistory['items'][number] & {
   }[]
 }
 export interface OrderRepository {
-  getOrderForUser(userId: string, id: string): CustomerOrder | null
-  saveOrder(customer: OrderCustomer, items: OrderItemInput[]): OrderReceipt
-  listOrders(userId: string, limit: number, offset: number): OrderHistory
+  getOrderForUser(userId: string, id: string): Promise<CustomerOrder | null>
+  saveOrder(customer: OrderCustomer, items: OrderItemInput[]): Promise<OrderReceipt>
+  listOrders(userId: string, limit: number, offset: number): Promise<OrderHistory>
 }
 
 export type WorkspaceOrder = {

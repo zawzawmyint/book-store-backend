@@ -1,30 +1,31 @@
-import type Database from 'better-sqlite3'
 import type { AuthenticatedUser, GraphQLContext } from '../../graphql/context.js'
 import type { QueryResolvers, MutationResolvers } from '../../graphql/generated/resolvers.js'
 import { rethrowResolverError } from '../../graphql/errors.js'
 import { createPermissionGuard, type Permission } from '../admin/admin.authorization.js'
-import { createAdminRepository } from '../admin/admin.repository.js'
+import type { createAdminRepository } from '../admin/admin.repository.js'
 import { createAdminBookService } from './admin-book.service.js'
-import { createAdminBookRepository } from './admin-book.repository.js'
+import type { createAdminBookRepository } from './admin-book.repository.js'
 
-export function createAdminBookResolvers(db: Database.Database): {
+export function createAdminBookResolvers(
+  repository: ReturnType<typeof createAdminBookRepository>,
+  roles: ReturnType<typeof createAdminRepository>,
+): {
   Query: Pick<QueryResolvers<GraphQLContext>, 'adminBooks' | 'adminBook'>
   Mutation: Pick<
     MutationResolvers<GraphQLContext>,
     'createBook' | 'updateBook' | 'adjustBookStock' | 'setBookArchived'
   >
 } {
-  const adminRepository = createAdminRepository(db)
-  const guard = createPermissionGuard(adminRepository.getUserRole)
-  const service = createAdminBookService(createAdminBookRepository(db))
-  const run = <T>(
+  const guard = createPermissionGuard(roles.getUserRole)
+  const service = createAdminBookService(repository)
+  const run = async <T>(
     context: GraphQLContext,
     action: (user: AuthenticatedUser) => T,
     permission: Permission = 'MANAGE_CATALOG',
-  ): T => {
-    const user = guard(context.user, permission)
+  ): Promise<Awaited<T>> => {
+    const user = await guard(context.user, permission)
     try {
-      return action(user)
+      return await action(user)
     } catch (error) {
       return rethrowResolverError(error)
     }
@@ -45,20 +46,20 @@ export function createAdminBookResolvers(db: Database.Database): {
     },
     Mutation: {
       createBook: (_, args, ctx) =>
-        run(ctx, (user) => service.create(args.input, adminRepository.getActivityActor(user.id))),
+        run(ctx, async (user) => service.create(args.input, await roles.getActivityActor(user.id))),
       updateBook: (_, args, ctx) =>
-        run(ctx, (user) =>
-          service.update(args.id, args.input, adminRepository.getActivityActor(user.id)),
+        run(ctx, async (user) =>
+          service.update(args.id, args.input, await roles.getActivityActor(user.id)),
         ),
       adjustBookStock: (_, args, ctx) =>
-        run(ctx, (user) =>
-          service.adjustStock(args.id, args.delta, adminRepository.getActivityActor(user.id)),
+        run(ctx, async (user) =>
+          service.adjustStock(args.id, args.delta, await roles.getActivityActor(user.id)),
         ),
       setBookArchived: (_, args, ctx) =>
         run(
           ctx,
-          (user) =>
-            service.archive(args.id, args.archived, adminRepository.getActivityActor(user.id)),
+          async (user) =>
+            service.archive(args.id, args.archived, await roles.getActivityActor(user.id)),
           'ARCHIVE_BOOKS',
         ),
     },

@@ -50,7 +50,15 @@ permissions, and history.
 Extend existing order schema sources; generate resolver/client types through codegen.
 
 ```graphql
-enum PaymentStatus { LEGACY_UNPAID PENDING PAID EXPIRED REFUND_PENDING REFUNDED REFUND_FAILED }
+enum PaymentStatus {
+  LEGACY_UNPAID
+  PENDING
+  PAID
+  EXPIRED
+  REFUND_PENDING
+  REFUNDED
+  REFUND_FAILED
+}
 type OrderPayment {
   required: Boolean!
   status: PaymentStatus!
@@ -100,7 +108,7 @@ extend type Mutation {
 1. Validate session/input and check the `(user_id, request_key)` mapping. Reusing
    a key with different normalized lines returns CONFLICT; matching retries reuse
    the original order and provider operation, even after a lost response.
-2. In one SQLite transaction, validate current catalog/stock, save immutable contact,
+2. In one provider-scoped transaction, validate current catalog/stock, save immutable contact,
    line-price and USD total snapshots, create Submitted/history, reserve inventory
    using the existing stock deduction, and persist a pending checkout operation.
    Reject totals below Stripe's USD minimum (50 cents) or beyond existing supported
@@ -115,7 +123,7 @@ extend type Mutation {
    then return the hosted URL. Build success/cancel URLs solely from configured
    FRONTEND_ORIGIN and the local order ID. Neither redirect changes payment state.
 
-Never hold a SQLite transaction across a Stripe network call. Use persisted
+Never hold a database transaction across a Stripe network call. Use persisted
 operation state and short leases to coordinate requests and the recovery worker.
 After a definitive creation rejection with no provider session, cancel and restock
 atomically. A timeout is uncertain: keep the reservation, recover using the original
@@ -219,22 +227,22 @@ events alone do not demonstrate local order association.
 ## Acceptance criteria and validation
 
 - [x] Saved totals/stock are authoritative; invalid, insufficient-stock or subminimum
-  orders create no reservation. Declines cannot show Paid or enable Staff acceptance.
+      orders create no reservation. Declines cannot show Paid or enable Staff acceptance.
 - [x] Lost responses, duplicate tabs, concurrent requests and recovery after restart
-  reuse one order/session/deduction for the same key; changed lines conflict.
+      reuse one order/session/deduction for the same key; changed lines conflict.
 - [x] Signed webhook or server reconciliation confirms exact provider amount/currency;
-  forged signatures, URLs, ownership and mismatched resources cannot mark Paid.
+      forged signatures, URLs, ownership and mismatched resources cannot mark Paid.
 - [x] Duplicate/out-of-order events and rollback failures do not duplicate local effects.
 - [x] New orders require payment; old orders remain explicitly unpaid and processable.
 - [x] Expiry and cancellation races confirm provider state before releasing stock;
-  archived-book and duplicate-line restoration retains existing correctness.
+      archived-book and duplicate-line restoration retains existing correctness.
 - [x] Paid cancellation queues one full refund; pending, successful, failed and retried
-  refunds remain accurate across network failure and API restart.
+      refunds remain accurate across network failure and API restart.
 - [x] Unexpected late payment on a Cancelled order refunds without reopening/restocking twice.
 - [x] Owner/session and Staff/Admin permissions protect every operation; system attribution
-  and safe Activity remain correct. No secrets/card details enter Git, application logs,
-  or client data. Stripe CLI listener output is local operational output and can display
-  its signing secret; keep it out of captured logs and documentation.
+      and safe Activity remain correct. No secrets/card details enter Git, application logs,
+      or client data. Stripe CLI listener output is local operational output and can display
+      its signing secret; keep it out of captured logs and documentation.
 - [x] Additive migration preserves existing IDs, lines, totals/history and legacy semantics.
 
 Focused provider/service/API, migration, atomic rollback, concurrency, restart,

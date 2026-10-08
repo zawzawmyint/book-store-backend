@@ -1,9 +1,11 @@
 import type Database from 'better-sqlite3'
-import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { betterAuth } from 'better-auth'
 import { APIError } from 'better-auth/api'
 import { drizzleAdapter } from '@better-auth/drizzle-adapter'
 import * as authSchema from './database/auth-schema.js'
+import * as postgresAuthSchema from './database/postgresql/auth-schema.js'
+import { normalizeDatabaseHandle, type DatabaseHandle } from './database/runtime.js'
+import { serializedSQLiteOrm } from './database/persistence.js'
 
 export type AuthOptions = {
   authBaseURL: string
@@ -12,7 +14,11 @@ export type AuthOptions = {
   trustedProxyIp?: string
 }
 
-export function createAuth(db: Database.Database, options: AuthOptions) {
+export function createAuth(db: DatabaseHandle | Database.Database, options: AuthOptions) {
+  const database = normalizeDatabaseHandle(db)
+  const schema = database.provider === 'sqlite' ? authSchema : postgresAuthSchema
+  const orm =
+    database.provider === 'sqlite' ? serializedSQLiteOrm(database.raw, database.orm) : database.orm
   const limits = new Map<string, { count: number; start: number; expiresAt: number }>()
   const normalizeName = (name: string) => {
     const trimmed = name.trim()
@@ -23,9 +29,9 @@ export function createAuth(db: Database.Database, options: AuthOptions) {
   }
 
   return betterAuth({
-    database: drizzleAdapter(drizzle(db, { schema: authSchema }), {
-      provider: 'sqlite',
-      schema: authSchema,
+    database: drizzleAdapter(orm, {
+      provider: database.provider === 'sqlite' ? 'sqlite' : 'pg',
+      schema,
     }),
     baseURL: options.authBaseURL,
     secret: options.authSecret,
@@ -48,7 +54,10 @@ export function createAuth(db: Database.Database, options: AuthOptions) {
             return { allowed: true, retryAfter: null }
           }
           if (prior.count >= rule.max) {
-            return { allowed: false, retryAfter: Math.ceil((prior.start + rule.window * 1000 - now) / 1000) }
+            return {
+              allowed: false,
+              retryAfter: Math.ceil((prior.start + rule.window * 1000 - now) / 1000),
+            }
           }
           prior.count++
           return { allowed: true, retryAfter: null }

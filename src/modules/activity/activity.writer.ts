@@ -1,14 +1,12 @@
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
-import { activityEvents } from '../../database/schema.js'
+import type { DomainStore } from '../../database/store.types.js'
 import {
   activityChangeSchema,
   type ActivityActor,
   type ActivityChange,
   type activityActions,
 } from './activity.types.js'
-
-export function insertActivity(
-  tx: Pick<BetterSQLite3Database, 'insert'>,
+export async function insertActivity(
+  tx: Pick<DomainStore, 'insertActivity'>,
   actor: ActivityActor,
   event: {
     action: (typeof activityActions)[number]
@@ -20,20 +18,18 @@ export function insertActivity(
   },
 ) {
   const changes = activityChangeSchema.array().parse(event.changes)
-  tx.insert(activityEvents)
-    .values({
-      actorUserId: actor.userId,
-      actorName: actor.name,
-      actorRole: actor.role,
-      actorType: actor.source === 'SYSTEM' ? 'SYSTEM' : 'USER',
-      source: actor.source,
-      action: event.action,
-      targetType: event.targetType,
-      targetId: event.targetId,
-      targetName: event.targetName,
-      changesJson: JSON.stringify(changes),
-      stockDelta: event.stockDelta ?? null,
-      createdAt: new Date().toISOString(),
-    })
-    .run()
+  await tx.insertActivity({
+    actorUserId: actor.userId,
+    actorName: actor.name,
+    actorRole: actor.role,
+    actorType: actor.source === 'SYSTEM' ? 'SYSTEM' : 'USER',
+    source: actor.source,
+    action: event.action,
+    targetType: event.targetType,
+    targetId: event.targetId,
+    targetName: event.targetName,
+    changesJson: JSON.stringify(changes),
+    stockDelta: event.stockDelta ?? null,
+    createdAt: new Date().toISOString(),
+  })
 }

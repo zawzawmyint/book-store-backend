@@ -3,7 +3,6 @@ import request from 'supertest'
 import type Database from 'better-sqlite3'
 import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/database/connection.js'
-
 const options = {
   frontendOrigin: 'http://localhost:5173',
   authBaseURL: 'http://localhost:5173',
@@ -16,9 +15,10 @@ beforeEach(async () => {
   app = await createApp(db, options)
 })
 afterEach(() => db.close())
-
 it('resolves customer/admin access from membership and revokes an existing session immediately', async () => {
-  const anonymous = await request(app).post('/graphql').send({ query: '{ viewer { id role } }' })
+  const anonymous = await request(app).post('/graphql').send({
+    query: '{ viewer { id role } }',
+  })
   expect(anonymous.body.errors).toBeUndefined()
   expect(anonymous.body.data.viewer).toBeNull()
   const signed = await request(app)
@@ -38,8 +38,13 @@ it('resolves customer/admin access from membership and revokes an existing sessi
       .post('/graphql')
       .set('Origin', options.frontendOrigin)
       .set('Cookie', cookies)
-      .send({ query: '{ viewer { id role } }' })
-  expect((await viewer()).body.data.viewer).toEqual({ id, role: 'CUSTOMER' })
+      .send({
+        query: '{ viewer { id role } }',
+      })
+  expect((await viewer()).body.data.viewer).toEqual({
+    id,
+    role: 'CUSTOMER',
+  })
   db.prepare("INSERT INTO user_roles (user_id, role) VALUES (?, 'ADMIN')").run(id)
   expect((await viewer()).body.data.viewer.role).toBe('ADMIN')
   db.prepare("DELETE FROM user_roles WHERE role = 'ADMIN' AND user_id = ?").run(id)
@@ -57,7 +62,9 @@ it('resolves customer/admin access from membership and revokes an existing sessi
       .post('/graphql')
       .set('Origin', options.frontendOrigin)
       .set('Cookie', cookies)
-      .send({ query })
+      .send({
+        query,
+      })
     expect(denied.body.errors[0].extensions.code).toBe('FORBIDDEN')
   }
 })

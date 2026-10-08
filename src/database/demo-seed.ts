@@ -1,28 +1,28 @@
-import type Database from 'better-sqlite3'
+import { createSeedAccountStore, type SeedDatabase } from './runtime-seed.js'
 import { createAuth, type AuthOptions } from '../auth.js'
 import { createAdminRepository } from '../modules/admin/admin.repository.js'
 import { operatorActor } from '../modules/activity/activity.types.js'
 
 export async function seedDemoAccounts(
-  db: Database.Database,
+  db: SeedDatabase,
   options: AuthOptions,
   nodeEnv: 'development' | 'test' | 'production',
 ) {
   if (nodeEnv === 'production') throw new Error('Demo accounts are disabled in production')
   const auth = createAuth(db, options)
   const roles = createAdminRepository(db)
+  const accounts = createSeedAccountStore(db)
   const demoRoles = ['CUSTOMER', 'STAFF', 'ADMIN'] as const
   const password = 'BookstoreDemo123!'
   const existingIds = new Map<string, string>()
   // Validate every reserved account before changing accounts or permissions.
   for (const role of demoRoles) {
     const email = `demo-${role.toLowerCase()}@example.com`
-    const existing = db.prepare('SELECT id FROM user WHERE email = ?').get(email) as
-      { id: string } | undefined
+    const existing = await accounts.findByEmail(email)
     if (existing) {
       try {
         const login = await auth.api.signInEmail({ body: { email, password } })
-        db.prepare('DELETE FROM session WHERE token = ?').run(login.token)
+        await accounts.deleteSessionToken(login.token)
         existingIds.set(email, existing.id)
       } catch {
         throw new Error(
@@ -43,8 +43,8 @@ export async function seedDemoAccounts(
         },
       })
       id = signup.user.id
-      if (signup.token) db.prepare('DELETE FROM session WHERE token = ?').run(signup.token)
+      if (signup.token) await accounts.deleteSessionToken(signup.token)
     }
-    roles.setUserRole(id!, role, operatorActor)
+    await roles.setUserRole(id!, role, operatorActor)
   }
 }

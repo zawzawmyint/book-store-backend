@@ -1,16 +1,17 @@
-import type Database from 'better-sqlite3'
 import type { QueryResolvers } from '../../graphql/generated/resolvers.js'
 import { rethrowResolverError } from '../../graphql/errors.js'
-import { createCatalogRepository } from './book.repository.js'
+import type { createCatalogRepository } from './book.repository.js'
 import { createBookService } from './book.service.js'
 
-export function createBookResolvers(db: Database.Database): QueryResolvers {
-  const service = createBookService(createCatalogRepository(db))
+export function createBookResolvers(
+  repository: ReturnType<typeof createCatalogRepository>,
+): QueryResolvers {
+  const service = createBookService(repository)
   return {
     genres: () => service.listGenres(),
-    books: (_, args) => {
+    books: async (_, args) => {
       try {
-        return service.listBooks(args.search ?? undefined, args.limit, args.offset)
+        return await service.listBooks(args.search ?? undefined, args.limit, args.offset)
       } catch (error) {
         return rethrowResolverError(error)
       }
