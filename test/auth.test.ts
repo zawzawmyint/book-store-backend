@@ -1,3 +1,4 @@
+import { deliveryOptions, reviewedInput } from './delivery-fixtures.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import request from 'supertest'
 import { request as httpRequest } from 'node:http'
@@ -24,6 +25,7 @@ describe('customer authentication and order ownership', () => {
     db = createDatabase(':memory:')
     seedBooks(db)
     app = await createApp(db, authOptions, {
+      ...deliveryOptions,
       provider: new FakePaymentProvider(),
     })
   })
@@ -49,13 +51,15 @@ describe('customer authentication and order ownership', () => {
         query: orderMutation,
         variables: {
           input: {
-            requestKey: randomUUID(),
-            items: [
-              {
-                bookId: '1',
-                quantity: 1,
-              },
-            ],
+            ...reviewedInput(db, {
+              requestKey: randomUUID(),
+              items: [
+                {
+                  bookId: '1',
+                  quantity: 1,
+                },
+              ],
+            }),
           },
         },
       })
@@ -78,13 +82,15 @@ describe('customer authentication and order ownership', () => {
         query: orderMutation,
         variables: {
           input: {
-            requestKey: randomUUID(),
-            items: [
-              {
-                bookId: '1',
-                quantity: 2,
-              },
-            ],
+            ...reviewedInput(db, {
+              requestKey: randomUUID(),
+              items: [
+                {
+                  bookId: '1',
+                  quantity: 2,
+                },
+              ],
+            }),
           },
         },
       })

@@ -1,7 +1,10 @@
+import type { z } from 'zod'
+import type { setOrderStatusSchema } from '../orders/order.validation.js'
+import type { DeliveryAddress, DeliveryConfig } from '../orders/delivery.validation.js'
 import { randomUUID } from 'node:crypto'
 import { normalizeStore, type DatabaseInput } from '../../database/persistence.js'
 import type { DomainStore, OrderRow, OperationRow } from '../../database/store.types.js'
-import { ConflictError, ValidationError } from '../../shared/errors.js'
+import { ConflictError, ValidationError, PaymentUnavailableError } from '../../shared/errors.js'
 import { createOrderRepository } from '../orders/order.repository.js'
 import { createAdminOrderRepository } from '../orders/admin-order.repository.js'
 import { insertActivity } from '../activity/activity.writer.js'
@@ -150,25 +153,79 @@ export function createPaymentRepository(input: DatabaseInput, now: () => number)
     customerOrders: createOrderRepository(store),
     workflow: createAdminOrderRepository(store),
     lines: (id: number) => store.lines([id]),
-    reserve(input: { items: OrderItemInput[]; requestKey: string }, customer: OrderCustomer) {
+    async quote(items: OrderItemInput[], address: DeliveryAddress, config: DeliveryConfig) {
+      if (!config.deliveryEnabled || config.deliveryFeeCents === undefined)
+        throw new PaymentUnavailableError()
+      if (!config.deliveryCountryCodes?.includes(address.countryCode))
+        throw new ValidationError('Delivery is unavailable for this country')
+      let subtotalCents = 0
+      for (const line of items) {
+        const book = await store.book(Number(line.bookId))
+        if (!book || book.archived || book.stock < line.quantity)
+          throw new ValidationError('A selected book is unavailable or has insufficient stock')
+        subtotalCents += book.priceCents * line.quantity
+      }
+      const totalCents = subtotalCents + config.deliveryFeeCents
+      if (!Number.isSafeInteger(totalCents) || subtotalCents < 50 || totalCents > 2147483647)
+        throw new ValidationError('Checkout total is outside supported limits')
+      return {
+        subtotalCents,
+        deliveryFeeCents: config.deliveryFeeCents,
+        totalCents,
+        currency: 'usd',
+      }
+    },
+    reserve(
+      input: {
+        items: OrderItemInput[]
+        requestKey: string
+        deliveryAddress: DeliveryAddress
+        expectedDeliveryFeeCents: number
+        expectedTotalCents: number
+      },
+      customer: OrderCustomer,
+      config: DeliveryConfig,
+    ) {
       return store.transaction(async (tx) => {
         const sorted = [...input.items].sort((a, b) => Number(a.bookId) - Number(b.bookId)),
-          linesJson = JSON.stringify(sorted)
+          linesJson = JSON.stringify(sorted),
+          deliveryJson = JSON.stringify({
+            address: input.deliveryAddress,
+            expectedDeliveryFeeCents: input.expectedDeliveryFeeCents,
+            expectedTotalCents: input.expectedTotalCents,
+          })
         const prior = await tx.checkout(customer.id, input.requestKey)
         if (prior) {
-          if (prior.linesJson !== linesJson)
+          if (prior.linesJson !== linesJson || prior.deliveryJson !== deliveryJson)
             throw new ConflictError('Request key was already used with different books')
           return (await tx.order(prior.orderId))!
         }
+        if (!config.deliveryEnabled || config.deliveryFeeCents === undefined)
+          throw new PaymentUnavailableError()
+        if (!config.deliveryCountryCodes?.includes(input.deliveryAddress.countryCode))
+          throw new ValidationError('Delivery is unavailable for this country')
         let total = 0
         for (const line of sorted) {
           const book = await tx.book(Number(line.bookId))
           if (!book) throw new ValidationError(`Book ${line.bookId} was not found`)
+          if (book.archived || book.stock < line.quantity)
+            throw new ValidationError('A selected book is unavailable or has insufficient stock')
           total += book.priceCents * line.quantity
         }
         if (!Number.isSafeInteger(total) || total < 50 || total > 2147483647)
           throw new ValidationError('Checkout total must be between 50 and 2147483647 cents')
-        const saved = await createOrderRepository(tx).saveOrder(customer, input.items),
+        const finalTotal = total + config.deliveryFeeCents
+        if (!Number.isSafeInteger(finalTotal) || finalTotal > 2147483647)
+          throw new ValidationError('Checkout total is outside supported limits')
+        if (
+          input.expectedDeliveryFeeCents !== config.deliveryFeeCents ||
+          input.expectedTotalCents !== finalTotal
+        )
+          throw new ConflictError('Prices changed. Review your order again before payment.')
+        const saved = await createOrderRepository(tx).saveOrder(customer, input.items, {
+            address: input.deliveryAddress,
+            feeCents: config.deliveryFeeCents,
+          }),
           id = Number(saved.id)
         await tx.updateOrder(id, {
           paymentRequired: true,
@@ -179,6 +236,7 @@ export function createPaymentRepository(input: DatabaseInput, now: () => number)
           userId: customer.id,
           requestKey: input.requestKey,
           linesJson,
+          deliveryJson,
           orderId: id,
         })
         await tx.insertOperation({
@@ -283,9 +341,17 @@ export function createPaymentRepository(input: DatabaseInput, now: () => number)
     reconcileRefund: (r: ProviderRefund, eventId?: string) =>
       store.transaction((tx) => reconcileRefundIn(tx, r, eventId)),
     queueRefund: (id: number) => store.transaction((tx) => queueRefund(tx, id)),
-    cancellationIntent(id: number, intent: unknown) {
+    cancellationIntent(
+      id: number,
+      intent: { input: z.infer<typeof setOrderStatusSchema>; actor: ActivityActor },
+    ) {
       return store.transaction(async (tx) => {
         const row = await tx.order(id)
+        if (!row) throw new ValidationError('Order was not found')
+        if (row.status !== intent.input.expectedStatus)
+          throw new ConflictError('Order status changed. Refresh the request and try again.')
+        if (row && !['SUBMITTED', 'PREPARING'].includes(row.status))
+          throw new ValidationError('This order status transition is not allowed')
         if (row && !row.cancellationIntent)
           await tx.updateOrder(id, { cancellationIntent: JSON.stringify(intent) })
       })

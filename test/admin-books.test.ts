@@ -1,3 +1,4 @@
+import { deliveryOptions, reviewedInlineCheckout } from './delivery-fixtures.js'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import request from 'supertest'
 import type Database from 'better-sqlite3'
@@ -19,6 +20,7 @@ beforeEach(async () => {
   db = createDatabase(':memory:')
   seedBooks(db)
   app = await createApp(db, options, {
+    ...deliveryOptions,
     provider: new FakePaymentProvider(),
   })
   for (const email of ['admin@example.com', 'customer@example.com']) {
@@ -72,7 +74,10 @@ it('creates trimmed books, preserves checkout stock on metadata edits, and appli
     archived: false,
   })
   const placed = await gql(
-    `mutation { createCheckout(input: { requestKey:"${randomUUID()}", items: [{ bookId: "1", quantity: 2 }] }) { order { id } } }`,
+    reviewedInlineCheckout(
+      db,
+      `mutation { createCheckout(input: { requestKey:"${randomUUID()}", items: [{ bookId: "1", quantity: 2 }] }) { order { id } } }`,
+    ),
   )
   expect(placed.body.errors).toBeUndefined()
   expect(
@@ -112,7 +117,10 @@ it('archives atomically, removes public books and genres, retains old snapshots,
     input: details,
   })
   await gql(
-    `mutation { createCheckout(input: { requestKey:"${randomUUID()}", items: [{ bookId: "1", quantity: 1 }] }) { order { id } } }`,
+    reviewedInlineCheckout(
+      db,
+      `mutation { createCheckout(input: { requestKey:"${randomUUID()}", items: [{ bookId: "1", quantity: 1 }] }) { order { id } } }`,
+    ),
   )
   const archived = await gql('mutation { setBookArchived(id: "1", archived: true) { archived } }')
   expect(archived.body.errors).toBeUndefined()
@@ -121,7 +129,10 @@ it('archives atomically, removes public books and genres, retains old snapshots,
   })
   expect((await gql('{ genres }')).body.data.genres).not.toContain('Unique genre')
   const failed = await gql(
-    `mutation { createCheckout(input: { requestKey:"${randomUUID()}", items: [{ bookId: "2", quantity: 1 }, { bookId: "1", quantity: 1 }] }) { order { id } } }`,
+    reviewedInlineCheckout(
+      db,
+      `mutation { createCheckout(input: { requestKey:"${randomUUID()}", items: [{ bookId: "2", quantity: 1 }, { bookId: "1", quantity: 1 }] }) { order { id } } }`,
+    ),
   )
   expect(failed.body.errors[0].extensions.code).toBe('BAD_USER_INPUT')
   expect(db.prepare('SELECT count(*) AS count FROM orders').get()).toEqual({

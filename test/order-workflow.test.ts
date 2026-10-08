@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 import type Database from 'better-sqlite3'
 import { createDatabase } from '../src/database/connection.js'
 import { seedBooks } from '../src/database/seed.js'
-import { createOrderRepository } from '../src/modules/orders/order.repository.js'
+import { createOrderRepository } from './delivery-fixtures.js'
 import { createAdminOrderRepository } from '../src/modules/orders/admin-order.repository.js'
 let db: Database.Database
 beforeEach(() => {
@@ -84,6 +84,7 @@ it('cancels once with attributed history and restored stock while preserving sna
     {
       action: 'ORDER_STATUS_CHANGED',
     },
+    { action: 'ORDER_PAYMENT_CHANGED' },
   ])
 })
 async function placed() {
@@ -115,7 +116,7 @@ it('enforces transitions, stale writes, terminal states and filter counts', asyn
       {
         id: order.id,
         expectedStatus: 'SUBMITTED',
-        status: 'COMPLETED',
+        status: 'DELIVERED',
       },
       actor,
     ),
@@ -124,7 +125,7 @@ it('enforces transitions, stale writes, terminal states and filter counts', asyn
     {
       id: order.id,
       expectedStatus: 'SUBMITTED',
-      status: 'ACCEPTED',
+      status: 'PREPARING',
     },
     actor,
   )
@@ -139,11 +140,12 @@ it('enforces transitions, stale writes, terminal states and filter counts', asyn
       actor,
     ),
   ).rejects.toThrow('status changed')
+  await workflow.setStatus({ id: order.id, expectedStatus: 'PREPARING', status: 'SHIPPED' }, actor)
   await workflow.setStatus(
     {
       id: order.id,
-      expectedStatus: 'ACCEPTED',
-      status: 'COMPLETED',
+      expectedStatus: 'SHIPPED',
+      status: 'DELIVERED',
     },
     actor,
   )
@@ -151,15 +153,15 @@ it('enforces transitions, stale writes, terminal states and filter counts', asyn
     workflow.setStatus(
       {
         id: order.id,
-        expectedStatus: 'COMPLETED',
-        status: 'ACCEPTED',
+        expectedStatus: 'DELIVERED',
+        status: 'PREPARING',
       },
       actor,
     ),
   ).rejects.toThrow('not allowed')
   expect((await workflow.list(1, 0, 'SUBMITTED')).total).toBe(0)
-  expect((await workflow.list(1, 0, 'COMPLETED')).total).toBe(1)
-  expect(await workflow.history(order.id)).toHaveLength(3)
+  expect((await workflow.list(1, 0, 'DELIVERED')).total).toBe(1)
+  expect(await workflow.history(order.id)).toHaveLength(4)
 })
 it('restores duplicate saved quantities into archived books without changing snapshots', async () => {
   const order = await placed(),
@@ -277,7 +279,7 @@ it('keeps actor snapshots after identity and role changes and actor deletion', a
     {
       id: order.id,
       expectedStatus: 'SUBMITTED',
-      status: 'ACCEPTED',
+      status: 'PREPARING',
     },
     {
       ...actor,
@@ -319,22 +321,23 @@ it('filters all four states before stable pagination and counts', async () => {
       {
         id,
         expectedStatus: 'SUBMITTED',
-        status: 'ACCEPTED',
+        status: 'PREPARING',
       },
       actor,
     )
+  await workflow.setStatus({ id: ids[2], expectedStatus: 'PREPARING', status: 'SHIPPED' }, actor)
   await workflow.setStatus(
     {
       id: ids[2],
-      expectedStatus: 'ACCEPTED',
-      status: 'COMPLETED',
+      expectedStatus: 'SHIPPED',
+      status: 'DELIVERED',
     },
     actor,
   )
   await workflow.setStatus(
     {
       id: ids[3],
-      expectedStatus: 'ACCEPTED',
+      expectedStatus: 'PREPARING',
       status: 'CANCELLED',
       cancellationReason: 'No',
     },
@@ -342,9 +345,9 @@ it('filters all four states before stable pagination and counts', async () => {
   )
   expect((await workflow.list(1, 0, 'ALL')).total).toBe(5)
   expect((await workflow.list(1, 0, 'SUBMITTED')).items.map((row) => row.id)).toEqual([ids[0]])
-  expect((await workflow.list(1, 0, 'ACCEPTED')).total).toBe(2)
-  expect((await workflow.list(1, 0, 'ACCEPTED')).items.map((row) => row.id)).toEqual([ids[4]])
-  expect((await workflow.list(1, 1, 'ACCEPTED')).items.map((row) => row.id)).toEqual([ids[1]])
-  expect((await workflow.list(1, 0, 'COMPLETED')).items.map((row) => row.id)).toEqual([ids[2]])
+  expect((await workflow.list(1, 0, 'PREPARING')).total).toBe(2)
+  expect((await workflow.list(1, 0, 'PREPARING')).items.map((row) => row.id)).toEqual([ids[4]])
+  expect((await workflow.list(1, 1, 'PREPARING')).items.map((row) => row.id)).toEqual([ids[1]])
+  expect((await workflow.list(1, 0, 'DELIVERED')).items.map((row) => row.id)).toEqual([ids[2]])
   expect((await workflow.list(1, 0, 'CANCELLED')).items.map((row) => row.id)).toEqual([ids[3]])
 })

@@ -1,3 +1,4 @@
+import { readDelivery } from './delivery.mapping.js'
 import type { z } from 'zod'
 import type { setOrderStatusSchema } from './order.validation.js'
 import type { OrderStatus } from './order.types.js'
@@ -9,20 +10,23 @@ import type { DomainStore, OrderRow } from '../../database/store.types.js'
 import { orderPayment } from '../payments/payment.types.js'
 export function createAdminOrderRepository(input: DatabaseInput) {
   const store = normalizeStore(input)
-  async function withLines(tx: DomainStore, rows: OrderRow[]) {
+  async function withLines(tx: DomainStore, rows: OrderRow[], details = false) {
     const lines = await tx.lines(rows.map((r) => r.id))
-    return rows.map((row) => ({
-      ...row,
-      id: String(row.id),
-      payment: orderPayment(row),
-      items: lines
-        .filter((l) => l.orderId === row.id)
-        .map(({ title, quantity, unitPriceCents }) => ({ title, quantity, unitPriceCents })),
-    }))
+    return Promise.all(
+      rows.map(async (row) => ({
+        ...row,
+        id: String(row.id),
+        payment: orderPayment(row),
+        delivery: details ? await readDelivery(tx, row.id) : undefined,
+        items: lines
+          .filter((l) => l.orderId === row.id)
+          .map(({ title, quantity, unitPriceCents }) => ({ title, quantity, unitPriceCents })),
+      })),
+    )
   }
   async function get(id: string, tx = store) {
     const row = await tx.order(Number(id))
-    return row ? (await withLines(tx, [row]))[0] : null
+    return row ? (await withLines(tx, [row], true))[0] : null
   }
   return {
     async history(id: string) {
@@ -37,19 +41,27 @@ export function createAdminOrderRepository(input: DatabaseInput) {
       return store.transaction(async (tx) => {
         const before = await tx.order(Number(input.id))
         if (!before) throw new ValidationError('Order was not found')
-        if (before.status === input.status) return (await get(input.id, tx))!
+        if (before.status === input.status) {
+          if (input.status === 'SHIPPED') {
+            const delivery = await readDelivery(tx, before.id)
+            if (JSON.stringify(delivery.shipment) !== JSON.stringify(input.shipment ?? null))
+              throw new ConflictError('Shipment was already confirmed with different details')
+          }
+          return (await get(input.id, tx))!
+        }
         if (before.status !== input.expectedStatus)
           throw new ConflictError('Order status changed. Refresh the request and try again.')
         const allowed =
           before.status === 'SUBMITTED'
-            ? ['ACCEPTED', 'CANCELLED']
-            : before.status === 'ACCEPTED'
-              ? ['COMPLETED', 'CANCELLED']
-              : []
+            ? ['PREPARING', 'CANCELLED']
+            : before.status === 'PREPARING'
+              ? ['SHIPPED', 'CANCELLED']
+              : before.status === 'SHIPPED'
+                ? ['DELIVERED']
+                : []
         if (!allowed.includes(input.status))
           throw new ValidationError('This order status transition is not allowed')
         if (
-          before.paymentRequired &&
           input.status !== 'CANCELLED' &&
           (before.paymentStatus !== 'PAID' || before.cancellationIntent)
         )
@@ -69,6 +81,15 @@ export function createAdminOrderRepository(input: DatabaseInput) {
           ))
         )
           throw new ConflictError('Order status changed')
+        if (input.status === 'SHIPPED')
+          await tx.updateDelivery(before.id, {
+            carrier: input.shipment?.carrier ?? null,
+            trackingNumber: input.shipment?.trackingNumber ?? null,
+            trackingUrl: input.shipment?.trackingUrl ?? null,
+            shippedAt: new Date().toISOString(),
+          })
+        if (input.status === 'DELIVERED')
+          await tx.updateDelivery(before.id, { deliveredAt: new Date().toISOString() })
         if (input.status === 'CANCELLED') {
           const quantities = new Map<number, number>()
           for (const line of await tx.lines([before.id])) {

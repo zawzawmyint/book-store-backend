@@ -1,3 +1,4 @@
+import { deliveryAddress, deliveryOptions } from './delivery-fixtures.js'
 import { createPaymentRepository } from '../src/modules/payments/payment.repository.js'
 import { expect, it, vi } from 'vitest'
 import { createDatabase } from '../src/database/connection.js'
@@ -21,6 +22,7 @@ it('recovers durable unknown operations every 60 seconds and catches expiry on s
       }
     const service = createPaymentService(createPaymentRepository(db, Date.now), {
       provider,
+      ...deliveryOptions,
       frontendOrigin: 'http://localhost:5173',
     })
     provider.uncertainCreate = true
@@ -28,6 +30,9 @@ it('recovers durable unknown operations every 60 seconds and catches expiry on s
       service.createCheckout(
         {
           requestKey: '00000000-0000-4000-8000-000000000001',
+          deliveryAddress,
+          expectedDeliveryFeeCents: 500,
+          expectedTotalCents: 2199,
           items: [
             {
               bookId: '1',

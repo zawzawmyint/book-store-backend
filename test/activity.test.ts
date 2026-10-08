@@ -1,3 +1,4 @@
+import { deliveryOptions, reviewedInlineCheckout } from './delivery-fixtures.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import request from 'supertest'
 import { createApp } from '../src/app.js'
@@ -207,6 +208,7 @@ describe('activity API', () => {
     db = createDatabase(':memory:')
     seedBooks(db)
     app = await createApp(db, options, {
+      ...deliveryOptions,
       provider: new FakePaymentProvider(),
     })
     for (const role of ['admin', 'staff', 'customer']) {
@@ -334,7 +336,10 @@ describe('activity API', () => {
     await gql(`mutation{adjustBookStock(id:"${id}",delta:-1){id}}`, staff)
     await gql(`mutation{setBookArchived(id:"${id}",archived:true){id}}`, staff)
     await gql(
-      `mutation{createCheckout(input:{requestKey:"${randomUUID()}",items:[{bookId:"${id}",quantity:1}]}){order{id}}}`,
+      reviewedInlineCheckout(
+        db,
+        `mutation{createCheckout(input:{requestKey:"${randomUUID()}",items:[{bookId:"${id}",quantity:1}]}){order{id}}}`,
+      ),
       customer,
     )
     const result = (await gql(history)).body.data.adminActivity

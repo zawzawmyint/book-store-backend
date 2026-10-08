@@ -1,3 +1,4 @@
+import { shipmentSchema } from './delivery.validation.js'
 import { numericIdSchema } from '../../shared/validation.js'
 import { z } from 'zod'
 
@@ -5,7 +6,7 @@ export const orderInputSchema = z.object({
   items: z
     .array(
       z.object({
-        bookId: z.string().regex(/^\d+$/, 'Each quantity must be between 1 and 10'),
+        bookId: numericIdSchema,
         quantity: z
           .number()
           .int('Each quantity must be between 1 and 10')
@@ -26,15 +27,28 @@ export const orderPageSchema = z.object({
   offset: z.number().int().min(0),
 })
 
-export const orderStatuses = ['SUBMITTED', 'ACCEPTED', 'COMPLETED', 'CANCELLED'] as const
+export const orderStatuses = [
+  'SUBMITTED',
+  'PREPARING',
+  'SHIPPED',
+  'DELIVERED',
+  'CANCELLED',
+] as const
 export const setOrderStatusSchema = z
   .object({
     id: numericIdSchema,
     expectedStatus: z.enum(orderStatuses),
     status: z.enum(orderStatuses),
+    shipment: shipmentSchema.nullish(),
     cancellationReason: z.string().trim().min(1).max(500).nullish(),
   })
   .superRefine((input, ctx) => {
+    if (input.shipment != null && input.status !== 'SHIPPED')
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Shipment is allowed only when shipping',
+        path: ['shipment'],
+      })
     if (input.status === 'CANCELLED' ? !input.cancellationReason : input.cancellationReason != null)
       ctx.addIssue({
         code: 'custom',

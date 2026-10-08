@@ -35,6 +35,11 @@ Set `BETTER_AUTH_URL` to the public storefront origin that proxies `/api/auth`
 (localhost:5173 in development). The secret must be random and at least 32 characters;
 do not use the schema generator's test secret in a running server.
 
+Delivery checkout is disabled until all three delivery variables are explicitly set:
+`DELIVERY_ENABLED=true`, a comma-separated uppercase ISO country allowlist in
+`DELIVERY_COUNTRY_CODES`, and `DELIVERY_FEE_CENTS`. The current local demo choice is
+`US` and `500` cents (USD 5); it is not a production coverage or rate decision.
+
 Auth request bodies are capped at 64 KiB. Sign-up and account updates trim names and enforce 1–120 characters. Rate limiting uses the direct socket address by default and ignores caller-supplied forwarding headers. Behind a reverse proxy, set `AUTH_TRUSTED_PROXY_IP` to its peer IP only when that proxy **overwrites** `X-Real-IP` and direct access to the API is blocked. Without this setting, customers behind the proxy share one rate-limit bucket.
 
 ## Local demo accounts
@@ -75,6 +80,9 @@ mutation StartCheckout {
     input: {
       items: [{ bookId: "1", quantity: 1 }]
       requestKey: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+      deliveryAddress: { recipientName: "Ada Lovelace", phone: "+1 555 555 0100", addressLine1: "1 Example Street", city: "Example", countryCode: "US" }
+      expectedDeliveryFeeCents: 500
+      expectedTotalCents: 2500
     }
   ) {
     checkoutUrl
@@ -91,9 +99,12 @@ mutation StartCheckout {
 }
 ```
 
-Checkout requires a Better Auth session. It uses the session user's name and email,
-validates the lines, reads current prices, reserves stock, and saves a Submitted order
-with its initial timeline event. The browser never supplies an order total or user ID.
+Checkout requires a Better Auth session. Before a checkout attempt, use
+`deliveryOptions` and `quoteCheckout` to obtain a server quote for the entered address.
+The checkout request includes the reviewed address and expected fee/total; the server
+recalculates prices and rejects a stale review. It stores the normalized address, fee,
+subtotal and final total immutably, reserves stock, and saves a Submitted order with
+its initial timeline event. The browser never supplies an authoritative price or user ID.
 The hosted URL is Stripe test mode only; payment confirmation comes from signed webhook
 or provider reconciliation, not the redirect. `myOrders(limit, offset)` and `myOrder(id)`
 return only the signed-in user's requests; the detail timeline never includes staff
@@ -186,7 +197,7 @@ After changing a module GraphQL schema, run `bun run codegen` here to refresh th
 
 `bun run test` uses in-memory SQLite. `bun run test:postgres` provisions a disposable
 local PostgreSQL 17.10 instance and runs the shared parity suite. New orders use Stripe hosted Checkout
-in test mode; delivery is not integrated. Email verification and self-service password
+in test mode with a required delivery address and reviewed fee-inclusive total. Email verification and self-service password
 recovery are deferred. An admin can still set another account's password. Before a live
 launch, specify and implement live-payment, fulfillment, customer communication,
 monitoring, and deployment controls.

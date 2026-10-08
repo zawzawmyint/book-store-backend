@@ -1,3 +1,5 @@
+import { deliveryAddressSchema, type DeliveryConfig } from '../orders/delivery.validation.js'
+import { orderInputSchema } from '../orders/order.validation.js'
 import { validated, numericIdSchema } from '../../shared/validation.js'
 import { PaymentUnavailableError, ValidationError, ConflictError } from '../../shared/errors.js'
 import { setOrderStatusSchema } from '../orders/order.validation.js'
@@ -7,7 +9,7 @@ import { ProviderRejection, type PaymentProvider, type ProviderEvent } from './p
 import { checkoutInputSchema } from './payment.validation.js'
 import type { createPaymentRepository } from './payment.repository.js'
 
-export type PaymentOptions = {
+export type PaymentOptions = DeliveryConfig & {
   provider?: PaymentProvider
   now?: () => number
   frontendOrigin: string
@@ -49,11 +51,17 @@ export function createPaymentService(
           {
             orderId: String(order.id),
             expiresAt: Math.floor(Date.parse(order.expiresAt!) / 1000),
-            lines: (await repository.lines(order.id)).map((l) => ({
-              title: l.title,
-              quantity: l.quantity,
-              unitPriceCents: l.unitPriceCents,
-            })),
+            lines: (await repository.lines(order.id))
+              .map((l) => ({
+                title: l.title,
+                quantity: l.quantity,
+                unitPriceCents: l.unitPriceCents,
+              }))
+              .concat(
+                order.deliveryFeeCents > 0
+                  ? [{ title: 'Delivery', quantity: 1, unitPriceCents: order.deliveryFeeCents }]
+                  : [],
+              ),
             successUrl: `${options.frontendOrigin}/checkout/return/${order.id}?outcome=success`,
             cancelUrl: `${options.frontendOrigin}/checkout/return/${order.id}?outcome=cancel`,
           },
@@ -133,10 +141,26 @@ export function createPaymentService(
   }
   return {
     readOrder,
+    deliveryOptions() {
+      if (!options.deliveryEnabled || options.deliveryFeeCents === undefined)
+        throw new PaymentUnavailableError()
+      return {
+        countryCodes: options.deliveryCountryCodes ?? [],
+        feeCents: options.deliveryFeeCents,
+        currency: 'usd',
+      }
+    },
+    quoteCheckout(input: unknown) {
+      const parsed = validated(
+        orderInputSchema.extend({ deliveryAddress: deliveryAddressSchema }),
+        input,
+      )
+      return repository.quote(parsed.items, parsed.deliveryAddress, options)
+    },
     async createCheckout(input: unknown, customer: OrderCustomer) {
       const parsed = validated(checkoutInputSchema, input)
       requireProvider()
-      const order = await repository.reserve(parsed, customer)
+      const order = await repository.reserve(parsed, customer, options)
       if (order.paymentStatus === 'PENDING') await reconcile(order.id)
       const current = (await repository.get(order.id))!
       return {
@@ -168,11 +192,11 @@ export function createPaymentService(
       const parsed = validated(setOrderStatusSchema, input),
         row = await repository.get(Number(parsed.id))
       if (!row) throw new ValidationError('Order was not found')
-      if (row.status === parsed.status) return (await repository.workflow.get(parsed.id))!
+      if (row.status === parsed.status) return repository.workflow.setStatus(parsed, actor)
       if (row.status !== parsed.expectedStatus)
         throw new ConflictError('Order status changed. Refresh the request and try again.')
       if (parsed.status === 'CANCELLED' && row.paymentRequired && row.paymentStatus === 'PENDING') {
-        if (!['SUBMITTED', 'ACCEPTED'].includes(row.status))
+        if (!['SUBMITTED', 'PREPARING'].includes(row.status))
           throw new ValidationError('This order status transition is not allowed')
         requireProvider()
         await repository.cancellationIntent(row.id, { input: parsed, actor })

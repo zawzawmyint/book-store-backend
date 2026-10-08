@@ -26,6 +26,9 @@ const options = {
   frontendOrigin: 'http://localhost:5173',
   authBaseURL: 'http://localhost:5173',
   authSecret: 'database-parity-secret-at-least-thirty-two-characters',
+  deliveryEnabled: true,
+  deliveryCountryCodes: ['US', 'CA'],
+  deliveryFeeCents: 500,
 }
 const config = loadConfig({
   NODE_ENV: 'test',
@@ -53,7 +56,23 @@ describe(`database contract: ${providerName}`, () => {
   let service: ReturnType<typeof createPaymentService>
   let buyer: { id: string; name: string; email: string }
   let now: number
-  const input = () => ({ requestKey: randomUUID(), items: [{ bookId: '1', quantity: 1 }] })
+  const address = {
+    recipientName: 'Parity Recipient',
+    phone: '+1 202 555 0123',
+    addressLine1: '123 Reading Lane',
+    addressLine2: null,
+    city: 'Boston',
+    region: null,
+    postalCode: null,
+    countryCode: 'US',
+  }
+  const input = () => ({
+    requestKey: randomUUID(),
+    items: [{ bookId: '1', quantity: 1 }],
+    deliveryAddress: address,
+    expectedDeliveryFeeCents: 500,
+    expectedTotalCents: 2199,
+  })
 
   beforeEach(async () => {
     database = await openDatabase(config)
@@ -85,6 +104,252 @@ describe(`database contract: ${providerName}`, () => {
     await database?.close()
   })
 
+  it('quotes normalized delivery and money without reserving stock or provider resources', async () => {
+    const before = (await store.book(1))!.stock
+    const quote = await service.quoteCheckout({
+      items: input().items,
+      deliveryAddress: {
+        ...address,
+        recipientName: '  Parity Recipient  ',
+        countryCode: ' us ',
+        addressLine2: '   ',
+      },
+    })
+    expect(quote).toEqual({
+      subtotalCents: 1699,
+      deliveryFeeCents: 500,
+      totalCents: 2199,
+      currency: 'usd',
+    })
+    expect((await store.book(1))!.stock).toBe(before)
+    expect((await store.orderPage(50, 0)).total).toBe(0)
+    expect(provider.sessions.size).toBe(0)
+    await expect(async () =>
+      service.quoteCheckout({
+        items: input().items,
+        deliveryAddress: { ...address, phone: '123' },
+      }),
+    ).rejects.toThrow()
+    await expect(async () =>
+      service.quoteCheckout({
+        items: input().items,
+        deliveryAddress: { ...address, countryCode: 'GB' },
+      }),
+    ).rejects.toThrow()
+  })
+
+  it('rejects price drift without writes and reuses saved retries before changed coverage or fee', async () => {
+    const payload = input()
+    const changedService = createPaymentService(
+      createPaymentRepository(database.handle, () => now),
+      {
+        ...options,
+        provider,
+        now: () => now,
+        deliveryCountryCodes: ['CA'],
+        deliveryFeeCents: 700,
+      },
+    )
+    await expect(
+      service.createCheckout({ ...payload, expectedTotalCents: 2198 }, buyer),
+    ).rejects.toThrow()
+    expect((await store.orderPage(50, 0)).total).toBe(0)
+    const saved = await service.createCheckout(payload, buyer)
+    expect(saved.order.delivery.address).toEqual(address)
+    expect(saved.order.subtotalCents).toBe(1699)
+    expect(saved.order.deliveryFeeCents).toBe(500)
+    await store.updateBook(1, { priceCents: 1800 })
+    const retry = await changedService.createCheckout(payload, buyer)
+    expect(retry.order.id).toBe(saved.order.id)
+    expect(retry.order.totalCents).toBe(2199)
+    await expect(
+      changedService.createCheckout(
+        { ...payload, deliveryAddress: { ...address, city: 'Toronto' } },
+        buyer,
+      ),
+    ).rejects.toThrow('different')
+    expect(provider.sessions.size).toBe(1)
+  })
+
+  it('supports explicit free delivery without hardcoded demo pricing', async () => {
+    const free = createPaymentService(
+      createPaymentRepository(database.handle, () => now),
+      {
+        ...options,
+        provider,
+        deliveryFeeCents: 0,
+      },
+    )
+    const quote = await free.quoteCheckout({ items: input().items, deliveryAddress: address })
+    expect(quote.deliveryFeeCents).toBe(0)
+    const saved = await free.createCheckout(
+      { ...input(), expectedDeliveryFeeCents: 0, expectedTotalCents: 1699 },
+      buyer,
+    )
+    expect(saved.order.totalCents).toBe(1699)
+    expect([...provider.sessions.values()][0].amountCents).toBe(1699)
+  })
+
+  it('ships and confirms delivery once with immutable tracking, timestamp and private history', async () => {
+    const checkout = await service.createCheckout(input(), buyer)
+    provider.pay([...provider.sessions.keys()][0])
+    await service.refreshOrderPayment(checkout.order.id, buyer)
+    const actor = {
+      source: 'GRAPHQL' as const,
+      userId: buyer.id,
+      name: buyer.name,
+      role: 'STAFF' as const,
+    }
+    await service.setOrderStatus(
+      { id: checkout.order.id, expectedStatus: 'SUBMITTED', status: 'PREPARING' },
+      actor,
+    )
+    const shipment = {
+      carrier: 'Example Courier',
+      trackingNumber: 'TRACK-123',
+      trackingUrl: 'https://example.com/tracking/TRACK-123',
+    }
+    const shipped = await service.setOrderStatus(
+      { id: checkout.order.id, expectedStatus: 'PREPARING', status: 'SHIPPED', shipment },
+      actor,
+    )
+    expect(shipped.delivery.shippedAt).toBeTruthy()
+    const retry = await service.setOrderStatus(
+      { id: checkout.order.id, expectedStatus: 'PREPARING', status: 'SHIPPED', shipment },
+      actor,
+    )
+    expect(retry.delivery.shippedAt).toBe(shipped.delivery.shippedAt)
+    await expect(
+      service.setOrderStatus(
+        {
+          id: checkout.order.id,
+          expectedStatus: 'PREPARING',
+          status: 'SHIPPED',
+          shipment: { ...shipment, trackingNumber: 'OTHER' },
+        },
+        actor,
+      ),
+    ).rejects.toThrow()
+    await expect(
+      service.setOrderStatus(
+        {
+          id: checkout.order.id,
+          expectedStatus: 'SHIPPED',
+          status: 'CANCELLED',
+          cancellationReason: 'Too late',
+        },
+        actor,
+      ),
+    ).rejects.toThrow()
+    const delivered = await service.setOrderStatus(
+      { id: checkout.order.id, expectedStatus: 'SHIPPED', status: 'DELIVERED' },
+      actor,
+    )
+    const deliveredAgain = await service.setOrderStatus(
+      { id: checkout.order.id, expectedStatus: 'SHIPPED', status: 'DELIVERED' },
+      actor,
+    )
+    expect(deliveredAgain.delivery.deliveredAt).toBe(delivered.delivery.deliveredAt)
+    expect(delivered.delivery.deliveredAt).toBeTruthy()
+    expect(await store.history(Number(checkout.order.id))).toHaveLength(4)
+    expect(provider.refunds.size).toBe(0)
+    expect(
+      await createPaymentRepository(database.handle, () => now).customerOrders.getOrderForUser(
+        'other',
+        checkout.order.id,
+      ),
+    ).toBeNull()
+    const activity = await createActivityRepository(database.handle).list(
+      activityInputSchema.parse({ targetType: 'ORDER', targetId: checkout.order.id }),
+    )
+    const publicChanges = JSON.stringify(activity.items)
+    expect(publicChanges).not.toContain(address.addressLine1)
+    expect(publicChanges).not.toContain(address.phone)
+    expect(publicChanges).not.toContain(shipment.trackingUrl)
+  })
+
+  it('rolls back shipment details and timestamp if Activity insertion fails', async () => {
+    const checkout = await service.createCheckout(input(), buyer)
+    provider.pay([...provider.sessions.keys()][0])
+    await service.refreshOrderPayment(checkout.order.id, buyer)
+    const actor = {
+      source: 'GRAPHQL' as const,
+      userId: buyer.id,
+      name: buyer.name,
+      role: 'STAFF' as const,
+    }
+    await service.setOrderStatus(
+      { id: checkout.order.id, expectedStatus: 'SUBMITTED', status: 'PREPARING' },
+      actor,
+    )
+    const failure: DomainStore = {
+      ...store,
+      transaction: (work) =>
+        store.transaction((tx) =>
+          work({
+            ...tx,
+            insertActivity: async () => {
+              throw new Error('Injected Activity failure')
+            },
+          }),
+        ),
+    }
+    await expect(
+      createAdminOrderRepository(failure).setStatus(
+        {
+          id: checkout.order.id,
+          expectedStatus: 'PREPARING',
+          status: 'SHIPPED',
+          shipment: { carrier: 'Courier', trackingNumber: '123' },
+        },
+        actor,
+      ),
+    ).rejects.toThrow('Injected')
+    const saved = await service.readOrder(checkout.order.id, buyer)
+    expect(saved.status).toBe('PREPARING')
+    expect(saved.delivery.shippedAt).toBeNull()
+    expect(saved.delivery.shipment).toBeNull()
+    expect(await store.history(Number(checkout.order.id))).toHaveLength(2)
+  })
+  it.each(['insertDelivery', 'insertHistory', 'insertCheckout', 'insertOperation'] as const)(
+    'rolls back the full checkout when %s fails',
+    async (method) => {
+      const before = (await store.book(1))!.stock
+      const payload = input()
+      const withFailure = (tx: DomainStore): DomainStore => ({
+        ...tx,
+        [method]: async () => {
+          throw new Error('Injected reservation failure')
+        },
+        transaction: (work) => tx.transaction((next) => work(withFailure(next))),
+      })
+      const failure = withFailure(store)
+      const failing = createPaymentService(
+        createPaymentRepository(failure, () => now),
+        { ...options, provider },
+      )
+      await expect(failing.createCheckout(payload, buyer)).rejects.toThrow('Injected')
+      expect((await store.book(1))!.stock).toBe(before)
+      expect((await store.orderPage(50, 0)).total).toBe(0)
+      expect(await store.checkout(buyer.id, payload.requestKey)).toBeUndefined()
+      expect(provider.sessions.size).toBe(0)
+    },
+  )
+
+  it('enforces matching persisted delivery money and timestamp constraints', async () => {
+    const checkout = await service.createCheckout(input(), buyer)
+    const id = Number(checkout.order.id)
+    await expect(store.updateOrder(id, { totalCents: 1 })).rejects.toThrow()
+    await expect(store.updateOrder(id, { deliveryFeeCents: -1 })).rejects.toThrow()
+    await expect(
+      store.updateDelivery(id, { deliveredAt: new Date(now).toISOString() }),
+    ).rejects.toThrow()
+    await expect(
+      store.updateDelivery(id, { trackingUrl: 'https://example.com/track' }),
+    ).rejects.toThrow()
+    expect((await store.order(id))!.totalCents).toBe(2199)
+    expect((await store.delivery(id))!.deliveredAt).toBeNull()
+  })
   it('keeps catalog search, literal wildcards, ordering, genres and page counts', async () => {
     const catalog = createCatalogRepository(database.handle)
     expect((await catalog.listBooks('GATSBY', 12, 0)).items[0].title).toBe('The Great Gatsby')
@@ -99,7 +364,7 @@ describe(`database contract: ${providerName}`, () => {
   it('supports actual login, viewer permissions, owner privacy and repeatable demo seeding', async () => {
     await seedDemoAccounts(database.handle, options, 'test')
     await seedDemoAccounts(database.handle, options, 'test')
-    const app = await createApp(database.handle, options, { provider })
+    const app = await createApp(database.handle, options, { ...options, provider })
     const login = await request(app)
       .post('/api/auth/sign-in/email')
       .set('Origin', options.frontendOrigin)
@@ -120,6 +385,38 @@ describe(`database contract: ${providerName}`, () => {
         checkout.order.id,
       ),
     ).toBeNull()
+    const guestQuote = await request(app)
+      .post('/graphql')
+      .set('Origin', options.frontendOrigin)
+      .send({ query: '{ deliveryOptions { feeCents } }' })
+    expect(guestQuote.body.errors?.[0]?.extensions?.code).toBe('UNAUTHENTICATED')
+    const buyerLogin = await request(app)
+      .post('/api/auth/sign-in/email')
+      .set('Origin', options.frontendOrigin)
+      .send({ email: buyer.email, password: 'parity-password-123' })
+    const owned = await request(app)
+      .post('/graphql')
+      .set('Origin', options.frontendOrigin)
+      .set('Cookie', buyerLogin.headers['set-cookie'])
+      .send({
+        query:
+          'query ($id: ID!) { myOrder(id: $id) { delivery { address { phone addressLine1 } } subtotalCents deliveryFeeCents totalCents } }',
+        variables: { id: checkout.order.id },
+      })
+    expect(owned.status).toBe(200)
+    expect(owned.body.errors).toBeUndefined()
+    expect(owned.body.data.myOrder.delivery.address.phone).toBe(address.phone)
+    const nonOwned = await request(app)
+      .post('/graphql')
+      .set('Origin', options.frontendOrigin)
+      .set('Cookie', login.headers['set-cookie'])
+      .send({
+        query: 'query ($id: ID!) { myOrder(id: $id) { id delivery { address { phone } } } }',
+        variables: { id: checkout.order.id },
+      })
+    expect(nonOwned.status).toBe(200)
+    expect(nonOwned.body.errors).toBeUndefined()
+    expect(nonOwned.body.data.myOrder).toBeNull()
     const roles = createAdminRepository(database.handle)
     await roles.setUserRole(buyer.id, 'STAFF', {
       source: 'OPERATOR',
@@ -170,7 +467,7 @@ describe(`database contract: ${providerName}`, () => {
       { field: 'TITLE', before: 'Portable Book', after: 'Updated Book' },
     ])
     const auth = createAuth(database.handle, options)
-    const app = await createApp(database.handle, options, { provider })
+    const app = await createApp(database.handle, options, { ...options, provider })
     const response = await request(app)
       .post('/api/auth/sign-in/email')
       .set('Origin', options.frontendOrigin)
@@ -244,7 +541,7 @@ describe(`database contract: ${providerName}`, () => {
       await expect(
         service.createCheckout({ ...payload, items: [{ bookId: '1', quantity: 2 }] }, buyer),
       ).rejects.toThrow('different')
-      expect(result.order.totalCents).toBe(1699)
+      expect(result.order.totalCents).toBe(2199)
     } finally {
       await other.close()
     }
@@ -261,7 +558,7 @@ describe(`database contract: ${providerName}`, () => {
     }
     await expect(
       service.setOrderStatus(
-        { id: checkout.order.id, expectedStatus: 'SUBMITTED', status: 'ACCEPTED' },
+        { id: checkout.order.id, expectedStatus: 'SUBMITTED', status: 'PREPARING' },
         actor,
       ),
     ).rejects.toThrow('payment')
@@ -278,12 +575,12 @@ describe(`database contract: ${providerName}`, () => {
     const paid = await service.readOrder(checkout.order.id, buyer)
     expect(paid.payment.status).toBe('PAID')
     await service.setOrderStatus(
-      { id: paid.id, expectedStatus: 'SUBMITTED', status: 'ACCEPTED' },
+      { id: paid.id, expectedStatus: 'SUBMITTED', status: 'PREPARING' },
       actor,
     )
     const cancellation = {
       id: paid.id,
-      expectedStatus: 'ACCEPTED',
+      expectedStatus: 'PREPARING',
       status: 'CANCELLED',
       cancellationReason: 'Test cancellation',
     }
@@ -294,6 +591,7 @@ describe(`database contract: ${providerName}`, () => {
     await service.recover()
     expect((await store.book(1))!.stock).toBe(before)
     expect(provider.refunds.size).toBe(1)
+    expect([...provider.refunds.values()][0].amountCents).toBe(2199)
     expect((await service.readOrder(paid.id, buyer)).payment.status).toBe('REFUNDED')
     expect(await store.history(Number(paid.id))).toHaveLength(3)
   })
@@ -333,7 +631,7 @@ describe(`database contract: ${providerName}`, () => {
 
   it('rejects stale lease completion after another worker acquires the expired operation', async () => {
     const repository = createPaymentRepository(database.handle, () => now)
-    const order = await repository.reserve(input(), buyer)
+    const order = await repository.reserve(input(), buyer, options)
     const first = (await repository.claim(`checkout:${order.id}`))!
     now += 31000
     const second = (await repository.claim(first.id))!
@@ -355,7 +653,7 @@ describe(`database contract: ${providerName}`, () => {
 
   it('grants one lease to concurrent workers', async () => {
     const repository = createPaymentRepository(database.handle, () => now)
-    const order = await repository.reserve(input(), buyer)
+    const order = await repository.reserve(input(), buyer, options)
     const other = database.handle.provider === 'postgresql' ? await openDatabase(config) : database
     try {
       const contender = createPaymentRepository(other.handle, () => now)
@@ -370,7 +668,7 @@ describe(`database contract: ${providerName}`, () => {
     }
   })
 
-  it('allows only one competing final workflow transition', async () => {
+  it('serializes shipping versus cancellation across independent connections', async () => {
     const checkout = await service.createCheckout(input(), buyer)
     provider.pay([...provider.sessions.keys()][0])
     await service.refreshOrderPayment(checkout.order.id, buyer)
@@ -382,20 +680,23 @@ describe(`database contract: ${providerName}`, () => {
     }
     const workflow = createAdminOrderRepository(database.handle)
     await workflow.setStatus(
-      { id: checkout.order.id, expectedStatus: 'SUBMITTED', status: 'ACCEPTED' },
+      { id: checkout.order.id, expectedStatus: 'SUBMITTED', status: 'PREPARING' },
       actor,
     )
     const other = database.handle.provider === 'postgresql' ? await openDatabase(config) : database
     try {
       const outcomes = await Promise.allSettled([
-        workflow.setStatus(
-          { id: checkout.order.id, expectedStatus: 'ACCEPTED', status: 'COMPLETED' },
+        service.setOrderStatus(
+          { id: checkout.order.id, expectedStatus: 'PREPARING', status: 'SHIPPED' },
           actor,
         ),
-        createAdminOrderRepository(other.handle).setStatus(
+        createPaymentService(
+          createPaymentRepository(other.handle, () => now),
+          { ...options, provider, now: () => now },
+        ).setOrderStatus(
           {
             id: checkout.order.id,
-            expectedStatus: 'ACCEPTED',
+            expectedStatus: 'PREPARING',
             status: 'CANCELLED',
             cancellationReason: 'Concurrent cancellation',
           },
@@ -406,6 +707,10 @@ describe(`database contract: ${providerName}`, () => {
       expect(await store.history(Number(checkout.order.id))).toHaveLength(3)
       const saved = (await store.order(Number(checkout.order.id)))!
       expect((await store.book(1))!.stock).toBe(saved.status === 'CANCELLED' ? 12 : 11)
+      await service.recover()
+      expect(provider.refunds.size).toBe(saved.status === 'CANCELLED' ? 1 : 0)
+      const detail = await service.readOrder(checkout.order.id, buyer)
+      expect(Boolean(detail.delivery.shippedAt)).toBe(saved.status === 'SHIPPED')
     } finally {
       if (other !== database) await other.close()
     }

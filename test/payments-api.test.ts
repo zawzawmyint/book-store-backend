@@ -1,3 +1,4 @@
+import { deliveryOptions } from './delivery-fixtures.js'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import request from 'supertest'
 import { randomUUID } from 'node:crypto'
@@ -20,6 +21,7 @@ beforeEach(async () => {
   provider = new FakePaymentProvider()
   app = await createApp(db, options, {
     provider,
+    ...deliveryOptions,
   })
   for (const name of ['buyer', 'other', 'staff']) {
     const r = await request(app)
@@ -51,7 +53,7 @@ function gql(query: string, cookies: string[] = buyer) {
 }
 const checkout = () =>
   gql(
-    `mutation{createCheckout(input:{requestKey:"${randomUUID()}",items:[{bookId:"1",quantity:1}]}){order{id status payment{required status currency expiresAt}} checkoutUrl}}`,
+    `mutation{createCheckout(input:{requestKey:"${randomUUID()}",items:[{bookId:"1",quantity:1}],deliveryAddress:{recipientName:"Buyer",phone:"+1 555 123 4567",addressLine1:"12 Main Street",city:"City",countryCode:"US"},expectedDeliveryFeeCents:500,expectedTotalCents:2199}){order{id status payment{required status currency expiresAt}} checkoutUrl}}`,
   )
 it('enforces authentication, owner scope and process permissions before validation', async () => {
   const c = await checkout()
@@ -174,7 +176,7 @@ it('disabled checkout returns a safe availability error while legacy reads remai
     .set('Origin', options.frontendOrigin)
     .set('Cookie', buyer)
     .send({
-      query: `mutation{createCheckout(input:{requestKey:"${randomUUID()}",items:[{bookId:"1",quantity:1}]}){order{id}}}`,
+      query: `mutation{createCheckout(input:{requestKey:"${randomUUID()}",items:[{bookId:"1",quantity:1}],deliveryAddress:{recipientName:"Buyer",phone:"+1 555 123 4567",addressLine1:"12 Main Street",city:"City",countryCode:"US"},expectedDeliveryFeeCents:500,expectedTotalCents:2199}){order{id}}}`,
     })
   expect(r.body.errors[0].extensions.code).toBe('PAYMENT_UNAVAILABLE')
   expect(db.prepare('SELECT count(*) n FROM orders').get()).toEqual({

@@ -5,7 +5,7 @@ import type Database from 'better-sqlite3'
 import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/database/connection.js'
 import { seedBooks } from '../src/database/seed.js'
-import { createOrderRepository } from '../src/modules/orders/order.repository.js'
+import { createOrderRepository } from './delivery-fixtures.js'
 const options = {
   frontendOrigin: 'http://localhost:5173',
   authBaseURL: 'http://localhost:5173',
@@ -134,7 +134,7 @@ it('exposes owner-safe details, attributed workspace history and guarded workflo
   expect((await gql('{ myOrder(id:"bad") { id } }', customer)).body.errors[0].extensions.code).toBe(
     'BAD_USER_INPUT',
   )
-  const mutation = `mutation { setOrderStatus(input:{id:"${id}",expectedStatus:SUBMITTED,status:ACCEPTED}) { status history { actorName actorRole toStatus } } }`
+  const mutation = `mutation { setOrderStatus(input:{id:"${id}",expectedStatus:SUBMITTED,status:PREPARING}) { status history { actorName actorRole toStatus } } }`
   expect((await gql(mutation, customer)).body.errors[0].extensions.code).toBe('FORBIDDEN')
   expect((await gql(mutation, [])).body.errors[0].extensions.code).toBe('UNAUTHENTICATED')
   const accepted = await gql(mutation)
@@ -142,7 +142,7 @@ it('exposes owner-safe details, attributed workspace history and guarded workflo
   expect(accepted.body.data.setOrderStatus.history[1]).toMatchObject({
     actorName: 'Reader',
     actorRole: 'ADMIN',
-    toStatus: 'ACCEPTED',
+    toStatus: 'PREPARING',
   })
   expect(
     (
@@ -154,13 +154,13 @@ it('exposes owner-safe details, attributed workspace history and guarded workflo
   expect(
     (
       await gql(
-        `mutation { setOrderStatus(input:{id:"${id}",expectedStatus:ACCEPTED,status:CANCELLED}) { id } }`,
+        `mutation { setOrderStatus(input:{id:"${id}",expectedStatus:PREPARING,status:CANCELLED}) { id } }`,
       )
     ).body.errors[0].extensions.code,
   ).toBe('BAD_USER_INPUT')
   expect(
-    (await gql('{ adminOrders(status:ACCEPTED) { total items { status } } }')).body.data.adminOrders
-      .total,
+    (await gql('{ adminOrders(status:PREPARING) { total items { status } } }')).body.data
+      .adminOrders.total,
   ).toBe(1)
   expect(
     (await gql(`{ myOrder(id:"${id}") { history { actorName } } }`, customer)).body.errors[0]
@@ -188,7 +188,7 @@ it('serializes simultaneous cancellations and conflicting status requests', asyn
   const second = await legacyOrder(1)
   const next = second.body.data.order.id
   const attempts = await Promise.all(
-    ['ACCEPTED', 'CANCELLED'].map((status) =>
+    ['PREPARING', 'CANCELLED'].map((status) =>
       gql(
         `mutation { setOrderStatus(input:{id:"${next}",expectedStatus:SUBMITTED,status:${status}${status === 'CANCELLED' ? ',cancellationReason:"No"' : ''}}) { status } }`,
       ),
@@ -204,7 +204,7 @@ it('allows staff processing with live permissions and immutable attribution', as
   const id = placed.body.data.order.id
   db.exec("UPDATE user_roles SET role='STAFF'")
   const accepted = await gql(
-    `mutation { setOrderStatus(input:{id:"${id}",expectedStatus:SUBMITTED,status:ACCEPTED}) { history { actorRole actorName } } }`,
+    `mutation { setOrderStatus(input:{id:"${id}",expectedStatus:SUBMITTED,status:PREPARING}) { history { actorRole actorName } } }`,
   )
   expect(accepted.body.errors).toBeUndefined()
   expect(accepted.body.data.setOrderStatus.history[1]).toEqual({
@@ -215,7 +215,7 @@ it('allows staff processing with live permissions and immutable attribution', as
   expect(
     (
       await gql(
-        `mutation { setOrderStatus(input:{id:"${id}",expectedStatus:ACCEPTED,status:COMPLETED}) { status } }`,
+        `mutation { setOrderStatus(input:{id:"${id}",expectedStatus:PREPARING,status:DELIVERED}) { status } }`,
       )
     ).body.errors[0].extensions.code,
   ).toBe('FORBIDDEN')
@@ -226,10 +226,10 @@ it('validates input before retries and retains the first cancellation reason', a
   for (const input of [
     `id:"${id}",expectedStatus:SUBMITTED,status:CANCELLED,cancellationReason:"   "`,
     `id:"${id}",expectedStatus:SUBMITTED,status:CANCELLED,cancellationReason:"${'x'.repeat(501)}"`,
-    `id:"${id}",expectedStatus:SUBMITTED,status:ACCEPTED,cancellationReason:"No"`,
-    'id:"01",expectedStatus:SUBMITTED,status:ACCEPTED',
-    'id:"9007199254740992",expectedStatus:SUBMITTED,status:ACCEPTED',
-    'id:"999",expectedStatus:SUBMITTED,status:ACCEPTED',
+    `id:"${id}",expectedStatus:SUBMITTED,status:PREPARING,cancellationReason:"No"`,
+    'id:"01",expectedStatus:SUBMITTED,status:PREPARING',
+    'id:"9007199254740992",expectedStatus:SUBMITTED,status:PREPARING',
+    'id:"999",expectedStatus:SUBMITTED,status:PREPARING',
   ]) {
     expect(
       (await gql(`mutation { setOrderStatus(input:{${input}}) { id } }`)).body.errors[0].extensions
@@ -241,7 +241,7 @@ it('validates input before retries and retains the first cancellation reason', a
       `mutation { setOrderStatus(input:{id:"${id}",expectedStatus:${expected},status:CANCELLED,cancellationReason:"${reason}"}) { history { cancellationReason } } }`,
     )
   expect((await cancel('SUBMITTED', 'Original')).body.errors).toBeUndefined()
-  const repeat = await cancel('ACCEPTED', 'Replacement')
+  const repeat = await cancel('PREPARING', 'Replacement')
   expect(repeat.body.errors).toBeUndefined()
   expect(repeat.body.data.setOrderStatus.history).toEqual([
     {

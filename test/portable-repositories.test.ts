@@ -1,7 +1,8 @@
+import { deliveryAddress, deliveryOptions } from './delivery-fixtures.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createDatabase } from '../src/database/connection.js'
 import { normalizeStore, serializedSQLiteOrm } from '../src/database/persistence.js'
-import { createOrderRepository } from '../src/modules/orders/order.repository.js'
+import { createOrderRepository } from './delivery-fixtures.js'
 import { createPaymentRepository } from '../src/modules/payments/payment.repository.js'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { books, user } from '../src/database/schema.js'
@@ -91,8 +92,15 @@ describe('portable async repository guarantees', () => {
     let now = 100000
     const repo = createPaymentRepository(db, () => now)
     const order = await repo.reserve(
-      { items: [{ bookId: '1', quantity: 1 }], requestKey: 'same-key' },
+      {
+        items: [{ bookId: '1', quantity: 1 }],
+        requestKey: 'same-key',
+        deliveryAddress,
+        expectedDeliveryFeeCents: 500,
+        expectedTotalCents: 600,
+      },
       customer,
+      deliveryOptions,
     )
     const old = await repo.claim(`checkout:${order.id}`)
     now += 30001

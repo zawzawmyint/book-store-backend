@@ -1,6 +1,7 @@
 import type { orders } from '../../database/schema.js'
 export type OrderPayment = {
   required: boolean
+  cancellationPending: boolean
   status: typeof orders.$inferSelect.paymentStatus
   currency: string
   expiresAt: string | null
@@ -10,6 +11,7 @@ export type OrderPayment = {
 export function orderPayment(row: typeof orders.$inferSelect): OrderPayment {
   return {
     required: row.paymentRequired,
+    cancellationPending: row.cancellationIntent !== null,
     status: row.paymentStatus,
     currency: row.currency,
     expiresAt: row.expiresAt,

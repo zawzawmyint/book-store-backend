@@ -1,3 +1,4 @@
+import { deliveryAddress } from './delivery-fixtures.js'
 import { describe, expect, it, vi } from 'vitest'
 import { createBookService } from '../src/modules/books/book.service.js'
 import { createOrderService } from '../src/modules/orders/order.service.js'
@@ -8,6 +9,9 @@ import { validated } from '../src/shared/validation.js'
 describe('service input validation', () => {
   const valid = {
     items: [{ bookId: '1', quantity: 1 }],
+    deliveryAddress,
+    expectedDeliveryFeeCents: 500,
+    expectedTotalCents: 2199,
   }
   const customer = { id: 'user-1', name: 'Ada Reader', email: 'ada@example.com' }
   it('normalizes catalog search', () => {

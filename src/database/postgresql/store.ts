@@ -74,6 +74,17 @@ export function createPostgreSQLStore(orm: NodePgDatabase<typeof s>, scoped = fa
           .returning(),
       )
     },
+    async delivery(id) {
+      return FIRST(
+        await orm.select().from(s.orderDeliveries).where(eq(s.orderDeliveries.orderId, id)),
+      )
+    },
+    async insertDelivery(v) {
+      await orm.insert(s.orderDeliveries).values(v)
+    },
+    async updateDelivery(id, v) {
+      await orm.update(s.orderDeliveries).set(v).where(eq(s.orderDeliveries.orderId, id))
+    },
     async order(id) {
       return FIRST(
         await orm

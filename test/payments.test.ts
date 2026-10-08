@@ -1,3 +1,4 @@
+import { deliveryAddress, deliveryOptions } from './delivery-fixtures.js'
 import { createPaymentRepository } from '../src/modules/payments/payment.repository.js'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import type Database from 'better-sqlite3'
@@ -24,6 +25,9 @@ const actor = {
   role: 'STAFF' as const,
 }
 const input = {
+  deliveryAddress,
+  expectedDeliveryFeeCents: 500,
+  expectedTotalCents: 3898,
   requestKey: '00000000-0000-4000-8000-000000000001',
   items: [
     {
@@ -43,6 +47,7 @@ beforeEach(() => {
     {
       provider,
       now: () => now,
+      ...deliveryOptions,
       frontendOrigin: 'http://localhost:5173',
     },
   )
@@ -79,6 +84,7 @@ it('reserves saved totals once across concurrent keys, lost responses and restar
     {
       provider,
       now: () => now,
+      ...deliveryOptions,
       frontendOrigin: 'http://localhost:5173',
     },
   )
@@ -120,7 +126,7 @@ it('blocks fulfillment until verified payment and atomically confirms exact evid
       {
         id: checkout.order.id,
         expectedStatus: 'SUBMITTED',
-        status: 'ACCEPTED',
+        status: 'PREPARING',
       },
       actor,
     ),
@@ -135,12 +141,12 @@ it('blocks fulfillment until verified payment and atomically confirms exact evid
         {
           id: paid.id,
           expectedStatus: 'SUBMITTED',
-          status: 'ACCEPTED',
+          status: 'PREPARING',
         },
         actor,
       )
     ).status,
-  ).toBe('ACCEPTED')
+  ).toBe('PREPARING')
 })
 it('confirms provider expiry before restoring inventory with explicit system attribution', async () => {
   const checkout = await service.createCheckout(input, buyer)
@@ -398,6 +404,7 @@ it('retains order/refund accuracy after lost refund response and restart recover
     {
       provider,
       now: () => now,
+      ...deliveryOptions,
       frontendOrigin: 'http://localhost:5173',
     },
   )
@@ -496,6 +503,9 @@ it('rotates bounded reconciliation batches past twenty persistently mismatched p
     const c = await service.createCheckout(
       {
         requestKey: randomUUID(),
+        deliveryAddress,
+        expectedDeliveryFeeCents: 500,
+        expectedTotalCents: 2199,
         items: [
           {
             bookId: '1',
