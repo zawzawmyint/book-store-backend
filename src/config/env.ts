@@ -3,6 +3,11 @@ import { isIP } from 'node:net'
 export type AppConfig = {
   port: number
   databasePath: string
+  databaseProvider: 'sqlite' | 'postgresql'
+  databaseUrl?: string
+  pgPoolMax: number
+  pgTlsMode: 'verify-full' | 'disable'
+  pgCaFile?: string
   frontendOrigin: string
   authBaseURL: string
   authSecret: string
@@ -20,7 +25,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   }
 
   const databasePath = env.DATABASE_PATH ?? './data/book-store.sqlite'
-  if (!databasePath.trim()) throw new Error('DATABASE_PATH must not be empty')
 
   const frontendOrigin = env.FRONTEND_ORIGIN ?? 'http://localhost:5173'
   try {
@@ -35,6 +39,43 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const nodeEnv = env.NODE_ENV ?? 'development'
   if (nodeEnv !== 'development' && nodeEnv !== 'test' && nodeEnv !== 'production') {
     throw new Error('NODE_ENV must be development, test, or production')
+  }
+  const databaseProvider = env.DB_PROVIDER ?? (nodeEnv === 'production' ? 'postgresql' : 'sqlite')
+  if (databaseProvider !== 'sqlite' && databaseProvider !== 'postgresql')
+    throw new Error('DB_PROVIDER must be sqlite or postgresql')
+  if (nodeEnv === 'production' && databaseProvider !== 'postgresql')
+    throw new Error('Production requires PostgreSQL')
+  if (databaseProvider === 'sqlite' && !databasePath.trim())
+    throw new Error('DATABASE_PATH must not be empty')
+  const databaseUrl = env.DATABASE_URL
+  const pgPoolMax = Number(env.PG_POOL_MAX ?? 10)
+  if (!Number.isInteger(pgPoolMax) || pgPoolMax < 1 || pgPoolMax > 100)
+    throw new Error('PG_POOL_MAX must be an integer from 1 to 100')
+  const pgTlsMode = env.PG_TLS_MODE ?? (nodeEnv === 'production' ? 'verify-full' : 'disable')
+  if (pgTlsMode !== 'verify-full' && pgTlsMode !== 'disable')
+    throw new Error('PG_TLS_MODE must be verify-full or disable')
+  if (nodeEnv === 'production' && pgTlsMode !== 'verify-full')
+    throw new Error('Production requires verified TLS')
+  const pgCaFile = env.PG_CA_FILE || undefined
+  if (databaseProvider === 'postgresql') {
+    let url: URL
+    try {
+      url = new URL(databaseUrl ?? '')
+      if (
+        !['postgresql:', 'postgres:'].includes(url.protocol) ||
+        !url.hostname ||
+        url.pathname.length < 2
+      )
+        throw new Error()
+    } catch {
+      throw new Error('DATABASE_URL must be a PostgreSQL URL with host and database name')
+    }
+    // URL SSL options otherwise overwrite pg's explicit ssl object, including CA verification.
+    if ([...url.searchParams.keys()].some((key) => /^(ssl|uselibpqcompat)/i.test(key)))
+      throw new Error(
+        'DATABASE_URL TLS options conflict with PG_TLS_MODE; use PG_TLS_MODE and PG_CA_FILE',
+      )
+    if (pgCaFile && pgTlsMode === 'disable') throw new Error('PG_CA_FILE requires verified TLS')
   }
 
   const authBaseURL = env.BETTER_AUTH_URL ?? frontendOrigin
@@ -73,6 +114,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   return {
     port,
     databasePath,
+    databaseProvider,
+    databaseUrl,
+    pgPoolMax,
+    pgTlsMode,
+    pgCaFile,
     frontendOrigin,
     authBaseURL,
     authSecret,

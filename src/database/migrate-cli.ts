@@ -1,11 +1,13 @@
 import 'dotenv/config'
-import { mkdirSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
 import { loadConfig } from '../config/env.js'
-import { createDatabase } from './connection.js'
+import { openDatabase } from './runtime.js'
+import { migratePostgresql } from './postgresql/connection.js'
 
-const path = resolve(loadConfig().databasePath)
-mkdirSync(dirname(path), { recursive: true })
-const db = createDatabase(path)
-db.close()
-console.log(`Database migrations applied in ${path}`)
+const config = loadConfig()
+if (config.databaseProvider === 'postgresql') {
+  await migratePostgresql(config)
+} else {
+  const database = await openDatabase(config)
+  await database.close()
+}
+console.log(`Database migrations applied (${config.databaseProvider})`)

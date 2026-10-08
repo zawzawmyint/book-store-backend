@@ -24,8 +24,8 @@ Provide accountability for Staff/Admin catalog changes and Admin/operator accoun
 
 ## Current system and design constraints
 
-- Reuse Express/Apollo, SQLite, Drizzle, module-local validation, and current server-side permissions. No queue, external logging service, or additional auth system.
-- Changes and their events commit in the **same SQLite transaction**. Event insertion failure rolls back the business change. No fire-and-forget logging.
+- Reuse Express/Apollo, the selected SQLite or PostgreSQL database, Drizzle, module-local validation, and current server-side permissions. No queue, external logging service, or additional auth system.
+- Changes and their events commit in the **same provider-scoped transaction**. Event insertion failure rolls back the business change. No fire-and-forget logging.
 - Resolve the actor from the authenticated request and current stored role. Capture that role before self-demotion. CLI events use an explicit operator identity/source.
 - Preserve existing mutation return shapes, validation, password-reset session revocation, stock limits, and authorization ordering.
 
@@ -66,7 +66,7 @@ Provide accountability for Staff/Admin catalog changes and Admin/operator accoun
 - `ActivityChange { field: ActivityField!, before: String, after: String }`. Enums use the values defined above.
 - [Authorization](../../src/modules/admin/admin.authorization.ts) includes `VIEW_ACTIVITY`, granted only to ADMIN. Authentication/authorization occurs before filter validation or lookup. Guests receive UNAUTHENTICATED; Staff/Customer receive FORBIDDEN, including aliases and mixed operations.
 - Default limit 20, maximum 50, nonnegative integer offset. Filters combine with AND; order by `id DESC`. Total and items use the same filters. IDs must be nonblank; targetId requires targetType. Unknown authorized targets return an empty page, not leaked identity details.
-- Date bounds must be valid RFC3339 UTC instants (`Z` or `+00:00`) and satisfy from < to; use **from inclusive, to exclusive**. Events have millisecond timestamps. For a supplied fractional instant finer than milliseconds, the API rounds the query bound up to the next millisecond so SQLite's millisecond comparison preserves the requested boundary. Invalid filters return BAD_USER_INPUT. PRICE_CENTS filtering finds edits containing a price change without introducing a separate price event.
+- Date bounds must be valid RFC3339 UTC instants (`Z` or `+00:00`) and satisfy from < to; use **from inclusive, to exclusive**. Events have millisecond timestamps. For a supplied fractional instant finer than milliseconds, the API rounds the query bound up to the next millisecond so either provider's millisecond comparison preserves the requested boundary. Invalid filters return BAD_USER_INPUT. PRICE_CENTS filtering finds edits containing a price change without introducing a separate price event.
 - The module is composed in [the GraphQL schema](../../src/graphql/schema.ts) and resolvers; resolver types were regenerated through codegen.
 
 ## Acceptance criteria
@@ -96,7 +96,7 @@ Provide accountability for Staff/Admin catalog changes and Admin/operator accoun
 
 **Rollback / mitigation**
 
-- Back up persisted SQLite data before migration. The migration is additive; a prior compatible application may ignore the new table, but running it stops logging. Preserve the activity table and document any gap; do not delete history as part of application rollback.
+- Historical SQLite migration/recovery note: back up persisted SQLite data before migration. The migration is additive; a prior compatible application may ignore the new table, but running it stops logging. Preserve the activity table and document any gap; do not delete history as part of application rollback.
 
 ## Risks and open decisions
 

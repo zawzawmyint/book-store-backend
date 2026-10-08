@@ -10,36 +10,36 @@ const permissions: Permission[] = [
   'VIEW_ACTIVITY',
 ]
 
-it('returns the authenticated user and rechecks their current role for every call', () => {
+it('returns the authenticated user and rechecks their current role for every call', async () => {
   const getRole = vi.fn().mockReturnValue('STAFF')
   const guard = createPermissionGuard(getRole)
-  expect(guard(user, 'MANAGE_CATALOG')).toBe(user)
+  expect(await guard(user, 'MANAGE_CATALOG')).toBe(user)
   getRole.mockReturnValue('CUSTOMER')
-  expect(() => guard(user, 'MANAGE_CATALOG')).toThrow(
+  await expect(guard(user, 'MANAGE_CATALOG')).rejects.toThrow(
     expect.objectContaining({ extensions: { code: 'FORBIDDEN' } }),
   )
   expect(getRole).toHaveBeenCalledTimes(2)
 })
 
-it('keeps the exact workspace grants and denies unknown roles', () => {
+it('keeps the exact workspace grants and denies unknown roles', async () => {
   for (const role of ['ADMIN', 'STAFF', 'CUSTOMER', 'UNKNOWN', 'constructor', '__proto__']) {
     const guard = createPermissionGuard(() => role)
     for (const permission of permissions) {
       const allowed =
         role === 'ADMIN' ||
         (role === 'STAFF' && ['MANAGE_CATALOG', 'VIEW_ORDERS'].includes(permission))
-      if (allowed) expect(() => guard(user, permission)).not.toThrow()
+      if (allowed) await expect(guard(user, permission)).resolves.toBe(user)
       else
-        expect(() => guard(user, permission)).toThrow(
+        await expect(guard(user, permission)).rejects.toThrow(
           expect.objectContaining({ extensions: { code: 'FORBIDDEN' } }),
         )
     }
   }
 })
 
-it('rejects guests before looking up a role', () => {
+it('rejects guests before looking up a role', async () => {
   const getRole = vi.fn()
-  expect(() => createPermissionGuard(getRole)(null, 'VIEW_ORDERS')).toThrow(
+  await expect(createPermissionGuard(getRole)(null, 'VIEW_ORDERS')).rejects.toThrow(
     expect.objectContaining({ extensions: { code: 'UNAUTHENTICATED' } }),
   )
   expect(getRole).not.toHaveBeenCalled()

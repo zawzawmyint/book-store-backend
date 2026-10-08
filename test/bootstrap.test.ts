@@ -22,6 +22,11 @@ describe('bootstrap', () => {
     expect(loadConfig({ BETTER_AUTH_SECRET: authSecret })).toEqual({
       port: 4000,
       databasePath: './data/book-store.sqlite',
+      databaseProvider: 'sqlite',
+      databaseUrl: undefined,
+      pgPoolMax: 10,
+      pgTlsMode: 'disable',
+      pgCaFile: undefined,
       frontendOrigin: 'http://localhost:5173',
       authBaseURL: 'http://localhost:5173',
       authSecret,

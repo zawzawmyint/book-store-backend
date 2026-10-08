@@ -23,10 +23,13 @@ const rolePermissions: Readonly<Record<'ADMIN' | 'STAFF' | 'CUSTOMER', readonly 
   CUSTOMER: [],
 }
 
-export function createPermissionGuard(getRole: (id: string) => string) {
-  return (user: AuthenticatedUser | null, permission: Permission): AuthenticatedUser => {
+export function createPermissionGuard(getRole: (id: string) => Promise<string>) {
+  return async (
+    user: AuthenticatedUser | null,
+    permission: Permission,
+  ): Promise<AuthenticatedUser> => {
     const authenticated = requireUser(user)
-    const role = getRole(authenticated.id)
+    const role = await getRole(authenticated.id)
     const allowed = Object.hasOwn(rolePermissions, role)
       ? rolePermissions[role as keyof typeof rolePermissions]
       : []

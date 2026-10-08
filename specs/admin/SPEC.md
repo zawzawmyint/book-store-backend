@@ -12,7 +12,7 @@ The user selected this phased scope, including order viewing. The contracts and 
 
 ## Current system and boundaries
 
-- Express, Apollo, Drizzle, SQLite, and module-local Zod validation already serve a separate React storefront. Better Auth supplies account identity through server sessions.
+- Express, Apollo, Drizzle, the selected SQLite or PostgreSQL database, and module-local Zod validation serve a separate React storefront. Better Auth supplies account identity through server sessions.
 - Public catalog queries are `books`, `book`, and `genres`. `placeOrder` checks stock and saves orders and stock deductions in one transaction. `myOrders` restricts history to the session user.
 - There is no admin authorization, book write API, archive flag, or order administration. Order items reference books and preserve title and price snapshots.
 - Use the existing `/graphql` endpoint and `/api/auth/*` login flow. No second auth server or admin application is required.
@@ -22,7 +22,7 @@ The user selected this phased scope, including order viewing. The contracts and 
 
 - Introduce a server-owned `admin_memberships` table with `user_id` as its primary key and a foreign key to the Better Auth user table with cascade deletion. Presence means admin access; absence means customer access. All existing and newly registered users start without membership.
 - Do not alter generated Better Auth tables or accept a role or membership from sign-up, account updates, cookies, headers, or GraphQL arguments.
-- Add `viewer: Viewer` to `Query`, where `Viewer` contains `id: ID!` and `role: UserRole!`; `UserRole` has `CUSTOMER` and `ADMIN`. Return null for a missing or expired session. Resolve role from membership in SQLite, not client state.
+- Add `viewer: Viewer` to `Query`, where `Viewer` contains `id: ID!` and `role: UserRole!`; `UserRole` has `CUSTOMER` and `ADMIN`. Return null for a missing or expired session. Resolve role from server-owned membership storage in the selected database, not client state.
 - Every admin operation requires a valid server session and a current membership lookup before accessing private data or writing. Check authorization before domain validation or record lookup. Missing/expired sessions return `UNAUTHENTICATED`; authenticated customers return `FORBIDDEN`, without exposing record existence.
 - Do not cache membership in a long-lived session or token. Revoking membership takes effect on the next request. A write already authorized before revocation may finish.
 - Provide the operator command `bun run admin:access -- grant <user-id>` and `bun run admin:access -- revoke <user-id>`. It uses configured `DATABASE_PATH` and the normal migration wrapper, requires an existing exact user ID, changes membership only, and never creates an account or password. Grant and revoke are idempotent; unknown users or malformed arguments exit nonzero. Report only action and user ID, never credentials.
@@ -142,7 +142,7 @@ extend type Query {
 - Migration creates no admin memberships and marks existing books active. The migration must not reject existing descriptions solely because new write limits are narrower; corrections happen through explicit admin edits.
 - New GraphQL operations are additive. **Intentional behavior change:** archived books disappear from public queries and become ineligible for checkout. Deploy the matching frontend unavailable-book handling with that change.
 - Regenerate backend resolver types from module schemas and coordinate frontend codegen. Keep main `SPEC.md` documents describing implemented behavior until delivery, then update them and mark feature specs Implemented only after acceptance checks pass.
-- Before migration on a persisted database, back up the SQLite database using a consistent backup procedure. Prefer restoring that backup and the matching application release for rollback; an older application would ignore archive filtering and must not serve an upgraded database as a rollback strategy.
+- Historical SQLite migration/recovery note: before migration on a persisted SQLite database, back up that database using a consistent backup procedure. Prefer restoring that backup and the matching application release for rollback; an older application would ignore archive filtering and must not serve an upgraded database as a rollback strategy.
 
 ## Implementation locations
 

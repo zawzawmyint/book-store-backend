@@ -1,8 +1,10 @@
 # The Quiet Shelf API
 
-An Express + GraphQL + Drizzle + SQLite bookstore API with Zod input validation. This folder is its own Git repository and runs independently from the frontend.
+An Express + GraphQL + Drizzle bookstore API with Zod input validation. SQLite is the
+development/test default and PostgreSQL is supported for production. This folder is its
+own Git repository and runs independently from the frontend.
 
-See [SPEC.md](SPEC.md) for the implemented API behavior, [specs/authentication/SPEC.md](specs/authentication/SPEC.md) for the account feature contract, [specs/order-workflow/SPEC.md](specs/order-workflow/SPEC.md) for request processing, [specs/demo-login/SPEC.md](specs/demo-login/SPEC.md) for local demo accounts, [specs/staff/SPEC.md](specs/staff/SPEC.md) for roles and permissions, [specs/users/SPEC.md](specs/users/SPEC.md) for user-directory compatibility, and [specs/activity/SPEC.md](specs/activity/SPEC.md) for the Admin-only activity contract.
+See [SPEC.md](SPEC.md) for the implemented API behavior, [the database support spec](specs/database-support/SPEC.md) for provider operation, [specs/authentication/SPEC.md](specs/authentication/SPEC.md) for the account feature contract, [specs/order-workflow/SPEC.md](specs/order-workflow/SPEC.md) for request processing, [specs/demo-login/SPEC.md](specs/demo-login/SPEC.md) for local demo accounts, [specs/staff/SPEC.md](specs/staff/SPEC.md) for roles and permissions, [specs/users/SPEC.md](specs/users/SPEC.md) for user-directory compatibility, and [specs/activity/SPEC.md](specs/activity/SPEC.md) for the Admin-only activity contract.
 
 ## Development workflow
 
@@ -19,9 +21,19 @@ Copy-Item .env.example .env
 bun run dev
 ```
 
-The backend's `bunfig.toml` disables dependency install scripts. Its SQLite driver ships native binaries; this avoids an unnecessary local `node-gyp` rebuild on Windows. Revisit this setting when adding a dependency that requires an install script.
+The backend's `bunfig.toml` disables dependency install scripts. Its SQLite driver ships native binaries; this avoids an unnecessary local `node-gyp` rebuild on Windows. PostgreSQL parity tests use the pinned embedded PostgreSQL 17.10 package. If Bun reports its platform setup script as blocked after installation, run `bun pm trust @embedded-postgres/windows-x64` on Windows or `bun pm trust @embedded-postgres/linux-x64` on Linux, then reinstall as directed by Bun. PostgreSQL 17.10 was verified on Windows x64.
 
-The API starts at `http://localhost:4000/graphql`; Better Auth serves `/api/auth/*`, and `GET /health` returns a health response. SQLite migrations run on startup. Development seeds twelve catalog books once; production does not seed automatically. Use `bun run db:seed` only when you intentionally want the sample catalog. The `data/` directory is ignored by Git. Configure `PORT`, `DATABASE_PATH`, `FRONTEND_ORIGIN`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`, and `NODE_ENV` in `.env`. Set `BETTER_AUTH_URL` to the public storefront origin that proxies `/api/auth` (localhost:5173 in development). The secret must be random and at least 32 characters; do not use the schema generator's test secret in a running server.
+The API starts at `http://localhost:4000/graphql`; Better Auth serves `/api/auth/*`, and `GET /health` returns a health response. SQLite migrations run on startup and development seeds twelve catalog books once. PostgreSQL never auto-migrates or auto-seeds: apply `bun run db:migrate` first, then run `bun run db:seed` only when you intentionally want the sample catalog. Both catalog and demo seed commands reject production before opening a database. The `data/` directory is ignored by Git.
+
+Configure `PORT`, `DB_PROVIDER`, `DATABASE_PATH`, `DATABASE_URL`, `PG_POOL_MAX`,
+`PG_TLS_MODE`, `PG_CA_FILE`, `FRONTEND_ORIGIN`, `BETTER_AUTH_URL`,
+`BETTER_AUTH_SECRET`, and `NODE_ENV` in `.env` as applicable. SQLite is the default
+outside production. Production requires `DB_PROVIDER=postgresql`, a PostgreSQL URL,
+and `PG_TLS_MODE=verify-full`; `PG_CA_FILE` may provide a trusted CA bundle. URL TLS
+parameters are rejected so TLS policy is controlled only by these environment variables.
+Set `BETTER_AUTH_URL` to the public storefront origin that proxies `/api/auth`
+(localhost:5173 in development). The secret must be random and at least 32 characters;
+do not use the schema generator's test secret in a running server.
 
 Auth request bodies are capped at 64 KiB. Sign-up and account updates trim names and enforce 1–120 characters. Rate limiting uses the direct socket address by default and ignores caller-supplied forwarding headers. Behind a reverse proxy, set `AUTH_TRUSTED_PROXY_IP` to its peer IP only when that proxy **overwrites** `X-Real-IP` and direct access to the API is blocked. Without this setting, customers behind the proxy share one rate-limit bucket.
 
@@ -59,9 +71,22 @@ query BrowseBooks {
 
 ```graphql
 mutation StartCheckout {
-  createCheckout(input: { items: [{ bookId: "1", quantity: 1 }], requestKey: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }) {
+  createCheckout(
+    input: {
+      items: [{ bookId: "1", quantity: 1 }]
+      requestKey: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    }
+  ) {
     checkoutUrl
-    order { id status totalCents payment { status currency } }
+    order {
+      id
+      status
+      totalCents
+      payment {
+        status
+        currency
+      }
+    }
   }
 }
 ```
@@ -85,10 +110,14 @@ src/
   server.ts              Process startup and shutdown
   config/env.ts          Environment validation
   database/
-    connection.ts        SQLite connection
-    schema.ts            Storefront tables and SQLite constraints
-    auth-schema.ts       Better Auth tables generated for Drizzle
-    migrations.ts        Drizzle migrations and legacy adoption
+    runtime.ts           Provider selection, lifecycle, and readiness
+    connection.ts        SQLite connection and automatic migration
+    schema.ts            SQLite storefront tables and constraints
+    auth-schema.ts       SQLite Better Auth tables generated for Drizzle
+    migrations.ts        SQLite migrations and legacy adoption
+    sqlite/              SQLite adapter implementation
+    postgresql/          PostgreSQL schemas, adapter, connection, and migration helpers
+    persistence.ts       Provider-neutral repository store composition
     migrate-cli.ts       Explicit migration entry point
     seed.ts              Optional catalog seed
   auth.ts                Better Auth server configuration
@@ -121,7 +150,7 @@ drizzle/                  Committed SQL migrations and metadata
 
 The storefront has three roles: Customer, Staff, and Admin. Signup creates a Customer; `user_roles` is the sole server-owned role authority, with no row also resolving to Customer. Staff can manage catalog metadata, prices, and stock; read order requests; and process allowed status transitions. Admin adds archive/restore and user management, including role assignment and another user's password reset. All three roles can still use normal shopping and their own account profile. See [the staff roles spec](specs/staff/SPEC.md). The deprecated Boolean access mutations and customer-named GraphQL fields remain only for compatible clients.
 
-Start the API to apply migrations, or run `bun run db:migrate` using the configured `.env`. Register the intended account through the storefront, verify the account identity, and obtain its exact user ID from the signed-in `viewer { id role }` GraphQL query or the local database. Run these operator commands **from this backend directory**, against the intended `DATABASE_PATH`:
+Start the API to apply SQLite migrations, or run `bun run db:migrate` using the configured `.env`. For PostgreSQL, run `bun run db:migrate` before startup; startup then verifies the applied migration journal and required tables. Register the intended account through the storefront, verify the account identity, and obtain its exact user ID from the signed-in `viewer { id role }` GraphQL query or the configured database. Run these operator commands **from this backend directory**:
 
 ```powershell
 bun run admin:access -- grant <user-id>
@@ -140,21 +169,23 @@ See [the admin spec](specs/admin/SPEC.md) for the full contract.
 
 ## Migration workflow
 
-Edit `src/database/schema.ts`, then run `bun run db:generate` and review and commit the generated SQL and metadata in `drizzle/`. Better Auth table updates begin with `auth.cli.ts` and the Better Auth schema generator; review `src/database/auth-schema.ts` before generating a Drizzle migration. Apply migrations with `bun run db:migrate`; startup uses the same wrapper. Drizzle Kit is configured in `drizzle.config.ts`.
+For SQLite changes, edit `src/database/schema.ts`, run `bun run db:generate`, and review and commit generated SQL and metadata in `drizzle/`. For PostgreSQL changes, update the matching definitions in `src/database/postgresql/`, use `drizzle.postgresql.config.ts`, and commit the generated PostgreSQL SQL/snapshots under `drizzle/postgresql/`. Every logical schema change needs reviewed migrations for both providers. Better Auth table updates begin with `auth.cli.ts` and its generated schemas. Apply migrations with `bun run db:migrate`: it retains SQLite's legacy-aware wrapper and applies PostgreSQL migrations explicitly. PostgreSQL startup only checks readiness; it never applies migrations.
 
-The wrapper verifies the original `user_version = 1` schema and foreign keys before recording the matching Drizzle baseline. Fresh and zero-order pre-workflow databases migrate normally. A populated pre-workflow orders table without `status` fails before migration writes; use an explicitly authorized development reset/reseed or a separately designed data migration rather than fabricating status history. It never resets a database automatically. Unsupported legacy schemas or versions fail startup. Keep `drizzle/` beside the built application when deploying. Use the wrapper for existing databases: direct `drizzle-kit migrate` bypasses legacy adoption. Back up database files before applying schema changes.
+The SQLite wrapper verifies the original `user_version = 1` schema and foreign keys before recording the matching Drizzle baseline. Fresh and zero-order pre-workflow SQLite databases migrate normally. A populated pre-workflow orders table without `status` fails before migration writes; use an explicitly authorized development reset/reseed or a separately designed data migration rather than fabricating status history. It never resets a database automatically. Unsupported SQLite legacy schemas or versions fail startup. Keep both `drizzle/` and `drizzle/postgresql/` beside the built application when deploying. Back up a persistent target before applying schema changes.
 
 ## Checks
 
 ```powershell
 bun run test
+bun run test:postgres
 bun run lint
 bun run build
 ```
 
 After changing a module GraphQL schema, run `bun run codegen` here to refresh the committed resolver types. If a frontend operation uses the new schema, start the API and run `bun run codegen` in the frontend repository too.
 
-Tests run against an in-memory SQLite database. New orders use Stripe hosted Checkout
+`bun run test` uses in-memory SQLite. `bun run test:postgres` provisions a disposable
+local PostgreSQL 17.10 instance and runs the shared parity suite. New orders use Stripe hosted Checkout
 in test mode; delivery is not integrated. Email verification and self-service password
 recovery are deferred. An admin can still set another account's password. Before a live
 launch, specify and implement live-payment, fulfillment, customer communication,

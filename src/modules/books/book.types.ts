@@ -11,7 +11,7 @@ export type Book = {
 export type BookPage = { total: number; items: Book[] }
 
 export interface CatalogRepository {
-  listBooks(search: string, limit: number, offset: number): BookPage
-  listGenres(): string[]
-  getBook(id: string): Book | null
+  listBooks(search: string, limit: number, offset: number): Promise<BookPage>
+  listGenres(): Promise<string[]>
+  getBook(id: string): Promise<Book | null>
 }

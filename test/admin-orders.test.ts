@@ -6,7 +6,6 @@ import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/database/connection.js'
 import { seedBooks } from '../src/database/seed.js'
 import { createOrderRepository } from '../src/modules/orders/order.repository.js'
-
 const options = {
   frontendOrigin: 'http://localhost:5173',
   authBaseURL: 'http://localhost:5173',
@@ -24,7 +23,11 @@ beforeEach(async () => {
     const res = await request(app)
       .post('/api/auth/sign-up/email')
       .set('Origin', options.frontendOrigin)
-      .send({ name: 'Reader', email, password: 'correct-horse-battery-staple' })
+      .send({
+        name: 'Reader',
+        email,
+        password: 'correct-horse-battery-staple',
+      })
     expect(res.status).toBe(200)
     if (email.startsWith('admin')) {
       cookies = res.headers['set-cookie'] as string[]
@@ -34,20 +37,38 @@ beforeEach(async () => {
 })
 afterEach(() => db.close())
 // Workflow compatibility tests deliberately seed pre-payment legacy orders.
-function legacyOrder(quantity: number) {
+async function legacyOrder(quantity: number) {
   const user = db
     .prepare("SELECT id,name,email FROM user WHERE email='customer@example.com'")
-    .get() as { id: string; name: string; email: string }
-  const order = createOrderRepository(db).saveOrder(user, [{ bookId: '1', quantity }])
-  return { body: { errors: undefined, data: { order } } }
+    .get() as {
+    id: string
+    name: string
+    email: string
+  }
+  const order = await createOrderRepository(db).saveOrder(user, [
+    {
+      bookId: '1',
+      quantity,
+    },
+  ])
+  return {
+    body: {
+      errors: undefined,
+      data: {
+        order,
+      },
+    },
+  }
 }
 function gql(query: string, auth = cookies) {
   const req = request(app).post('/graphql').set('Origin', options.frontendOrigin)
   if (auth.length) req.set('Cookie', auth)
-  return req.send({ query })
+  return req.send({
+    query,
+  })
 }
 it('lists every request and legacy contact snapshot in stable newest-first order, without changing customer history', async () => {
-  const placed = legacyOrder(1)
+  const placed = await legacyOrder(1)
   expect(placed.body.errors).toBeUndefined()
   db.prepare("UPDATE orders SET created_at = '2026-10-01 10:00:00'").run()
   seedSubmittedOrder(db, {
@@ -97,9 +118,8 @@ it('protects private order queries and validates pagination and lookup', async (
   )
   expect((await gql('{ adminOrder(id: "999") { id } }')).body.data.adminOrder).toBeNull()
 })
-
 it('exposes owner-safe details, attributed workspace history and guarded workflow actions', async () => {
-  const placed = legacyOrder(1)
+  const placed = await legacyOrder(1)
   expect(placed.body.data.order.status).toBe('SUBMITTED')
   const id = placed.body.data.order.id
   expect(
@@ -147,20 +167,25 @@ it('exposes owner-safe details, attributed workspace history and guarded workflo
       .message,
   ).toContain('Cannot query field')
 })
-
 it('serializes simultaneous cancellations and conflicting status requests', async () => {
-  const placed = legacyOrder(2)
+  const placed = await legacyOrder(2)
   const id = placed.body.data.order.id
-  const stock = db.prepare('SELECT stock FROM books WHERE id=1').get() as { stock: number }
+  const stock = db.prepare('SELECT stock FROM books WHERE id=1').get() as {
+    stock: number
+  }
   const cancel = `mutation { setOrderStatus(input:{id:"${id}",expectedStatus:SUBMITTED,status:CANCELLED,cancellationReason:" Reason "}) { status history { cancellationReason } } }`
   const results = await Promise.all([gql(cancel), gql(cancel)])
   expect(results.every((result) => !result.body.errors)).toBe(true)
   expect(results[0].body.data.setOrderStatus.history[1].cancellationReason).toBe('Reason')
-  expect(db.prepare('SELECT stock FROM books WHERE id=1').get()).toEqual({ stock: stock.stock + 2 })
+  expect(db.prepare('SELECT stock FROM books WHERE id=1').get()).toEqual({
+    stock: stock.stock + 2,
+  })
   expect(
     db.prepare('SELECT count(*) AS n FROM order_status_events WHERE order_id=?').get(id),
-  ).toEqual({ n: 2 })
-  const second = legacyOrder(1)
+  ).toEqual({
+    n: 2,
+  })
+  const second = await legacyOrder(1)
   const next = second.body.data.order.id
   const attempts = await Promise.all(
     ['ACCEPTED', 'CANCELLED'].map((status) =>
@@ -175,7 +200,7 @@ it('serializes simultaneous cancellations and conflicting status requests', asyn
   )
 })
 it('allows staff processing with live permissions and immutable attribution', async () => {
-  const placed = legacyOrder(1)
+  const placed = await legacyOrder(1)
   const id = placed.body.data.order.id
   db.exec("UPDATE user_roles SET role='STAFF'")
   const accepted = await gql(
@@ -195,9 +220,8 @@ it('allows staff processing with live permissions and immutable attribution', as
     ).body.errors[0].extensions.code,
   ).toBe('FORBIDDEN')
 })
-
 it('validates input before retries and retains the first cancellation reason', async () => {
-  const placed = legacyOrder(1)
+  const placed = await legacyOrder(1)
   const id = placed.body.data.order.id
   for (const input of [
     `id:"${id}",expectedStatus:SUBMITTED,status:CANCELLED,cancellationReason:"   "`,
@@ -220,7 +244,11 @@ it('validates input before retries and retains the first cancellation reason', a
   const repeat = await cancel('ACCEPTED', 'Replacement')
   expect(repeat.body.errors).toBeUndefined()
   expect(repeat.body.data.setOrderStatus.history).toEqual([
-    { cancellationReason: null },
-    { cancellationReason: 'Original' },
+    {
+      cancellationReason: null,
+    },
+    {
+      cancellationReason: 'Original',
+    },
   ])
 })

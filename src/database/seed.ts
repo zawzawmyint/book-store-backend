@@ -12,7 +12,7 @@ type SeedBook = {
   stock: number
 }
 
-const sampleBooks: SeedBook[] = [
+export const sampleBooks: SeedBook[] = [
   {
     title: 'The Great Gatsby',
     author: 'F. Scott Fitzgerald',

@@ -18,12 +18,18 @@ beforeEach(async () => {
   db = createDatabase(':memory:')
   seedBooks(db)
   provider = new FakePaymentProvider()
-  app = await createApp(db, options, { provider })
+  app = await createApp(db, options, {
+    provider,
+  })
   for (const name of ['buyer', 'other', 'staff']) {
     const r = await request(app)
       .post('/api/auth/sign-up/email')
       .set('Origin', options.frontendOrigin)
-      .send({ name, email: `${name}@example.com`, password: 'password-long-enough-123' })
+      .send({
+        name,
+        email: `${name}@example.com`,
+        password: 'password-long-enough-123',
+      })
     expect(r.status).toBe(200)
     const cookies = r.headers['set-cookie'] as string[]
     if (name === 'buyer') buyer = cookies
@@ -39,7 +45,9 @@ afterEach(() => db.close())
 function gql(query: string, cookies: string[] = buyer) {
   const r = request(app).post('/graphql').set('Origin', options.frontendOrigin)
   if (cookies.length) r.set('Cookie', cookies)
-  return r.send({ query })
+  return r.send({
+    query,
+  })
 }
 const checkout = () =>
   gql(
@@ -80,7 +88,9 @@ it('enforces authentication, owner scope and process permissions before validati
     (await gql('mutation{placeOrder(input:{items:[{bookId:"1",quantity:1}]}){id}}')).body.errors[0],
   ).toMatchObject({
     message: 'Use createCheckout to place a paid order',
-    extensions: { code: 'BAD_USER_INPUT' },
+    extensions: {
+      code: 'BAD_USER_INPUT',
+    },
   })
 })
 it('preserves raw signed webhook bytes, size bounds, durable queuing and duplicate effects', async () => {
@@ -145,7 +155,9 @@ it('preserves raw signed webhook bytes, size bounds, durable queuing and duplica
   expect(
     (await gql(`{myOrder(id:"${id}"){payment{status}}}`)).body.data.myOrder.payment.status,
   ).toBe('PAID')
-  expect(db.prepare('SELECT count(*) n FROM payment_events').get()).toEqual({ n: 1 })
+  expect(db.prepare('SELECT count(*) n FROM payment_events').get()).toEqual({
+    n: 1,
+  })
   expect(
     (
       await request(app)
@@ -165,15 +177,21 @@ it('disabled checkout returns a safe availability error while legacy reads remai
       query: `mutation{createCheckout(input:{requestKey:"${randomUUID()}",items:[{bookId:"1",quantity:1}]}){order{id}}}`,
     })
   expect(r.body.errors[0].extensions.code).toBe('PAYMENT_UNAVAILABLE')
-  expect(db.prepare('SELECT count(*) n FROM orders').get()).toEqual({ n: 0 })
+  expect(db.prepare('SELECT count(*) n FROM orders').get()).toEqual({
+    n: 0,
+  })
 })
-
 it('rejects malformed signed event envelopes as invalid payloads instead of queue failures', async () => {
   const r = await request(app)
     .post('/api/payments/stripe/webhook')
     .set('Content-Type', 'application/json')
     .set('stripe-signature', 'valid')
-    .send(JSON.stringify({ type: 'checkout.session.completed', resourceId: 'cs_bad' }))
+    .send(
+      JSON.stringify({
+        type: 'checkout.session.completed',
+        resourceId: 'cs_bad',
+      }),
+    )
   expect(r.status).toBe(400)
   expect(db.prepare('SELECT * FROM payment_events').all()).toEqual([])
 })

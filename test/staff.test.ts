@@ -4,7 +4,6 @@ import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/database/connection.js'
 import { createAdminRepository } from '../src/modules/admin/admin.repository.js'
 import { operatorActor } from '../src/modules/activity/activity.types.js'
-
 const options = {
   frontendOrigin: 'http://localhost:5173',
   authBaseURL: 'http://localhost:5173',
@@ -21,13 +20,17 @@ beforeEach(async () => {
     const res = await request(app)
       .post('/api/auth/sign-up/email')
       .set('Origin', options.frontendOrigin)
-      .send({ name: role, email: `${role}@example.com`, password: 'staff-password-123' })
+      .send({
+        name: role,
+        email: `${role}@example.com`,
+        password: 'staff-password-123',
+      })
     expect(res.status).toBe(200)
     const cookies = res.headers['set-cookie'] as string[]
     if (role === 'admin') {
       admin = cookies
       adminId = res.body.user.id
-      createAdminRepository(db).setAdminAccess(adminId, true, operatorActor)
+      await createAdminRepository(db).setAdminAccess(adminId, true, operatorActor)
     }
     if (role === 'staff') {
       staff = cookies
@@ -40,12 +43,18 @@ afterEach(() => db.close())
 function gql(query: string, cookies?: string[], variables: Record<string, unknown> = {}) {
   const req = request(app).post('/graphql').set('Origin', options.frontendOrigin)
   if (cookies) req.set('Cookie', cookies)
-  return req.send({ query, variables })
+  return req.send({
+    query,
+    variables,
+  })
 }
 const assign =
   'mutation($id: ID!, $role: UserRole!) { setUserRole(userId: $id, role: $role) { id role } }'
 async function promote() {
-  const res = await gql(assign, admin, { id: staffId, role: 'STAFF' })
+  const res = await gql(assign, admin, {
+    id: staffId,
+    role: 'STAFF',
+  })
   expect(res.body.errors).toBeUndefined()
   expect(res.body.data.setUserRole.role).toBe('STAFF')
 }
@@ -58,11 +67,24 @@ it('assigns staff idempotently, filters roles, and preserves the signup default'
     admin,
   )
   expect(res.body.errors).toBeUndefined()
-  expect(res.body.data.adminUsers).toEqual({ total: 1, items: [{ id: staffId, role: 'STAFF' }] })
+  expect(res.body.data.adminUsers).toEqual({
+    total: 1,
+    items: [
+      {
+        id: staffId,
+        role: 'STAFF',
+      },
+    ],
+  })
   expect(res.body.data.adminCustomers.total).toBe(1)
   expect((await gql('{ viewer { role } }', staff)).body.data.viewer.role).toBe('STAFF')
   expect(
-    (await gql(assign, admin, { id: 'missing', role: 'STAFF' })).body.errors[0].extensions.code,
+    (
+      await gql(assign, admin, {
+        id: 'missing',
+        role: 'STAFF',
+      })
+    ).body.errors[0].extensions.code,
   ).toBe('BAD_USER_INPUT')
 })
 it('lets staff maintain catalog and view orders but denies archive and user management', async () => {
@@ -79,8 +101,12 @@ it('lets staff maintain catalog and view orders but denies archive and user mana
   )
   expect(edited.body.errors).toBeUndefined()
   expect(edited.body.data).toEqual({
-    updateBook: { priceCents: 1500 },
-    adjustBookStock: { stock: 7 },
+    updateBook: {
+      priceCents: 1500,
+    },
+    adjustBookStock: {
+      stock: 7,
+    },
   })
   expect(
     (await gql('{ adminBooks { total } adminOrders { total } }', staff)).body.errors,
@@ -104,7 +130,12 @@ it('lets staff maintain catalog and view orders but denies archive and user mana
       cookies ? 'FORBIDDEN' : 'UNAUTHENTICATED',
     )
     expect(
-      (await gql(assign, cookies, { id: staffId, role: 'ADMIN' })).body.errors[0].extensions.code,
+      (
+        await gql(assign, cookies, {
+          id: staffId,
+          role: 'ADMIN',
+        })
+      ).body.errors[0].extensions.code,
     ).toBe(cookies ? 'FORBIDDEN' : 'UNAUTHENTICATED')
   }
 })
@@ -113,17 +144,22 @@ it('demotes live sessions, maps compatibility booleans and allows operator recov
   await gql(
     'mutation($id: ID!) { setUserAdminAccess(userId: $id, enabled: false) { role } }',
     admin,
-    { id: staffId },
+    {
+      id: staffId,
+    },
   )
   expect((await gql('{ adminOrders { total } }', staff)).body.errors[0].extensions.code).toBe(
     'FORBIDDEN',
   )
   expect((await gql('{ viewer { role } }', staff)).body.data.viewer.role).toBe('CUSTOMER')
-  await gql(assign, admin, { id: adminId, role: 'STAFF' })
+  await gql(assign, admin, {
+    id: adminId,
+    role: 'STAFF',
+  })
   expect((await gql('{ adminUsers { total } }', admin)).body.errors[0].extensions.code).toBe(
     'FORBIDDEN',
   )
   expect((await gql('{ adminOrders { total } }', admin)).body.errors).toBeUndefined()
-  createAdminRepository(db).setAdminAccess(adminId, true, operatorActor)
+  await createAdminRepository(db).setAdminAccess(adminId, true, operatorActor)
   expect((await gql('{ adminUsers { total } }', admin)).body.errors).toBeUndefined()
 })

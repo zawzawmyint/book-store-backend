@@ -8,9 +8,13 @@ Require a Better Auth session for order requests and expose each customer's own 
 
 ## Starting point
 
-- This repository is an Express 5, Apollo GraphQL, Drizzle, Zod, and SQLite API. Bun manages dependencies; Node.js runs the API.
+- This repository is an Express 5, Apollo GraphQL, Drizzle, and Zod API. SQLite is
+  the development/test default and PostgreSQL is supported for production. Bun manages
+  dependencies; Node.js runs the API.
 - Before this feature, `placeOrder` accepted a guest name and email, and `orders` had no user reference. This historical compatibility note applies to the authentication migration; the later order workflow refuses a populated pre-workflow order table rather than preserving or inventing workflow state.
-- `src/database/migrations.ts` adopts verified legacy databases and applies committed Drizzle migrations. Order creation and stock updates already share one SQLite transaction.
+- SQLite's `src/database/migrations.ts` adopts verified legacy databases and applies
+  committed SQLite migrations. PostgreSQL has a separate baseline/migration chain.
+  Order creation and stock updates share one provider-scoped transaction.
 
 ## Scope
 
@@ -22,7 +26,10 @@ Require a Better Auth session for order requests and expose each customer's own 
 ## HTTP and GraphQL contract
 
 - Better Auth owns `GET/POST /api/auth/*`. Mount its Express 5 catch-all route at `/api/auth/*splat` before `express.json()`; keep `/graphql` and `/health` separate.
-- Create the Better Auth instance from the same SQLite connection used by Apollo, including in-memory API tests. Resolve the server session from incoming request headers in Apollo context. The browser never supplies an authoritative user ID, name, or email.
+- Create the Better Auth instance from the same selected database runtime used by Apollo,
+  including the SQLite in-memory API tests and PostgreSQL parity tests. Resolve the
+  server session from incoming request headers in Apollo context. The browser never
+  supplies an authoritative user ID, name, or email.
 - **Breaking change:** `PlaceOrderInput` becomes `{ items: [OrderItemInput!]! }`; remove `customerName` and `email`. `placeOrder` reads `user.id`, `user.name`, and `user.email` from the server session. It rejects a missing or expired session with GraphQL `extensions.code: UNAUTHENTICATED` before writing an order or changing stock.
 - Preserve order line validation, `BAD_USER_INPUT` for invalid inputs, stored-price totals, stock checks, and transactional writes. Keep the existing receipt fields.
 - Add `myOrders(limit: Int = 20, offset: Int = 0): MyOrdersPage!` to `Query`. Validate `limit` from 1 to 50 and nonnegative `offset`. Entries include `id`, `createdAt`, `status`, `totalCents`, and saved lines. List newest first and filter by the session user ID in the repository. `myOrder(id)` uses the same owner scope and returns the customer-safe status timeline. Reject missing or expired sessions with `UNAUTHENTICATED`.
@@ -31,7 +38,10 @@ Require a Better Auth session for order requests and expose each customer's own 
 
 ## Data and migration
 
-- Add Better Auth's required `user`, `session`, `account`, and `verification` tables to the existing SQLite database through the Drizzle adapter. Generate the schema with the Better Auth CLI, review it, integrate it into `src/database/schema.ts`, then generate and commit SQL and metadata under `drizzle/`. Apply changes through this repository's `db:migrate` wrapper, not a separate Better Auth migration path.
+- Better Auth's required `user`, `session`, `account`, and `verification` tables have
+  matching SQLite and PostgreSQL Drizzle definitions. Generate/review both provider
+  schemas and migration sets when auth persistence changes. SQLite uses the repository's
+  legacy-aware migration wrapper; PostgreSQL uses its explicit `db:migrate` path.
 - Add nullable `orders.user_id` referencing `user.id`, plus an index supporting user-scoped newest-first listing. Keep `orders.customer_name` and `orders.email` as contact snapshots populated from the server session for new orders.
 - Existing orders receive `user_id = NULL`. Do not backfill by matching email; a new account does not prove ownership of an earlier guest request.
 - These statements describe the historical authentication migration. The later workflow migration supports fresh or zero-order databases and blocks populated pre-workflow orders before writing; review that guard before planning a data-preserving migration.
@@ -51,7 +61,7 @@ Require a Better Auth session for order requests and expose each customer's own 
 
 ## Acceptance criteria
 
-- Sign-up, sign-in, session restoration, and sign-out work against the same SQLite database as orders.
+- Sign-up, sign-in, session restoration, and sign-out work against the same selected database as orders.
 - Direct unauthenticated or expired-session calls to `createCheckout`, `myOrders`, and `myOrder` return `UNAUTHENTICATED`; no order or stock change occurs.
 - A signed-in order uses the session user ID and contact details and appears only in that user's history. Another account and a signed-out request cannot read it.
 - The historical authentication migration leaves guest orders unclaimed. The later workflow migration blocks populated pre-workflow orders; an explicit development reset or separately designed data migration is required for them.
