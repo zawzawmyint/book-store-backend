@@ -4,6 +4,8 @@
 
 > **Implemented delivery:** [Delivery](specs/delivery/SPEC.md) is the current checkout and fulfillment contract.
 
+> **Implemented payment-key recovery:** [Payment operation keys](specs/payment-operation-keys/SPEC.md) defines durable Stripe idempotency identities and restart recovery.
+
 > This document describes implemented behavior. See [the Stripe checkout feature spec](specs/stripe-checkout/SPEC.md) for test-payment details, [the authentication feature spec](specs/authentication/SPEC.md) for the account contract, and [the demo-login feature spec](specs/demo-login/SPEC.md) for optional local demo accounts.
 
 > The implemented role and permission model is defined in [the staff roles specification](specs/staff/SPEC.md), with user-directory compatibility details in [the user directory specification](specs/users/SPEC.md).
@@ -53,7 +55,10 @@ are authoritative in [the delivery specification](specs/delivery/SPEC.md).
 - In one provider-scoped transaction, the server writes a pending payment-required order and
   its line items, reserves stock, and creates the initial status event. A failed
   validation or stock check leaves no partial order. Stripe work happens outside the
-  transaction through durable operations.
+  transaction through durable operations. New checkout/refund operations persist UUID
+  identities (`checkout:<UUID>` and `refund:<UUID>`) before provider calls; retries and
+  restarts use that saved identity. Existing deterministic operation IDs remain
+  recoverable and are never rotated automatically.
 - The response contains the order and a hosted checkout URL while its session is
   open. Saved USD totals are immutable: `subtotalCents + deliveryFeeCents = totalCents`.
   Payment confirmation is provider evidence, never a browser return URL.

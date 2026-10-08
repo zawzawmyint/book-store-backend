@@ -4,7 +4,7 @@ An Express + GraphQL + Drizzle bookstore API with Zod input validation. SQLite i
 development/test default and PostgreSQL is supported for production. This folder is its
 own Git repository and runs independently from the frontend.
 
-See [SPEC.md](SPEC.md) for the implemented API behavior, [the database support spec](specs/database-support/SPEC.md) for provider operation, [specs/authentication/SPEC.md](specs/authentication/SPEC.md) for the account feature contract, [specs/order-workflow/SPEC.md](specs/order-workflow/SPEC.md) for request processing, [specs/demo-login/SPEC.md](specs/demo-login/SPEC.md) for local demo accounts, [specs/staff/SPEC.md](specs/staff/SPEC.md) for roles and permissions, [specs/users/SPEC.md](specs/users/SPEC.md) for user-directory compatibility, and [specs/activity/SPEC.md](specs/activity/SPEC.md) for the Admin-only activity contract.
+See [SPEC.md](SPEC.md) for the implemented API behavior, [the database support spec](specs/database-support/SPEC.md) for provider operation, [specs/payment-operation-keys/SPEC.md](specs/payment-operation-keys/SPEC.md) for durable payment idempotency and recovery, [specs/authentication/SPEC.md](specs/authentication/SPEC.md) for the account feature contract, [specs/order-workflow/SPEC.md](specs/order-workflow/SPEC.md) for request processing, [specs/demo-login/SPEC.md](specs/demo-login/SPEC.md) for local demo accounts, [specs/staff/SPEC.md](specs/staff/SPEC.md) for roles and permissions, [specs/users/SPEC.md](specs/users/SPEC.md) for user-directory compatibility, and [specs/activity/SPEC.md](specs/activity/SPEC.md) for the Admin-only activity contract.
 
 ## Development workflow
 

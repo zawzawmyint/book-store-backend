@@ -36,7 +36,7 @@ export function createPaymentRepository(input: DatabaseInput, now: () => number)
     if (existing.some((op) => ['PENDING', 'DONE', 'MANUAL'].includes(op.state))) return
     await paymentChange(tx, id, 'REFUND_PENDING', { stripeRefundId: null })
     await tx.insertOperation({
-      id: `refund:${id}:${existing.length + 1}`,
+      id: `refund:${randomUUID()}`,
       orderId: id,
       kind: 'REFUND',
       createdAt: now(),
@@ -150,6 +150,7 @@ export function createPaymentRepository(input: DatabaseInput, now: () => number)
   return {
     get: (id: number) => store.order(id),
     operation: (id: string) => store.operation(id),
+    checkoutOperation: (id: number) => store.checkoutOperation(id),
     customerOrders: createOrderRepository(store),
     workflow: createAdminOrderRepository(store),
     lines: (id: number) => store.lines([id]),
@@ -240,7 +241,7 @@ export function createPaymentRepository(input: DatabaseInput, now: () => number)
           orderId: id,
         })
         await tx.insertOperation({
-          id: `checkout:${id}`,
+          id: `checkout:${randomUUID()}`,
           orderId: id,
           kind: 'CREATE_SESSION',
           createdAt: now(),

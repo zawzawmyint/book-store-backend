@@ -102,9 +102,10 @@ describe('portable async repository guarantees', () => {
       customer,
       deliveryOptions,
     )
-    const old = await repo.claim(`checkout:${order.id}`)
+    const operation = (await repo.checkoutOperation(order.id))!
+    const old = await repo.claim(operation.id)
     now += 30001
-    const current = await repo.claim(`checkout:${order.id}`)
+    const current = await repo.claim(operation.id)
     expect(current?.leaseToken).not.toBe(old?.leaseToken)
     await repo.failOperation(old!, true)
     expect((await store.order(order.id))?.paymentStatus).toBe('PENDING')

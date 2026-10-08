@@ -632,7 +632,9 @@ describe(`database contract: ${providerName}`, () => {
   it('rejects stale lease completion after another worker acquires the expired operation', async () => {
     const repository = createPaymentRepository(database.handle, () => now)
     const order = await repository.reserve(input(), buyer, options)
-    const first = (await repository.claim(`checkout:${order.id}`))!
+    const operation = (await repository.checkoutOperation(order.id))!
+    expect(operation.id).toMatch(/^checkout:[0-9a-f-]{36}$/)
+    const first = (await repository.claim(operation.id))!
     now += 31000
     const second = (await repository.claim(first.id))!
     expect(second.leaseToken).not.toBe(first.leaseToken)
@@ -657,12 +659,14 @@ describe(`database contract: ${providerName}`, () => {
     const other = database.handle.provider === 'postgresql' ? await openDatabase(config) : database
     try {
       const contender = createPaymentRepository(other.handle, () => now)
+      const operation = (await repository.checkoutOperation(order.id))!
+      expect((await contender.checkoutOperation(order.id))!.id).toBe(operation.id)
       const claims = await Promise.all([
-        repository.claim(`checkout:${order.id}`),
-        contender.claim(`checkout:${order.id}`),
+        repository.claim(operation.id),
+        contender.claim(operation.id),
       ])
       expect(claims.filter(Boolean)).toHaveLength(1)
-      expect((await repository.operation(`checkout:${order.id}`))!.attempts).toBe(1)
+      expect((await repository.operation(operation.id))!.attempts).toBe(1)
     } finally {
       if (other !== database) await other.close()
     }

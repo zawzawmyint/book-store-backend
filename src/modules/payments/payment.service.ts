@@ -90,7 +90,9 @@ export function createPaymentService(
     let row = (await repository.get(id))!
     try {
       if (!row.stripeSessionId && row.paymentStatus === 'PENDING') {
-        await runOperation(`checkout:${id}`)
+        const operation = await repository.checkoutOperation(id)
+        if (!operation) throw new PaymentUnavailableError()
+        await runOperation(operation.id)
         row = (await repository.get(id))!
       }
       if (row.stripeRefundId && row.paymentStatus === 'REFUND_PENDING')

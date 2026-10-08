@@ -284,6 +284,19 @@ export function createPostgreSQLStore(orm: NodePgDatabase<typeof s>, scoped = fa
           .for(scoped ? 'update' : 'share'),
       )
     },
+    async checkoutOperation(id) {
+      return FIRST(
+        await orm
+          .select()
+          .from(s.paymentOperations)
+          .where(
+            and(
+              eq(s.paymentOperations.orderId, id),
+              eq(s.paymentOperations.kind, 'CREATE_SESSION'),
+            ),
+          ),
+      )
+    },
     async refundOperations(id) {
       return await orm
         .select()

@@ -250,6 +250,19 @@ export function createSQLiteQueries(orm: BetterSQLite3Database): DomainStore {
         await orm.select().from(s.paymentOperations).where(eq(s.paymentOperations.id, id)),
       )
     },
+    async checkoutOperation(id) {
+      return FIRST(
+        await orm
+          .select()
+          .from(s.paymentOperations)
+          .where(
+            and(
+              eq(s.paymentOperations.orderId, id),
+              eq(s.paymentOperations.kind, 'CREATE_SESSION'),
+            ),
+          ),
+      )
+    },
     async refundOperations(id) {
       return await orm
         .select()

@@ -1,4 +1,5 @@
 import { readDelivery } from './delivery.mapping.js'
+import { randomUUID } from 'node:crypto'
 import type { z } from 'zod'
 import type { setOrderStatusSchema } from './order.validation.js'
 import type { OrderStatus } from './order.types.js'
@@ -151,7 +152,7 @@ export function createAdminOrderRepository(input: DatabaseInput) {
         ) {
           await tx.updateOrder(before.id, { paymentStatus: 'REFUND_PENDING' })
           await tx.insertOperation({
-            id: `refund:${before.id}:1`,
+            id: `refund:${randomUUID()}`,
             orderId: before.id,
             kind: 'REFUND',
             createdAt: Date.now(),

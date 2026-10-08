@@ -75,6 +75,7 @@ export interface DomainStore {
   ): Promise<typeof model.checkoutRequests.$inferSelect | undefined>
   insertCheckout(values: typeof model.checkoutRequests.$inferInsert): Promise<void>
   operation(id: string): Promise<OperationRow | undefined>
+  checkoutOperation(orderId: number): Promise<OperationRow | undefined>
   refundOperations(id: number): Promise<OperationRow[]>
   insertOperation(values: typeof model.paymentOperations.$inferInsert): Promise<void>
   updateOperation(
