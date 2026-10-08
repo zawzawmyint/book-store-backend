@@ -2,7 +2,9 @@
 
 > **Implemented infrastructure:** [Database support](specs/database-support/SPEC.md) provides SQLite development/test and PostgreSQL production support with shared application behavior.
 
-> **Proposed next feature:** [Delivery](specs/delivery/SPEC.md) specifies delivery-only checkout and staff fulfillment. It is not implemented; current behavior below remains unchanged.
+> **Implemented delivery:** [Delivery](specs/delivery/SPEC.md) is the current checkout and fulfillment contract.
+
+> **Implemented payment-key recovery:** [Payment operation keys](specs/payment-operation-keys/SPEC.md) defines durable Stripe idempotency identities and restart recovery.
 
 > This document describes implemented behavior. See [the Stripe checkout feature spec](specs/stripe-checkout/SPEC.md) for test-payment details, [the authentication feature spec](specs/authentication/SPEC.md) for the account contract, and [the demo-login feature spec](specs/demo-login/SPEC.md) for optional local demo accounts.
 
@@ -20,7 +22,7 @@ fresh-database migration policy.
 The implemented [activity history specification](specs/activity/SPEC.md) defines atomic change recording and Admin-only history queries. Its additive migration has not been applied to a production database.
 
 Provide a GraphQL catalog and authenticated checkout API for the separate storefront.
-New orders require Stripe hosted Checkout in test mode; delivery is not integrated.
+New orders require Stripe hosted Checkout in test mode with a required delivery address.
 
 ## HTTP surface
 
@@ -42,27 +44,32 @@ New orders require Stripe hosted Checkout in test mode; delivery is not integrat
 
 ## Order requests
 
-- `createCheckout(input)` requires a Better Auth session and accepts 1 to 20 distinct
-  book lines plus a UUID request key. Each line has a book ID and quantity from 1 to 10. Customer name, email, and user ID come from the server session. `placeOrder`
+The former addressless Accepted/Completed and `LEGACY_UNPAID` workflow described in
+older feature notes is historical. The current requirements for delivery address,
+quote/review, immutable fee-inclusive amounts, payment state, shipment and cancellation
+are authoritative in [the delivery specification](specs/delivery/SPEC.md).
+
+- `deliveryOptions` and `quoteCheckout(input)` require a Better Auth session. They expose enabled country codes, fee and USD currency, and produce a non-reserving server quote for a valid delivery address. `createCheckout(input)` requires the reviewed address, expected fee and expected total, 1 to 20 distinct book lines, and a UUID request key. Each line has a book ID and quantity from 1 to 10. Customer name, email, and user ID come from the server session. `placeOrder`
   remains deprecated for schema compatibility and rejects new placement.
 - Module-local Zod schemas require numeric-string book IDs and integer quantities. Services translate the first input failure into GraphQL `extensions.code: BAD_USER_INPUT`; exact validation wording is not a stable API guarantee. Missing sessions return `UNAUTHENTICATED`. The repository checks book existence and stock and calculates totals from stored prices.
 - In one provider-scoped transaction, the server writes a pending payment-required order and
   its line items, reserves stock, and creates the initial status event. A failed
   validation or stock check leaves no partial order. Stripe work happens outside the
-  transaction through durable operations.
+  transaction through durable operations. New checkout/refund operations persist UUID
+  identities (`checkout:<UUID>` and `refund:<UUID>`) before provider calls; retries and
+  restarts use that saved identity. Existing deterministic operation IDs remain
+  recoverable and are never rotated automatically.
 - The response contains the order and a hosted checkout URL while its session is
-  open. Saved totals are USD book totals only: no delivery charge, fees, or tax.
+  open. Saved USD totals are immutable: `subtotalCents + deliveryFeeCents = totalCents`.
   Payment confirmation is provider evidence, never a browser return URL.
 - `myOrders(limit, offset)` requires a session, lists only the session user's orders newest first, and returns at most 50 per page. `myOrder(id)` has the same owner scope and returns the customer-safe status timeline; a missing or non-owned ID returns null. No query claims an order by matching email.
-- Payment-required requests move from Submitted to Accepted to Completed only after
-  verified payment. They may expire, or be cancelled with a 1–500-character trimmed
-  customer-visible reason; a paid cancellation queues one full refund. Completed and
-  Cancelled are terminal, and Completed means handling finished, not delivery.
-  Repeating the current requested status is a no-op; stale different transitions
-  return CONFLICT. Cancellation restores saved quantities once, including archived
-  books. Legacy migrated orders are explicitly `LEGACY_UNPAID`, retain the prior
-  workflow, and have no payment action. Shipping, customer cancellation, partial
-  refunds, live payments, and line edits are not implemented.
+- Payment-required requests begin Submitted and may move to Preparing only after
+  verified payment, then to Shipped and Delivered. Cancellation is allowed only before
+  shipment, requires a 1–500-character trimmed customer-visible reason, restores stock
+  once, and queues a full fee-inclusive refund for paid orders. Delivered and Cancelled
+  are terminal. Repeating the current requested status is a no-op; stale different
+  transitions return CONFLICT. Customer cancellation, partial refunds, live payments,
+  and line edits are not implemented.
 
 ## Store administration
 
@@ -83,13 +90,15 @@ New orders require Stripe hosted Checkout in test mode; delivery is not integrat
 - Historical SQLite migration/recovery notes: migration `0004_sad_reavers` copies existing `admin_memberships` to `user_roles` as Admin and drops `admin_memberships`. Before applying it to a persistent SQLite database, stop writers and make a consistent SQLite backup. Do not run an older backend binary against that migrated database; rollback requires restoring the pre-migration backup with compatible application versions.
 - Historical SQLite migration/recovery notes: migration `0005_panoramic_invisible_woman` adds the additive `activity_events` table and its indexes without changing existing business data. Apply it through the SQLite migration wrapper with writers stopped and a consistent SQLite backup. A prior compatible binary can ignore the table but will leave a documented logging gap; preserve the table during rollback.
 - Historical SQLite migration/recovery notes: migration `0006_serious_killraven` adds order statuses and timeline events. It is supported only for fresh or empty pre-workflow SQLite order data. Do not run it against a populated old-order SQLite database: its guard fails safely and requires an explicit local reset/reseed or a separately designed data migration. Never make that reset automatic or apply it to production data.
-- Historical SQLite migration/recovery notes: migration `0007_youthful_crystal` adds payment records and marks existing workflow
-  orders `LEGACY_UNPAID` without changing their IDs, lines, totals, history, or
-  processing rules. Back up persisted data before applying it.
+- Historical SQLite migration/recovery note: migration `0007_youthful_crystal`
+  introduced payment records for the former workflow. The delivery migration requires
+  fresh/reset local data rather than converting populated historical orders. Back up
+  persisted data before applying any migration.
 - SQLite development seeds twelve sample books once. PostgreSQL never auto-seeds; `bun run db:seed` is explicit for either selected provider and refuses production before opening a database. `bun run demo:seed` is a separate local-only account seed that also refuses production before opening the database; neither seed command resets catalog/order data.
 - `DB_PROVIDER`, `DATABASE_PATH`, `DATABASE_URL`, `PG_POOL_MAX`, `PG_TLS_MODE`,
   `PG_CA_FILE`, `PORT`, `FRONTEND_ORIGIN`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`,
-  `NODE_ENV`, and the Stripe checkout configuration are validated at startup. SQLite is
+  `NODE_ENV`, `DELIVERY_ENABLED`, `DELIVERY_COUNTRY_CODES`, `DELIVERY_FEE_CENTS`, and
+  the Stripe checkout configuration are validated at startup. SQLite is
   the development/test default; production requires PostgreSQL and verified TLS.
   Checkout
   is disabled by default and enabled only with test server and webhook signing secrets;

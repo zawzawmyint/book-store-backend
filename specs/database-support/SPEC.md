@@ -15,10 +15,9 @@ editing query source, changing repository callers or rebuilding provider-specifi
 application variants. Separate schemas/migrations and necessary adapter internals
 remain database-specific; switching does not transfer data.
 
-Keep [delivery](../delivery/SPEC.md) as a separate feature. Establish this database
-boundary before implementing its workflow; the delivery feature must then work
-against both providers. Database support itself does not introduce delivery states,
-change checkout contracts or enable live Stripe payments.
+The delivered [delivery feature](../delivery/SPEC.md) uses this database boundary
+against both providers. Database support itself does not set delivery policy, change
+checkout contracts, or enable live Stripe payments.
 
 ## Scope and decisions
 

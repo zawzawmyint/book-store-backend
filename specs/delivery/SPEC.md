@@ -1,6 +1,6 @@
 # The Quiet Shelf API — delivery
 
-> **Status:** Proposed. **Date:** 2026-10-08. No delivery behavior or migration is implemented by this specification.
+> **Status:** Implemented. **Date:** 2026-10-08.
 
 ## Goal and scope
 
@@ -8,10 +8,14 @@ Complete the paid book-order journey with delivery only:
 **Address → Review total → Stripe test payment → Preparing → Shipped → Delivered**.
 Coordinate with [the storefront specification](../../../frontend/specs/delivery/SPEC.md).
 
-**Infrastructure prerequisite:** follow the separate [database-support specification](../database-support/SPEC.md)
-for SQLite development and PostgreSQL production. Implement delivery on its shared
-async repository boundary, with equivalent constraints and transactions on both
-providers; SQLite references below describe local development, not production.
+**Completed infrastructure prerequisite:** [database support](../database-support/SPEC.md)
+is implemented. SQLite remains the development/test default and PostgreSQL is the
+required production provider. Extend the existing asynchronous repositories and
+`src/database/store.types.ts` contract, with typed adapters in
+`src/database/sqlite/store.ts` and `src/database/postgresql/store.ts`. Keep delivery
+validation, pricing, workflow rules and DTO mapping shared; do not add driver types,
+raw dialect SQL or provider branches to delivery services/resolvers. Switching
+providers remains configuration, migrations and restart, with no data transfer.
 
 **Agreed simplification:** use one order/fulfillment status, separate from payment.
 Replace the current order states with SUBMITTED, PREPARING, SHIPPED, DELIVERED and
@@ -34,15 +38,15 @@ Shipment input must be checked before confirmation; tracking corrections are def
 
 - Remain a local learning project using Stripe test mode and USD; this feature
   does not authorize a production launch or change currency.
-- **Proposed coverage:** whole countries from a configured allowlist, with one fee
+- Coverage is whole countries from a configured allowlist, with one fee
   for every supported destination. No region/postcode exclusions in this slice.
   If actual coverage is narrower, revise this rule before enabling checkout.
-- Proposed variables in `src/config/env.ts` and `.env.example`:
+- `src/config/env.ts` and `.env.example` define:
   `DELIVERY_ENABLED` defaults to false; `DELIVERY_COUNTRY_CODES` is a comma-separated
   nonempty list of uppercase ISO 3166-1 alpha-2 codes when enabled;
   `DELIVERY_FEE_CENTS` is a required integer from 0 to 2147483647 when enabled.
   Zero explicitly means free delivery. Do not silently select a country or fee.
-- **Proposed demo value:** `DELIVERY_FEE_CENTS=500` ($5 USD per order, regardless
+- The local demo value is `DELIVERY_FEE_CENTS=500` ($5 USD per order, regardless
   of book quantity). Use this explicit value in local examples and test fixtures;
   it is configurable and is not a researched courier rate or production price.
   No hidden runtime fallback to 500 cents. For example, $20 of books plus $5
@@ -55,7 +59,7 @@ Shipment input must be checked before confirmation; tracking corrections are def
 
 ## Checkout contract and validation
 
-Extend `src/modules/orders/order.schema.ts`; the following types/fields are proposed.
+`src/modules/orders/order.schema.ts` defines the following delivered types/fields.
 Existing item, UUID, authentication, origin and error rules remain in force.
 
 ```graphql
@@ -79,9 +83,21 @@ type DeliveryAddress {
   postalCode: String
   countryCode: String!
 }
-type DeliveryOptions { countryCodes: [String!]!, feeCents: Int!, currency: String! }
-input QuoteCheckoutInput { items: [OrderItemInput!]!, deliveryAddress: DeliveryAddressInput! }
-type CheckoutQuote { subtotalCents: Int!, deliveryFeeCents: Int!, totalCents: Int!, currency: String! }
+type DeliveryOptions {
+  countryCodes: [String!]!
+  feeCents: Int!
+  currency: String!
+}
+input QuoteCheckoutInput {
+  items: [OrderItemInput!]!
+  deliveryAddress: DeliveryAddressInput!
+}
+type CheckoutQuote {
+  subtotalCents: Int!
+  deliveryFeeCents: Int!
+  totalCents: Int!
+  currency: String!
+}
 extend type Query {
   deliveryOptions: DeliveryOptions!
   quoteCheckout(input: QuoteCheckoutInput!): CheckoutQuote!
@@ -143,17 +159,50 @@ extend type Query {
 - The fresh database has no historical checkout mappings or addressless orders.
   Every order created by the new flow has a destination. Resume uses its saved
   destination and amounts; never reprice a reserved order.
-- Keep all Stripe network work outside SQLite transactions. Legacy `placeOrder`
+- Keep all Stripe network work outside database transactions on both providers. Legacy `placeOrder`
   stays deprecated and disabled; no unpaid or addressless bypass.
 
 ## Single order status and staff contract
 
+Extend `OrderPayment` with `cancellationPending: Boolean!`, derived from the
+presence of a saved cancellation intent. This safe flag lets the paired client
+disable preparation and shipping while provider cancellation is unresolved;
+never expose the intent payload or attribution through this field.
+
 ```graphql
-enum OrderStatus { SUBMITTED PREPARING SHIPPED DELIVERED CANCELLED }
-enum OrderStatusFilter { ALL SUBMITTED PREPARING SHIPPED DELIVERED CANCELLED }
-enum PaymentStatus { PENDING PAID EXPIRED REFUND_PENDING REFUNDED REFUND_FAILED }
-input ShipmentInput { carrier: String!, trackingNumber: String, trackingUrl: String }
-type Shipment { carrier: String!, trackingNumber: String, trackingUrl: String }
+enum OrderStatus {
+  SUBMITTED
+  PREPARING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+enum OrderStatusFilter {
+  ALL
+  SUBMITTED
+  PREPARING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+enum PaymentStatus {
+  PENDING
+  PAID
+  EXPIRED
+  REFUND_PENDING
+  REFUNDED
+  REFUND_FAILED
+}
+input ShipmentInput {
+  carrier: String!
+  trackingNumber: String
+  trackingUrl: String
+}
+type Shipment {
+  carrier: String!
+  trackingNumber: String
+  trackingUrl: String
+}
 type OrderDelivery {
   address: DeliveryAddress!
   shipment: Shipment
@@ -214,14 +263,25 @@ input SetOrderStatusInput {
 
 ## Fresh data, persistence, history and privacy
 
-- Proposed additions in `src/database/schema.ts`: `orders.subtotal_cents`,
+- Delivered additions in both `src/database/schema.ts` and
+  `src/database/postgresql/schema.ts`: `orders.subtotal_cents`,
   `orders.delivery_fee_cents`; one-to-one `order_deliveries` keyed by order ID
   containing normalized address fields, shipment fields and timestamps. There is
   no status column in that table and no order_delivery_events table. Replace
   orders.status constraints and order_status_events enum constraints with the
   new order states; reuse existing USER/SYSTEM attribution and history index.
+- Update the shared store record/operation contracts and both typed adapters for
+  delivery reads and writes. Address, totals, workflow state, timestamps, history
+  and Activity must use the same transaction connection/client. Preserve SQLite's
+  connection serialization and PostgreSQL's order-row locking; ship/cancel and
+  exact retry guarantees must also hold across independent PostgreSQL connections.
+  Keep necessary dialect expressions inside adapters and normalize nullable
+  shipment fields and UTC timestamps to the same GraphQL response shape.
 - Constrain monetary amounts nonnegative, `total=subtotal+fee`, order enums and
-  order timestamp/state consistency. Order status alone drives workspace filtering.
+  row-level timestamp/tracking consistency in both database schemas. Cross-table
+  order status and delivery timestamps remain consistent through the shared atomic
+  workflow transaction; direct SQL outside that workflow has no cross-table trigger
+  guarantee. Order status alone drives workspace filtering.
   Order events do not include address/phone; actor deletion must not erase
   historical attribution. History is oldest-first; at most four transitions per
   order under this workflow, so no separate paging subsystem is needed.
@@ -235,9 +295,13 @@ input SetOrderStatusInput {
   database, including orders, payment mappings/operations, catalog, accounts,
   sessions and Activity; initialize a fresh database and explicitly reseed sample
   books/demo accounts. No migration of historical orders or legacy workflow UI.
-- Keep committed migration history. Generate/review a new migration and metadata
-  through `bun run db:generate`; the complete chain must build the final schema
-  on a fresh database. Reject populated old orders rather than relabel them Delivered.
+- Keep both committed migration histories. Generate/review delivery migrations
+  and metadata for SQLite under `drizzle/` and PostgreSQL under `drizzle/postgresql/`
+  using the selected provider's Drizzle configuration. Both complete chains must
+  build equivalent final schemas on fresh databases. Add guards for populated
+  pre-delivery orders on both providers, failing before migration changes rather
+  than relabeling them Delivered. PostgreSQL migrations remain explicit through
+  `bun run db:migrate`; startup only checks readiness and never resets or migrates it.
   Do not retain ACCEPTED/COMPLETED or LEGACY_UNPAID processing branches in the new
   application. Remove legacy payment enum/value handling through paired codegen;
   old migrations may still contain the historical values.
@@ -254,6 +318,11 @@ input SetOrderStatusInput {
 - Reset only the resolved configured local development database and its related
   SQLite sidecars; verify absolute paths stay within the intended data directory.
   Do not reset automatically at startup, delete source files or reset production.
+- This SQLite reset permission does not authorize dropping/truncating an existing
+  PostgreSQL database. Use fresh disposable local PostgreSQL targets owned by the
+  existing test runners for parity checks. A persistent PostgreSQL data reset or
+  data-preserving upgrade requires a separately authorized scope. Explicit sample
+  catalog/demo seeding remains development/test only and rejects production.
 - Do not reset/seed persisted data or run migrations as part of drafting this spec.
 
 ## Compatibility and affected files
@@ -263,33 +332,37 @@ legacy unpaid handling, required checkout fields and `totalCents` including deli
 Deploy paired clients together on fresh local data; old clients/attempts do not
 carry forward. Never accept an addressless checkout or relabel old orders Delivered.
 
-During implementation update order schema/resolvers/repositories/validation under
+The delivered change updated order schema/resolvers/repositories/validation under
 `src/modules/orders/`, payment validation/service/repository/provider contract and
-Stripe adapter under `src/modules/payments/`, database schema and generated `drizzle/`
-migrations, config, Activity types/schema/writer, and generated resolver types.
+Stripe adapter under `src/modules/payments/`, both database schemas/adapters and
+shared store types, generated `drizzle/` and `drizzle/postgresql/` migrations,
+config, Activity types/schema/writer, and generated resolver types.
 Keep delivery behavior in focused units within the existing orders module when
 needed; do not add a parallel order system. Update `SPEC.md`, README, relevant
 workflow/checkout/auth/Activity specs and AGENTS delivery wording after verification.
-Current implemented documents remain descriptions of the current system until then.
+This delivered specification is the current system description; historical workflow
+and checkout documents retain their old terminology only as historical context.
 
 ## Acceptance criteria
 
-- [ ] Enabled coverage/fee are explicit; disabled/invalid configuration fails safely.
-- [ ] Invalid address/unsupported country/authentication/stock causes no reservation.
-- [ ] Quote has no writes; stale fee or price requires review before creating an order.
-- [ ] Final saved, quoted, charged and fully refunded amounts include the same fee.
-- [ ] Address and amounts are immutable; retries reuse only matching payloads.
-- [ ] Configuration changes do not affect saved retries, resume or recovery.
-- [ ] One order status governs Submitted → Preparing → Shipped → Delivered or Cancelled.
-- [ ] Payment remains separate; only Paid orders prepare/ship/deliver.
-- [ ] Cancellation and shipping cannot race; invalid transitions have no writes.
-- [ ] Delivery confirmation sets Delivered atomically with timestamp/history/Activity.
-- [ ] Pre-shipment cancel/expiry restocks/refunds exactly once.
-- [ ] Shipped/delivered orders cannot cancel/refund through the existing workflow.
-- [ ] Owner privacy, attributed staff history and Admin-only Activity are preserved.
-- [ ] Fresh migration/seed succeeds; populated old data requires the deliberate local reset.
-- [ ] No independent delivery status, Accepted/Completed UI or legacy processing remains.
-- [ ] API tests, provider tests, migration tests, lint/build and paired browser tests pass.
+- [x] Enabled coverage/fee are explicit; disabled/invalid configuration fails safely.
+- [x] Invalid address/unsupported country/authentication/stock causes no reservation.
+- [x] Quote has no writes; stale fee or price requires review before creating an order.
+- [x] Final saved, quoted, charged and fully refunded amounts include the same fee.
+- [x] Address and amounts are immutable; retries reuse only matching payloads.
+- [x] Configuration changes do not affect saved retries, resume or recovery.
+- [x] One order status governs Submitted → Preparing → Shipped → Delivered or Cancelled.
+- [x] Payment remains separate; only Paid orders prepare/ship/deliver.
+- [x] Cancellation and shipping cannot race; invalid transitions have no writes.
+- [x] Delivery confirmation sets Delivered atomically with timestamp/history/Activity.
+- [x] Pre-shipment cancel/expiry restocks/refunds exactly once.
+- [x] Shipped/delivered orders cannot cancel/refund through the existing workflow.
+- [x] Owner privacy, attributed staff history and Admin-only Activity are preserved.
+- [x] Fresh migration/seed succeeds; populated old data requires the deliberate local reset.
+- [x] Both migration chains enforce equivalent delivery constraints and reject populated pre-delivery orders safely.
+- [x] The same delivery services/API run on both providers without source changes; PostgreSQL ship/cancel and retry races use independent connections.
+- [x] No independent delivery status, Accepted/Completed UI or legacy processing remains.
+- [x] API tests, provider tests, migration tests, lint/build and paired browser tests pass.
 
 ## Validation and rollout
 
@@ -299,9 +372,19 @@ add focused delivery tests as needed. Cover price/fee drift, address-only key re
 country removal after reservation, exact/conflicting retries, uncertain provider
 cancellation, stock invariants, owner/role loss and all allowed/forbidden single-status transitions.
 Verify both payment evidence and refunds against the final total, including zero fee.
+Extend `test/database-parity.test.ts` with shared delivery fixtures and assertions
+for quotes, immutable destinations/totals, request-key conflicts, shipment retries,
+delivery confirmation, ship/cancel races, fee-inclusive refunds, privacy and rollback
+when delivery/history/Activity persistence fails. Run these against SQLite and real
+PostgreSQL through `bun run test` and `bun run test:postgres`. Verify both fresh
+migration chains and populated-order guards using isolated targets; never reset
+development or production data in tests.
 
 Generate backend resolver types, then frontend types against the paired API.
 Run both repositories' test/lint/build commands and frontend `bun run test:e2e`.
+Run backend `bun run test:postgres:browser` for the same delivery browser journeys
+against its UUID-owned loopback PostgreSQL database. Preserve runtime selection,
+verified production TLS, readiness checks and awaited shutdown from database support.
 Manually confirm address review, shipment and delivery using demo accounts.
 
 Stop writers/listener, reconcile old Stripe test operations and perform the explicit
@@ -314,8 +397,19 @@ reset or data-preserving upgrade/rollback is part of this specification.
 
 ## Open decisions
 
-- Store owner must choose supported countries before enablement. The proposed local
+- Store owner must choose supported countries before production enablement. The local
   demo fee is $5 USD; choose an actual shipping price before any production rollout.
-- Whole-country coverage and manual delivery confirmation are proposed defaults;
-  confirm them before implementation if the store needs narrower coverage.
+- Whole-country coverage and manual delivery confirmation are current local defaults;
+  revise them before production if the store needs narrower coverage.
 - Notifications, courier integration and returns are separate later specifications.
+
+## Verification record — 2026-10-08
+
+- Backend: 185 tests passed; lint/build passed. Real PostgreSQL parity: 20 checks passed.
+- Frontend: 125 tests passed; lint/build passed. The same 34 browser journeys passed
+  against SQLite and real disposable PostgreSQL; configured zero and 700-cent fee
+  review tests also passed.
+- Authorized local SQLite reset/reseed completed with US coverage and a 500-cent fee.
+  Manual desktop/mobile review verified $16.99 books + $5 delivery = $21.99.
+  Browser payment journeys use a fake provider; no new manual Stripe payment/refund
+  was performed for this feature.

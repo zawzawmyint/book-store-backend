@@ -74,6 +74,8 @@ export type Query = {
   book?: Maybe<Book>;
   adminBooks: AdminBooksPage;
   adminBook?: Maybe<AdminBook>;
+  deliveryOptions: DeliveryOptions;
+  quoteCheckout: CheckoutQuote;
   adminOrders: AdminOrdersPage;
   adminOrder?: Maybe<AdminOrder>;
   myOrder?: Maybe<MyOrder>;
@@ -112,6 +114,11 @@ export type QueryAdminBooksArgs = {
 
 export type QueryAdminBookArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type QueryQuoteCheckoutArgs = {
+  input: QuoteCheckoutInput;
 };
 
 
@@ -178,16 +185,18 @@ export type QueryAdminActivityArgs = {
 
 export enum OrderStatus {
   Submitted = 'SUBMITTED',
-  Accepted = 'ACCEPTED',
-  Completed = 'COMPLETED',
+  Preparing = 'PREPARING',
+  Shipped = 'SHIPPED',
+  Delivered = 'DELIVERED',
   Cancelled = 'CANCELLED'
 }
 
 export enum OrderStatusFilter {
   All = 'ALL',
   Submitted = 'SUBMITTED',
-  Accepted = 'ACCEPTED',
-  Completed = 'COMPLETED',
+  Preparing = 'PREPARING',
+  Shipped = 'SHIPPED',
+  Delivered = 'DELIVERED',
   Cancelled = 'CANCELLED'
 }
 
@@ -206,7 +215,6 @@ export enum ActorType {
 }
 
 export enum PaymentStatus {
-  LegacyUnpaid = 'LEGACY_UNPAID',
   Pending = 'PENDING',
   Paid = 'PAID',
   Expired = 'EXPIRED',
@@ -217,6 +225,7 @@ export enum PaymentStatus {
 
 export type OrderPayment = {
   __typename?: 'OrderPayment';
+  cancellationPending: Scalars['Boolean']['output'];
   required: Scalars['Boolean']['output'];
   status: PaymentStatus;
   currency: Scalars['String']['output'];
@@ -247,6 +256,9 @@ export type OrderItem = {
 export type OrderReceipt = {
   __typename?: 'OrderReceipt';
   id: Scalars['ID']['output'];
+  subtotalCents: Scalars['Int']['output'];
+  deliveryFeeCents: Scalars['Int']['output'];
+  delivery: OrderDelivery;
   totalCents: Scalars['Int']['output'];
   items: Array<OrderItem>;
   status: OrderStatus;
@@ -257,6 +269,9 @@ export type OrderHistoryEntry = {
   __typename?: 'OrderHistoryEntry';
   id: Scalars['ID']['output'];
   createdAt: Scalars['String']['output'];
+  subtotalCents: Scalars['Int']['output'];
+  deliveryFeeCents: Scalars['Int']['output'];
+  delivery: OrderDelivery;
   totalCents: Scalars['Int']['output'];
   items: Array<OrderItem>;
   status: OrderStatus;
@@ -267,6 +282,9 @@ export type MyOrder = {
   __typename?: 'MyOrder';
   id: Scalars['ID']['output'];
   createdAt: Scalars['String']['output'];
+  subtotalCents: Scalars['Int']['output'];
+  deliveryFeeCents: Scalars['Int']['output'];
+  delivery: OrderDelivery;
   totalCents: Scalars['Int']['output'];
   items: Array<OrderItem>;
   status: OrderStatus;
@@ -287,6 +305,9 @@ export type AdminOrder = {
   customerName: Scalars['String']['output'];
   email: Scalars['String']['output'];
   createdAt: Scalars['String']['output'];
+  subtotalCents: Scalars['Int']['output'];
+  deliveryFeeCents: Scalars['Int']['output'];
+  delivery: OrderDelivery;
   totalCents: Scalars['Int']['output'];
   items: Array<OrderItem>;
   status: OrderStatus;
@@ -298,6 +319,70 @@ export type AdminOrdersPage = {
   __typename?: 'AdminOrdersPage';
   total: Scalars['Int']['output'];
   items: Array<AdminOrder>;
+};
+
+export type DeliveryAddressInput = {
+  recipientName: Scalars['String']['input'];
+  phone: Scalars['String']['input'];
+  addressLine1: Scalars['String']['input'];
+  addressLine2?: InputMaybe<Scalars['String']['input']>;
+  city: Scalars['String']['input'];
+  region?: InputMaybe<Scalars['String']['input']>;
+  postalCode?: InputMaybe<Scalars['String']['input']>;
+  countryCode: Scalars['String']['input'];
+};
+
+export type DeliveryAddress = {
+  __typename?: 'DeliveryAddress';
+  recipientName: Scalars['String']['output'];
+  phone: Scalars['String']['output'];
+  addressLine1: Scalars['String']['output'];
+  addressLine2?: Maybe<Scalars['String']['output']>;
+  city: Scalars['String']['output'];
+  region?: Maybe<Scalars['String']['output']>;
+  postalCode?: Maybe<Scalars['String']['output']>;
+  countryCode: Scalars['String']['output'];
+};
+
+export type ShipmentInput = {
+  carrier: Scalars['String']['input'];
+  trackingNumber?: InputMaybe<Scalars['String']['input']>;
+  trackingUrl?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type Shipment = {
+  __typename?: 'Shipment';
+  carrier: Scalars['String']['output'];
+  trackingNumber?: Maybe<Scalars['String']['output']>;
+  trackingUrl?: Maybe<Scalars['String']['output']>;
+};
+
+export type OrderDelivery = {
+  __typename?: 'OrderDelivery';
+  address: DeliveryAddress;
+  shipment?: Maybe<Shipment>;
+  shippedAt?: Maybe<Scalars['String']['output']>;
+  deliveredAt?: Maybe<Scalars['String']['output']>;
+};
+
+export type DeliveryOptions = {
+  __typename?: 'DeliveryOptions';
+  countryCodes: Array<Scalars['String']['output']>;
+  feeCents: Scalars['Int']['output'];
+  currency: Scalars['String']['output'];
+};
+
+export type QuoteCheckoutInput = {
+  items: Array<OrderItemInput>;
+  deliveryAddress: DeliveryAddressInput;
+};
+
+export type CheckoutQuote = {
+  __typename?: 'CheckoutQuote';
+  subtotalCents: Scalars['Int']['output'];
+  deliveryFeeCents: Scalars['Int']['output'];
+  totalCents: Scalars['Int']['output'];
+  currency: Scalars['String']['output'];
 };
 
 export type OrderItemInput = {
@@ -314,11 +399,15 @@ export type SetOrderStatusInput = {
   expectedStatus: OrderStatus;
   status: OrderStatus;
   cancellationReason?: InputMaybe<Scalars['String']['input']>;
+  shipment?: InputMaybe<ShipmentInput>;
 };
 
 export type CreateCheckoutInput = {
   items: Array<OrderItemInput>;
   requestKey: Scalars['String']['input'];
+  deliveryAddress: DeliveryAddressInput;
+  expectedDeliveryFeeCents: Scalars['Int']['input'];
+  expectedTotalCents: Scalars['Int']['input'];
 };
 
 export type CheckoutResult = {
@@ -655,6 +744,14 @@ export type ResolversTypes = {
   MyOrdersPage: ResolverTypeWrapper<MyOrdersPage>;
   AdminOrder: ResolverTypeWrapper<WorkspaceOrder>;
   AdminOrdersPage: ResolverTypeWrapper<Omit<AdminOrdersPage, 'items'> & { items: Array<ResolversTypes['AdminOrder']> }>;
+  DeliveryAddressInput: DeliveryAddressInput;
+  DeliveryAddress: ResolverTypeWrapper<DeliveryAddress>;
+  ShipmentInput: ShipmentInput;
+  Shipment: ResolverTypeWrapper<Shipment>;
+  OrderDelivery: ResolverTypeWrapper<OrderDelivery>;
+  DeliveryOptions: ResolverTypeWrapper<DeliveryOptions>;
+  QuoteCheckoutInput: QuoteCheckoutInput;
+  CheckoutQuote: ResolverTypeWrapper<CheckoutQuote>;
   OrderItemInput: OrderItemInput;
   PlaceOrderInput: PlaceOrderInput;
   SetOrderStatusInput: SetOrderStatusInput;
@@ -701,6 +798,14 @@ export type ResolversParentTypes = {
   MyOrdersPage: MyOrdersPage;
   AdminOrder: WorkspaceOrder;
   AdminOrdersPage: Omit<AdminOrdersPage, 'items'> & { items: Array<ResolversParentTypes['AdminOrder']> };
+  DeliveryAddressInput: DeliveryAddressInput;
+  DeliveryAddress: DeliveryAddress;
+  ShipmentInput: ShipmentInput;
+  Shipment: Shipment;
+  OrderDelivery: OrderDelivery;
+  DeliveryOptions: DeliveryOptions;
+  QuoteCheckoutInput: QuoteCheckoutInput;
+  CheckoutQuote: CheckoutQuote;
   OrderItemInput: OrderItemInput;
   PlaceOrderInput: PlaceOrderInput;
   SetOrderStatusInput: SetOrderStatusInput;
@@ -754,6 +859,8 @@ export type QueryResolvers<ContextType = any, ParentType extends ResolversParent
   book?: Resolver<Maybe<ResolversTypes['Book']>, ParentType, ContextType, RequireFields<QueryBookArgs, 'id'>>;
   adminBooks?: Resolver<ResolversTypes['AdminBooksPage'], ParentType, ContextType, RequireFields<QueryAdminBooksArgs, 'filter' | 'lowStockOnly' | 'limit' | 'offset'>>;
   adminBook?: Resolver<Maybe<ResolversTypes['AdminBook']>, ParentType, ContextType, RequireFields<QueryAdminBookArgs, 'id'>>;
+  deliveryOptions?: Resolver<ResolversTypes['DeliveryOptions'], ParentType, ContextType>;
+  quoteCheckout?: Resolver<ResolversTypes['CheckoutQuote'], ParentType, ContextType, RequireFields<QueryQuoteCheckoutArgs, 'input'>>;
   adminOrders?: Resolver<ResolversTypes['AdminOrdersPage'], ParentType, ContextType, RequireFields<QueryAdminOrdersArgs, 'limit' | 'offset' | 'status'>>;
   adminOrder?: Resolver<Maybe<ResolversTypes['AdminOrder']>, ParentType, ContextType, RequireFields<QueryAdminOrderArgs, 'id'>>;
   myOrder?: Resolver<Maybe<ResolversTypes['MyOrder']>, ParentType, ContextType, RequireFields<QueryMyOrderArgs, 'id'>>;
@@ -775,6 +882,7 @@ export type OrderStatusEventResolvers<ContextType = any, ParentType extends Reso
 };
 
 export type OrderPaymentResolvers<ContextType = any, ParentType extends ResolversParentTypes['OrderPayment'] = ResolversParentTypes['OrderPayment']> = {
+  cancellationPending?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
   required?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
   status?: Resolver<ResolversTypes['PaymentStatus'], ParentType, ContextType>;
   currency?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
@@ -802,6 +910,9 @@ export type OrderItemResolvers<ContextType = any, ParentType extends ResolversPa
 
 export type OrderReceiptResolvers<ContextType = any, ParentType extends ResolversParentTypes['OrderReceipt'] = ResolversParentTypes['OrderReceipt']> = {
   id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  subtotalCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  deliveryFeeCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  delivery?: Resolver<ResolversTypes['OrderDelivery'], ParentType, ContextType>;
   totalCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   items?: Resolver<Array<ResolversTypes['OrderItem']>, ParentType, ContextType>;
   status?: Resolver<ResolversTypes['OrderStatus'], ParentType, ContextType>;
@@ -811,6 +922,9 @@ export type OrderReceiptResolvers<ContextType = any, ParentType extends Resolver
 export type OrderHistoryEntryResolvers<ContextType = any, ParentType extends ResolversParentTypes['OrderHistoryEntry'] = ResolversParentTypes['OrderHistoryEntry']> = {
   id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
   createdAt?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  subtotalCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  deliveryFeeCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  delivery?: Resolver<ResolversTypes['OrderDelivery'], ParentType, ContextType>;
   totalCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   items?: Resolver<Array<ResolversTypes['OrderItem']>, ParentType, ContextType>;
   status?: Resolver<ResolversTypes['OrderStatus'], ParentType, ContextType>;
@@ -820,6 +934,9 @@ export type OrderHistoryEntryResolvers<ContextType = any, ParentType extends Res
 export type MyOrderResolvers<ContextType = any, ParentType extends ResolversParentTypes['MyOrder'] = ResolversParentTypes['MyOrder']> = {
   id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
   createdAt?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  subtotalCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  deliveryFeeCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  delivery?: Resolver<ResolversTypes['OrderDelivery'], ParentType, ContextType>;
   totalCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   items?: Resolver<Array<ResolversTypes['OrderItem']>, ParentType, ContextType>;
   status?: Resolver<ResolversTypes['OrderStatus'], ParentType, ContextType>;
@@ -838,6 +955,9 @@ export type AdminOrderResolvers<ContextType = any, ParentType extends ResolversP
   customerName?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   email?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   createdAt?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  subtotalCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  deliveryFeeCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  delivery?: Resolver<ResolversTypes['OrderDelivery'], ParentType, ContextType>;
   totalCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   items?: Resolver<Array<ResolversTypes['OrderItem']>, ParentType, ContextType>;
   status?: Resolver<ResolversTypes['OrderStatus'], ParentType, ContextType>;
@@ -848,6 +968,43 @@ export type AdminOrderResolvers<ContextType = any, ParentType extends ResolversP
 export type AdminOrdersPageResolvers<ContextType = any, ParentType extends ResolversParentTypes['AdminOrdersPage'] = ResolversParentTypes['AdminOrdersPage']> = {
   total?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   items?: Resolver<Array<ResolversTypes['AdminOrder']>, ParentType, ContextType>;
+};
+
+export type DeliveryAddressResolvers<ContextType = any, ParentType extends ResolversParentTypes['DeliveryAddress'] = ResolversParentTypes['DeliveryAddress']> = {
+  recipientName?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  phone?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  addressLine1?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  addressLine2?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+  city?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  region?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+  postalCode?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+  countryCode?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+};
+
+export type ShipmentResolvers<ContextType = any, ParentType extends ResolversParentTypes['Shipment'] = ResolversParentTypes['Shipment']> = {
+  carrier?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  trackingNumber?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+  trackingUrl?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+};
+
+export type OrderDeliveryResolvers<ContextType = any, ParentType extends ResolversParentTypes['OrderDelivery'] = ResolversParentTypes['OrderDelivery']> = {
+  address?: Resolver<ResolversTypes['DeliveryAddress'], ParentType, ContextType>;
+  shipment?: Resolver<Maybe<ResolversTypes['Shipment']>, ParentType, ContextType>;
+  shippedAt?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+  deliveredAt?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+};
+
+export type DeliveryOptionsResolvers<ContextType = any, ParentType extends ResolversParentTypes['DeliveryOptions'] = ResolversParentTypes['DeliveryOptions']> = {
+  countryCodes?: Resolver<Array<ResolversTypes['String']>, ParentType, ContextType>;
+  feeCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  currency?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+};
+
+export type CheckoutQuoteResolvers<ContextType = any, ParentType extends ResolversParentTypes['CheckoutQuote'] = ResolversParentTypes['CheckoutQuote']> = {
+  subtotalCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  deliveryFeeCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  totalCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  currency?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
 };
 
 export type CheckoutResultResolvers<ContextType = any, ParentType extends ResolversParentTypes['CheckoutResult'] = ResolversParentTypes['CheckoutResult']> = {
@@ -947,6 +1104,11 @@ export type Resolvers<ContextType = any> = {
   MyOrdersPage?: MyOrdersPageResolvers<ContextType>;
   AdminOrder?: AdminOrderResolvers<ContextType>;
   AdminOrdersPage?: AdminOrdersPageResolvers<ContextType>;
+  DeliveryAddress?: DeliveryAddressResolvers<ContextType>;
+  Shipment?: ShipmentResolvers<ContextType>;
+  OrderDelivery?: OrderDeliveryResolvers<ContextType>;
+  DeliveryOptions?: DeliveryOptionsResolvers<ContextType>;
+  CheckoutQuote?: CheckoutQuoteResolvers<ContextType>;
   CheckoutResult?: CheckoutResultResolvers<ContextType>;
   Mutation?: MutationResolvers<ContextType>;
   Viewer?: ViewerResolvers<ContextType>;

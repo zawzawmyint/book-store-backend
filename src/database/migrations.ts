@@ -110,6 +110,14 @@ export function migrateDatabase(db: Database.Database): void {
       'Order workflow requires a fresh database; reset and reseed development data explicitly',
     )
   }
+  if (
+    columns.length &&
+    !columns.some((column) => column.name === 'delivery_fee_cents') &&
+    db.prepare('SELECT 1 FROM orders LIMIT 1').get()
+  )
+    throw new Error(
+      'Delivery requires a fresh database; reset and reseed development data explicitly',
+    )
   const config = { migrationsFolder }
   db.transaction(() => {
     const journal = db

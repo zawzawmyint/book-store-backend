@@ -1,3 +1,4 @@
+import { deliveryOptions, reviewedInlineCheckout } from './delivery-fixtures.js'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import request from 'supertest'
 import type Database from 'better-sqlite3'
@@ -18,6 +19,7 @@ beforeEach(async () => {
   db = createDatabase(':memory:')
   seedBooks(db)
   app = await createApp(db, options, {
+    ...deliveryOptions,
     provider: new FakePaymentProvider(),
   })
 })
@@ -47,7 +49,10 @@ it('renames the signed-in account, keeps past order snapshots, and rejects other
     .set('Origin', options.frontendOrigin)
     .set('Cookie', ada)
     .send({
-      query: `mutation { createCheckout(input: { requestKey: "${randomUUID()}", items: [{ bookId: "1", quantity: 1 }] }) { order { id } } }`,
+      query: reviewedInlineCheckout(
+        db,
+        `mutation { createCheckout(input: { requestKey: "${randomUUID()}", items: [{ bookId: "1", quantity: 1 }] }) { order { id } } }`,
+      ),
     })
   expect(placed.body.errors).toBeUndefined()
   const renamed = await authPost('/api/auth/update-user', ada, {
@@ -71,7 +76,10 @@ it('renames the signed-in account, keeps past order snapshots, and rejects other
     .set('Origin', options.frontendOrigin)
     .set('Cookie', nextCookies)
     .send({
-      query: `mutation { createCheckout(input: { requestKey: "${randomUUID()}", items: [{ bookId: "1", quantity: 1 }] }) { order { id } } }`,
+      query: reviewedInlineCheckout(
+        db,
+        `mutation { createCheckout(input: { requestKey: "${randomUUID()}", items: [{ bookId: "1", quantity: 1 }] }) { order { id } } }`,
+      ),
     })
   expect(later.body.errors).toBeUndefined()
   const names = db.prepare('SELECT customer_name FROM orders ORDER BY id').all() as {

@@ -1,5 +1,7 @@
 # The Quiet Shelf API — order workflow
 
+> **Historical contract:** This document records the pre-delivery workflow. Its Accepted/Completed states and legacy processing rules are superseded for current orders by [the delivery specification](../delivery/SPEC.md).
+
 > **Status:** Implemented. **Date:** 2026-10-07. Migration `0006_serious_killraven` and the paired storefront contract are delivered.
 
 ## Goal

@@ -1,3 +1,5 @@
+import { normalizeStore } from '../database/persistence.js'
+import { readDelivery } from '../modules/orders/delivery.mapping.js'
 import { createCatalogRepository } from '../modules/books/book.repository.js'
 import { createAdminBookRepository } from '../modules/books/admin-book.repository.js'
 import { createOrderRepository } from '../modules/orders/order.repository.js'
@@ -25,7 +27,13 @@ export function createResolvers(
   const admin = createAdminResolvers(roles)
   const workspaceOrders = createAdminOrderRepository(db)
   return {
+    OrderHistoryEntry: {
+      delivery: async (order) =>
+        order.delivery ?? readDelivery(normalizeStore(db), Number(order.id)),
+    },
     AdminOrder: {
+      delivery: async (order) =>
+        order.delivery ?? readDelivery(normalizeStore(db), Number(order.id)),
       history: async (order) =>
         (await workspaceOrders.history(order.id)) as AdminOrderStatusEvent[],
     },

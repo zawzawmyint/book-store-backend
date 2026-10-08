@@ -42,7 +42,7 @@ export async function assertPostgresqlReady(pool: Pool) {
     if (!expected || result.rows[0]?.hash !== expected) throw new Error()
     // Check executable model, not merely a journal left behind after dropped tables.
     // One zero-row query resolves all expected relations without exposing data.
-    await pool.query(`SELECT 1 FROM books, orders, order_items, order_status_events,
+    await pool.query(`SELECT 1 FROM books, orders, order_deliveries, order_items, order_status_events,
       checkout_requests, payment_operations, payment_events, activity_events,
       user_roles, "user", session, account, verification LIMIT 0`)
   } catch {

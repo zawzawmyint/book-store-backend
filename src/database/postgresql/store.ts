@@ -74,6 +74,17 @@ export function createPostgreSQLStore(orm: NodePgDatabase<typeof s>, scoped = fa
           .returning(),
       )
     },
+    async delivery(id) {
+      return FIRST(
+        await orm.select().from(s.orderDeliveries).where(eq(s.orderDeliveries.orderId, id)),
+      )
+    },
+    async insertDelivery(v) {
+      await orm.insert(s.orderDeliveries).values(v)
+    },
+    async updateDelivery(id, v) {
+      await orm.update(s.orderDeliveries).set(v).where(eq(s.orderDeliveries.orderId, id))
+    },
     async order(id) {
       return FIRST(
         await orm
@@ -271,6 +282,19 @@ export function createPostgreSQLStore(orm: NodePgDatabase<typeof s>, scoped = fa
           .from(s.paymentOperations)
           .where(eq(s.paymentOperations.id, id))
           .for(scoped ? 'update' : 'share'),
+      )
+    },
+    async checkoutOperation(id) {
+      return FIRST(
+        await orm
+          .select()
+          .from(s.paymentOperations)
+          .where(
+            and(
+              eq(s.paymentOperations.orderId, id),
+              eq(s.paymentOperations.kind, 'CREATE_SESSION'),
+            ),
+          ),
       )
     },
     async refundOperations(id) {

@@ -1,5 +1,7 @@
 # The Quiet Shelf API — Stripe checkout
 
+> **Historical contract:** This document records the pre-delivery payment rollout. Current checkout requires delivery details and uses the fulfillment states in [the delivery specification](../delivery/SPEC.md); references below to addressless checkout, `LEGACY_UNPAID`, Accepted, or Completed are history, not current behavior.
+
 > **Status:** Implemented. **Date:** 2026-10-07. Stripe hosted Checkout is available for local test payments only.
 
 ## Goal and agreed scope

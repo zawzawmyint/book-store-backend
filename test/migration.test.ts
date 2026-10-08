@@ -8,7 +8,7 @@ import { migrateDatabase } from '../src/database/migrations.js'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 
-it('preserves populated workflow orders, history and legacy payment exemption additively', () => {
+it('rejects populated pre-delivery orders without altering data or migration history', () => {
   const directory = mkdtempSync(join(tmpdir(), 'stripe-migration-')),
     db = new Database(':memory:')
   try {
@@ -41,8 +41,8 @@ it('preserves populated workflow orders, history and legacy payment exemption ad
         'SELECT id,from_status,to_status,actor_name,actor_role FROM order_status_events ORDER BY id',
       )
       .all()
-    migrateDatabase(db)
-    migrateDatabase(db)
+    expect(() => migrateDatabase(db)).toThrow('Delivery requires a fresh database')
+    expect(() => migrateDatabase(db)).toThrow('Delivery requires a fresh database')
     expect(
       ['user', 'books', 'order_items'].map((table) => db.prepare(`SELECT * FROM ${table}`).all()),
     ).toEqual(snapshots)
@@ -58,15 +58,7 @@ it('preserves populated workflow orders, history and legacy payment exemption ad
         )
         .all(),
     ).toEqual(beforeHistory)
-    expect(db.prepare('SELECT payment_required,payment_status FROM orders').get()).toEqual({
-      payment_required: 0,
-      payment_status: 'LEGACY_UNPAID',
-    })
-    expect(db.prepare('SELECT actor_type FROM order_status_events').all()).toEqual([
-      { actor_type: 'USER' },
-      { actor_type: 'USER' },
-    ])
-    expect(db.prepare('SELECT * FROM payment_operations').all()).toEqual([])
+    expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({ n: 7 })
     expect(db.pragma('foreign_key_check')).toEqual([])
   } finally {
     db.close()
@@ -218,7 +210,7 @@ describe('Drizzle migration adoption', () => {
     const db = createDatabase(':memory:')
     try {
       expect(db.prepare('SELECT COUNT(*) AS count FROM __drizzle_migrations').get()).toEqual({
-        count: 8,
+        count: 9,
       })
       expect(() =>
         db
@@ -307,11 +299,11 @@ it('adopts an empty original legacy order schema and enforces workflow and monet
     db.pragma('foreign_keys=ON')
     migrateDatabase(db)
     migrateDatabase(db)
-    expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({ n: 8 })
+    expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({ n: 9 })
     expect(db.prepare('SELECT * FROM order_status_events').all()).toEqual([])
     expect(() =>
       db.exec(
-        "INSERT INTO orders(customer_name,email,total_cents,status) VALUES ('Reader','reader@example.com',1,'INVALID')",
+        "INSERT INTO orders(customer_name,email,subtotal_cents,delivery_fee_cents,total_cents,status) VALUES ('Reader','reader@example.com',1,0,1,'INVALID')",
       ),
     ).toThrow(/CHECK/)
     expect(() =>

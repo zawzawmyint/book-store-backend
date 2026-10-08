@@ -11,6 +11,8 @@ import { openDatabase } from '../src/database/runtime.js'
 import { seedRuntimeBooks } from '../src/database/runtime-seed.js'
 import { smokeBuiltApp } from './built-app-smoke.js'
 import { rejects } from 'node:assert/strict'
+import { readMigrationFiles } from 'drizzle-orm/migrator'
+import { verifyPostgresqlDeliveryGuard } from './delivery-migration-guard.js'
 
 const browser = process.argv[2] === 'browser'
 const server = createServer()
@@ -57,10 +59,19 @@ try {
     PG_TLS_MODE: 'disable',
     BETTER_AUTH_SECRET: 'postgresql-test-secret-at-least-thirty-two-characters',
   })
+  stage = 'delivery populated-order migration guard'
+  const guardName = `book_store_guard_${runId.replaceAll('-', '')}`
+  await cluster.createDatabase(guardName)
+  const guardUrl = new URL(url)
+  guardUrl.pathname = `/${guardName}`
+  await verifyPostgresqlDeliveryGuard(guardUrl.toString(), directory)
   stage = 'schema readiness and migrations'
   await rejects(openDatabase(config), /PostgreSQL schema/)
   await migratePostgresql(config)
   await migratePostgresql(config)
+  const migratedHash = readMigrationFiles({ migrationsFolder: resolve('drizzle/postgresql') }).at(
+    -1,
+  )?.hash
   const commandEnv = {
     ...process.env,
     NODE_ENV: 'test',
@@ -110,6 +121,12 @@ try {
   await database.close()
   stage = 'compiled SQLite application check'
   await smokeBuiltApp('sqlite')
+  stage = 'migration stability before compiled PostgreSQL application check'
+  if (
+    readMigrationFiles({ migrationsFolder: resolve('drizzle/postgresql') }).at(-1)?.hash !==
+    migratedHash
+  )
+    throw new Error('Migration files changed while the disposable test runner was active')
   stage = 'compiled PostgreSQL application check'
   await smokeBuiltApp('postgresql', url)
   const cwd = browser ? resolve('../frontend') : process.cwd()

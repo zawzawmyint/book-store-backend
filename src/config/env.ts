@@ -13,6 +13,9 @@ export type AppConfig = {
   authSecret: string
   trustedProxyIp?: string
   nodeEnv: 'development' | 'test' | 'production'
+  deliveryEnabled: boolean
+  deliveryCountryCodes: string[]
+  deliveryFeeCents?: number
   stripeCheckoutEnabled: boolean
   stripeSecretKey?: string
   stripeWebhookSecret?: string
@@ -102,6 +105,34 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     throw new Error('Production auth and frontend origins must use HTTPS')
   }
 
+  const deliveryEnabled = env.DELIVERY_ENABLED === 'true'
+  if (env.DELIVERY_ENABLED && !['true', 'false'].includes(env.DELIVERY_ENABLED))
+    throw new Error('DELIVERY_ENABLED must be true or false')
+  const isoCountries = new Set(
+    'AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW'.split(
+      ' ',
+    ),
+  )
+  const deliveryCountryCodes = (env.DELIVERY_COUNTRY_CODES ?? '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean)
+  const deliveryFeeCents =
+    env.DELIVERY_FEE_CENTS === undefined ? undefined : Number(env.DELIVERY_FEE_CENTS)
+  if (
+    deliveryEnabled &&
+    (!deliveryCountryCodes.length || deliveryCountryCodes.some((v) => !isoCountries.has(v)))
+  )
+    throw new Error('DELIVERY_COUNTRY_CODES must contain uppercase country codes')
+  if (
+    deliveryEnabled &&
+    (deliveryFeeCents === undefined ||
+      !/^\d+$/.test(env.DELIVERY_FEE_CENTS ?? '') ||
+      !Number.isInteger(deliveryFeeCents) ||
+      deliveryFeeCents < 0 ||
+      deliveryFeeCents > 2147483647)
+  )
+    throw new Error('DELIVERY_FEE_CENTS must be an explicit integer from 0 to 2147483647')
   const stripeCheckoutEnabled = env.STRIPE_CHECKOUT_ENABLED === 'true'
   if (env.STRIPE_CHECKOUT_ENABLED && !['true', 'false'].includes(env.STRIPE_CHECKOUT_ENABLED))
     throw new Error('STRIPE_CHECKOUT_ENABLED must be true or false')
@@ -124,6 +155,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     authSecret,
     trustedProxyIp,
     nodeEnv,
+    deliveryEnabled,
+    deliveryCountryCodes: [...new Set(deliveryCountryCodes)],
+    deliveryFeeCents,
     stripeCheckoutEnabled,
     stripeSecretKey,
     stripeWebhookSecret,

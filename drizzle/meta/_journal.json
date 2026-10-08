@@ -57,6 +57,13 @@
       "when": 1791375870926,
       "tag": "0007_youthful_crystal",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1791460271525,
+      "tag": "0008_silent_sphinx",
+      "breakpoints": true
     }
   ]
 }

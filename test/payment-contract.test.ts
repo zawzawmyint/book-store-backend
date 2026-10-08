@@ -2,7 +2,7 @@ import { expect, it } from 'vitest'
 import { createDatabase } from '../src/database/connection.js'
 import { seedBooks } from '../src/database/seed.js'
 import { createOrderService } from '../src/modules/orders/order.service.js'
-import { createOrderRepository } from '../src/modules/orders/order.repository.js'
+import { createOrderRepository } from './delivery-fixtures.js'
 
 it('rejects deprecated unpaid placement without changing stock', () => {
   const db = createDatabase(':memory:')
@@ -22,17 +22,17 @@ it('rejects deprecated unpaid placement without changing stock', () => {
   }
 })
 
-it('backfills existing workflow orders as legacy unpaid with no provider records', () => {
+it('defaults fresh orders to payment-required pending without legacy values', () => {
   const db = createDatabase(':memory:')
   try {
     db.exec(
-      "INSERT INTO orders(customer_name,email,total_cents) VALUES ('Legacy','legacy@example.com',100)",
+      "INSERT INTO orders(customer_name,email,subtotal_cents,delivery_fee_cents,total_cents) VALUES ('Buyer','buyer@example.com',100,0,100)",
     )
     expect(db.prepare('SELECT payment_required,payment_status FROM orders').get()).toEqual({
-      payment_required: 0,
-      payment_status: 'LEGACY_UNPAID',
+      payment_required: 1,
+      payment_status: 'PENDING',
     })
-    expect(db.prepare('SELECT * FROM payment_operations').all()).toEqual([])
+    expect(() => db.exec("UPDATE orders SET payment_status='LEGACY_UNPAID'")).toThrow()
   } finally {
     db.close()
   }

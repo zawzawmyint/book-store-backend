@@ -19,7 +19,10 @@ export function createOrderResolvers(
   roles: ReturnType<typeof createAdminRepository>,
   payments: ReturnType<typeof createPaymentService>,
 ): {
-  Query: Pick<QueryResolvers<GraphQLContext>, 'myOrders' | 'myOrder'>
+  Query: Pick<
+    QueryResolvers<GraphQLContext>,
+    'myOrders' | 'myOrder' | 'deliveryOptions' | 'quoteCheckout'
+  >
   Mutation: Pick<
     MutationResolvers<GraphQLContext>,
     | 'placeOrder'
@@ -34,6 +37,22 @@ export function createOrderResolvers(
   const guard = createPermissionGuard(roles.getUserRole)
   return {
     Query: {
+      deliveryOptions: (_, _args, context) => {
+        requireUser(context.user)
+        try {
+          return payments.deliveryOptions()
+        } catch (error) {
+          return rethrowResolverError(error)
+        }
+      },
+      quoteCheckout: async (_, args, context) => {
+        requireUser(context.user)
+        try {
+          return await payments.quoteCheckout(args.input)
+        } catch (error) {
+          return rethrowResolverError(error)
+        }
+      },
       myOrder: async (_, args, context) => {
         const user = requireUser(context.user)
         try {

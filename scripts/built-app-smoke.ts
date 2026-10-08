@@ -15,7 +15,7 @@ export async function smokeBuiltApp(provider: 'sqlite' | 'postgresql', databaseU
     reservation.close((error) => (error ? reject(error) : accept())),
   )
   const child = spawn(process.execPath, [resolve('dist/server.js')], {
-    stdio: 'ignore',
+    stdio: ['ignore', 'ignore', 'pipe'],
     env: {
       ...process.env,
       NODE_ENV: 'test',
@@ -28,11 +28,39 @@ export async function smokeBuiltApp(provider: 'sqlite' | 'postgresql', databaseU
       FRONTEND_ORIGIN: 'http://localhost:5173',
       BETTER_AUTH_URL: 'http://localhost:5173',
       BETTER_AUTH_SECRET: 'built-app-test-secret-at-least-thirty-two-characters',
+      DELIVERY_ENABLED: 'false',
+      DELIVERY_COUNTRY_CODES: '',
+      DELIVERY_FEE_CENTS: '',
       STRIPE_CHECKOUT_ENABLED: 'false',
       STRIPE_SECRET_KEY: '',
       STRIPE_WEBHOOK_SECRET: '',
     },
   })
+  // Child stderr may contain driver context. Retain a small diagnostic buffer and
+  // emit only recognized static categories, never the captured text or secrets.
+  let stderr = ''
+  child.stderr?.on('data', (chunk: Buffer) => {
+    if (stderr.length < 8192) stderr += chunk.toString('utf8').slice(0, 8192 - stderr.length)
+  })
+  function startupFailure(message: string): never {
+    const reason = stderr.includes('PostgreSQL schema is unavailable or outdated')
+      ? 'PostgreSQL schema readiness rejected'
+      : stderr.includes('EADDRINUSE')
+        ? 'API port unavailable'
+        : stderr.includes('ECONNREFUSED')
+          ? 'database connection refused'
+          : stderr.includes('ENOTFOUND')
+            ? 'database host unavailable'
+            : stderr.includes('Invalid environment')
+              ? 'environment configuration rejected'
+              : stderr.includes('Cannot find module') || stderr.includes('ERR_MODULE_NOT_FOUND')
+                ? 'compiled module unavailable'
+                : 'unclassified child startup failure'
+    console.error(
+      `Built ${provider} API check: ${reason}; exit code ${child.exitCode ?? 'pending'}`,
+    )
+    throw new Error(message)
+  }
   let launchError: Error | undefined
   child.on('error', (error) => {
     launchError = error
@@ -43,7 +71,7 @@ export async function smokeBuiltApp(provider: 'sqlite' | 'postgresql', databaseU
     let ready = false
     for (let attempt = 0; attempt < 40; attempt++) {
       if (launchError || child.exitCode !== null)
-        throw new Error(`Built ${provider} API failed to start`)
+        startupFailure(`Built ${provider} API failed to start`)
       try {
         ready = (await fetch(`${url}/health`)).ok
       } catch {
@@ -52,7 +80,7 @@ export async function smokeBuiltApp(provider: 'sqlite' | 'postgresql', databaseU
       if (ready) break
       await new Promise((accept) => setTimeout(accept, 250))
     }
-    if (!ready) throw new Error(`Built ${provider} API readiness timed out`)
+    if (!ready) startupFailure(`Built ${provider} API readiness timed out`)
     const result = await (
       await fetch(`${url}/graphql`, {
         method: 'POST',

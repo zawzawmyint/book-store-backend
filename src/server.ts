@@ -21,6 +21,9 @@ try {
       trustedProxyIp: config.trustedProxyIp,
     },
     {
+      deliveryEnabled: config.deliveryEnabled,
+      deliveryCountryCodes: config.deliveryCountryCodes,
+      deliveryFeeCents: config.deliveryFeeCents,
       provider: config.stripeCheckoutEnabled
         ? createStripePaymentProvider(config.stripeSecretKey!, config.stripeWebhookSecret!)
         : undefined,

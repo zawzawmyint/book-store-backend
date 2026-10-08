@@ -28,6 +28,14 @@ export interface DomainStore {
     values: Partial<typeof model.books.$inferInsert>,
   ): Promise<BookRow | undefined>
   adjustStock(id: number, delta: number): Promise<BookRow | undefined>
+  delivery(id: number): Promise<typeof model.orderDeliveries.$inferSelect | undefined>
+  insertDelivery(
+    values: typeof model.orderDeliveries.$inferInsert & { orderId: number },
+  ): Promise<void>
+  updateDelivery(
+    id: number,
+    values: Partial<typeof model.orderDeliveries.$inferInsert>,
+  ): Promise<void>
   order(id: number): Promise<OrderRow | undefined>
   orderBySession(id: string): Promise<OrderRow | undefined>
   orderByRefund(id: string): Promise<OrderRow | undefined>
@@ -50,9 +58,7 @@ export interface DomainStore {
   role(id: string): Promise<Role>
   setRole(id: string, role: Role): Promise<void>
   user(id: string): Promise<typeof model.user.$inferSelect | undefined>
-  users(
-    input: z.infer<typeof adminUsersInputSchema>,
-  ): Promise<{
+  users(input: z.infer<typeof adminUsersInputSchema>): Promise<{
     total: number
     items: { id: string; name: string; email: string; createdAt: Date; role: Role | null }[]
   }>
@@ -69,6 +75,7 @@ export interface DomainStore {
   ): Promise<typeof model.checkoutRequests.$inferSelect | undefined>
   insertCheckout(values: typeof model.checkoutRequests.$inferInsert): Promise<void>
   operation(id: string): Promise<OperationRow | undefined>
+  checkoutOperation(orderId: number): Promise<OperationRow | undefined>
   refundOperations(id: number): Promise<OperationRow[]>
   insertOperation(values: typeof model.paymentOperations.$inferInsert): Promise<void>
   updateOperation(

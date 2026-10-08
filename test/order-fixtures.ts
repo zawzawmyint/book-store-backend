@@ -12,18 +12,23 @@ export function seedSubmittedOrder(
       .run(input.totalCents)
     const order = db
       .prepare(
-        "INSERT INTO orders(user_id,customer_name,email,total_cents,status,created_at) VALUES (?,?,?,?,'SUBMITTED',?)",
+        "INSERT INTO orders(user_id,customer_name,email,subtotal_cents,delivery_fee_cents,total_cents,payment_status,paid_at,status,created_at) VALUES (?,?,?,?,0,?,'PAID','2026-10-01T10:00:00Z','SUBMITTED',?)",
       )
       .run(
         input.userId ?? null,
         input.name,
         input.email,
         input.totalCents,
+        input.totalCents,
         input.createdAt ?? '2026-10-01 10:00:00',
       )
     db.prepare(
+      'INSERT INTO order_deliveries(order_id,recipient_name,phone,address_line1,city,country_code) VALUES (?,?,?,?,?,?)',
+    ).run(order.lastInsertRowid, input.name, '+1 555 123 4567', '12 Main Street', 'City', 'US')
+    db.prepare(
       "INSERT INTO order_items(order_id,book_id,title,quantity,unit_price_cents) VALUES (?,?,'Fixture book',1,?)",
     ).run(order.lastInsertRowid, book.lastInsertRowid, input.totalCents)
+
     db.prepare(
       "INSERT INTO order_status_events(order_id,to_status,actor_user_id,actor_name,actor_role) VALUES (?,'SUBMITTED',?,?,'CUSTOMER')",
     ).run(order.lastInsertRowid, input.userId ?? null, input.name)
