@@ -9,6 +9,7 @@ export type Permission =
   | 'ARCHIVE_BOOKS'
   | 'MANAGE_USERS'
   | 'VIEW_ACTIVITY'
+  | 'VIEW_DASHBOARD_FINANCE'
 
 const rolePermissions: Readonly<Record<'ADMIN' | 'STAFF' | 'CUSTOMER', readonly Permission[]>> = {
   ADMIN: [
@@ -18,6 +19,7 @@ const rolePermissions: Readonly<Record<'ADMIN' | 'STAFF' | 'CUSTOMER', readonly 
     'ARCHIVE_BOOKS',
     'MANAGE_USERS',
     'VIEW_ACTIVITY',
+    'VIEW_DASHBOARD_FINANCE',
   ],
   STAFF: ['PROCESS_ORDERS', 'MANAGE_CATALOG', 'VIEW_ORDERS'],
   CUSTOMER: [],

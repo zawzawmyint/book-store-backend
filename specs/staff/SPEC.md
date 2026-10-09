@@ -16,7 +16,7 @@ The following exclusions were the historical scope of this Staff delivery and ar
 - Staff may read and edit archived books and adjust their stock under the existing rules, but cannot archive or restore them. A new book is active under the existing creation defaults.
 - Staff cannot read the user directory or arbitrary user details, reset another user's password, or change anyone's role. Order contact snapshots remain visible through order queries; this does not grant access to the user directory.
 
-The server-owned permission map includes `PROCESS_ORDERS`, `MANAGE_CATALOG`, `VIEW_ORDERS`, `ARCHIVE_BOOKS`, `MANAGE_USERS`, and `VIEW_ACTIVITY`. STAFF receives the first three; ADMIN receives all six; CUSTOMER receives none. No permission administration UI or permission tables are required.
+The server-owned permission map includes `PROCESS_ORDERS`, `MANAGE_CATALOG`, `VIEW_ORDERS`, `ARCHIVE_BOOKS`, `MANAGE_USERS`, `VIEW_ACTIVITY`, and `VIEW_DASHBOARD_FINANCE`. STAFF receives the first three; ADMIN receives all seven; CUSTOMER receives none. The dashboard contract uses `VIEW_ORDERS` plus `MANAGE_CATALOG` for operations and reserves financial reporting for `VIEW_DASHBOARD_FINANCE`; see [Dashboard](../dashboard/SPEC.md). No permission administration UI or permission tables are required.
 
 Enforce these checks on the existing API:
 

@@ -7,10 +7,18 @@ This repository owns the Express, Apollo Server, Drizzle, and SQLite/PostgreSQL 
 Use this order for future implementation work. Existing specs describe the current system; do not treat their `Implemented` status as evidence that earlier work followed this process.
 
 1. Before changing behavior, create or update `specs/<feature>/SPEC.md` with **Status: Proposed**. For a small change documented only in `SPEC.md`, add a clearly labeled proposed section; preserve its description of current behavior until delivery. State the HTTP/GraphQL contract, validation and authorization rules, data and migration effects, edge cases, and testable acceptance criteria. For a bug, specify the correct behavior and regression case. Coordinate breaking contracts with the frontend spec before editing either implementation.
-2. Select one acceptance criterion and add the smallest relevant automated test first. Prefer a service or API test for behavior and a migration test for schema changes. Run it and confirm it fails for the intended missing behavior, rather than a setup error.
+2. Select one acceptance criterion and add the smallest useful behavior test first, using the testing policy below. TDD applies at any test level; unit tests are not mandatory. Run the test and confirm it fails for the intended missing behavior, rather than a setup error.
 3. Implement only enough to pass that test, then refactor with tests green. Repeat the failing-test → passing-test → refactor cycle for each remaining criterion. Generate resolver types and migrations from their source definitions; do not hand-edit generated types.
 4. Run the affected tests, then `bun run test`, `bun run lint`, and `bun run build`. Coordinate frontend codegen and browser tests when the API contract or a customer journey changes. Check acceptance criteria manually where automation cannot verify them.
 5. Update `SPEC.md` to match the delivered behavior, resolve any proposed section, and mark the feature spec **Status: Implemented** only after its acceptance criteria pass. Include the spec, tests, migration (if any), and implementation in the change for review.
+
+## Testing policy
+
+- Choose coverage by observable behavior and risk. Prefer integration tests using real isolated databases for queries, persistence, transactions and API authorization; use migration tests for schema changes.
+- Keep a small set of frontend-coordinated Playwright E2E journeys for critical connected flows. Exercise calculation and validation edge cases in focused integration tests instead of repeating every case through the browser.
+- Add unit/service tests only when complex isolated logic benefits from clearer, faster coverage. Do not require a test for every helper, wrapper or internal function call.
+- Avoid duplicating the same assertions across test levels. Overlap is useful when it verifies a distinct risk, such as direct API rejection versus hidden UI controls. Test public outcomes rather than implementation details or large mock setups.
+- Preserve the failing-test → passing-test → refactor cycle, required checks, disposable test databases and SQLite/PostgreSQL parity for affected database behavior. This policy does not require deleting existing tests or reducing meaningful coverage.
 
 ## Commands
 

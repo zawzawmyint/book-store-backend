@@ -1,5 +1,6 @@
 import type { GraphQLResolveInfo } from 'graphql';
 import type { WorkspaceOrder } from '../../modules/orders/order.types.js';
+import type { WorkspaceDashboardResult, DashboardFinanceResult } from '../../modules/dashboard/dashboard.service.js';
 export type Maybe<T> = T | null;
 export type InputMaybe<T> = Maybe<T>;
 export type Omit<T, K extends keyof T> = Pick<T, Exclude<keyof T, K>>;
@@ -88,6 +89,8 @@ export type Query = {
   /** @deprecated Use adminUser. */
   adminCustomer: AdminCustomer;
   adminActivity: ActivityPage;
+  workspaceDashboard: WorkspaceDashboard;
+  adminDashboardFinance: DashboardFinance;
 };
 
 
@@ -181,6 +184,11 @@ export type QueryAdminActivityArgs = {
   to?: InputMaybe<Scalars['String']['input']>;
   limit?: InputMaybe<Scalars['Int']['input']>;
   offset?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QueryAdminDashboardFinanceArgs = {
+  period?: InputMaybe<DashboardPeriod>;
 };
 
 export enum OrderStatus {
@@ -645,6 +653,72 @@ export type ActivityPage = {
   items: Array<ActivityEvent>;
 };
 
+export enum DashboardPeriod {
+  Days_7 = 'DAYS_7',
+  Days_30 = 'DAYS_30',
+  Days_90 = 'DAYS_90'
+}
+
+export type DashboardStatusCount = {
+  __typename?: 'DashboardStatusCount';
+  status: OrderStatus;
+  count: Scalars['Int']['output'];
+};
+
+export type DashboardOrderSummary = {
+  __typename?: 'DashboardOrderSummary';
+  id: Scalars['ID']['output'];
+  customerName: Scalars['String']['output'];
+  createdAt: Scalars['String']['output'];
+  totalCents: Scalars['Int']['output'];
+  status: OrderStatus;
+  payment: OrderPayment;
+};
+
+export type DashboardStockBook = {
+  __typename?: 'DashboardStockBook';
+  id: Scalars['ID']['output'];
+  title: Scalars['String']['output'];
+  stock: Scalars['Int']['output'];
+};
+
+export type WorkspaceDashboard = {
+  __typename?: 'WorkspaceDashboard';
+  generatedAt: Scalars['String']['output'];
+  fulfillment: Array<DashboardStatusCount>;
+  awaitingPreparation: Array<DashboardOrderSummary>;
+  readyToShip: Array<DashboardOrderSummary>;
+  recentOrders: Array<DashboardOrderSummary>;
+  lowStockCount: Scalars['Int']['output'];
+  outOfStockCount: Scalars['Int']['output'];
+  stockAlerts: Array<DashboardStockBook>;
+};
+
+export type DashboardPaymentDay = {
+  __typename?: 'DashboardPaymentDay';
+  date: Scalars['String']['output'];
+  capturedCents: Scalars['String']['output'];
+  refundedCents: Scalars['String']['output'];
+  paidOrderCount: Scalars['Int']['output'];
+};
+
+export type DashboardFinance = {
+  __typename?: 'DashboardFinance';
+  generatedAt: Scalars['String']['output'];
+  period: DashboardPeriod;
+  timeZone: Scalars['String']['output'];
+  startDate: Scalars['String']['output'];
+  endDate: Scalars['String']['output'];
+  currency: Scalars['String']['output'];
+  capturedCents: Scalars['String']['output'];
+  refundedCents: Scalars['String']['output'];
+  netCents: Scalars['String']['output'];
+  paidOrderCount: Scalars['Int']['output'];
+  days: Array<DashboardPaymentDay>;
+  failedRefundCount: Scalars['Int']['output'];
+  failedRefundOrders: Array<DashboardOrderSummary>;
+};
+
 
 
 export type ResolverTypeWrapper<T> = Promise<T> | T;
@@ -773,6 +847,13 @@ export type ResolversTypes = {
   ActivityChange: ResolverTypeWrapper<ActivityChange>;
   ActivityEvent: ResolverTypeWrapper<ActivityEvent>;
   ActivityPage: ResolverTypeWrapper<ActivityPage>;
+  DashboardPeriod: DashboardPeriod;
+  DashboardStatusCount: ResolverTypeWrapper<DashboardStatusCount>;
+  DashboardOrderSummary: ResolverTypeWrapper<DashboardOrderSummary>;
+  DashboardStockBook: ResolverTypeWrapper<DashboardStockBook>;
+  WorkspaceDashboard: ResolverTypeWrapper<WorkspaceDashboardResult>;
+  DashboardPaymentDay: ResolverTypeWrapper<DashboardPaymentDay>;
+  DashboardFinance: ResolverTypeWrapper<DashboardFinanceResult>;
 };
 
 /** Mapping between all available schema types and the resolvers parents */
@@ -820,6 +901,12 @@ export type ResolversParentTypes = {
   ActivityChange: ActivityChange;
   ActivityEvent: ActivityEvent;
   ActivityPage: ActivityPage;
+  DashboardStatusCount: DashboardStatusCount;
+  DashboardOrderSummary: DashboardOrderSummary;
+  DashboardStockBook: DashboardStockBook;
+  WorkspaceDashboard: WorkspaceDashboardResult;
+  DashboardPaymentDay: DashboardPaymentDay;
+  DashboardFinance: DashboardFinanceResult;
 };
 
 export type BookResolvers<ContextType = any, ParentType extends ResolversParentTypes['Book'] = ResolversParentTypes['Book']> = {
@@ -871,6 +958,8 @@ export type QueryResolvers<ContextType = any, ParentType extends ResolversParent
   adminCustomers?: Resolver<ResolversTypes['AdminCustomersPage'], ParentType, ContextType, RequireFields<QueryAdminCustomersArgs, 'role' | 'limit' | 'offset'>>;
   adminCustomer?: Resolver<ResolversTypes['AdminCustomer'], ParentType, ContextType, RequireFields<QueryAdminCustomerArgs, 'id'>>;
   adminActivity?: Resolver<ResolversTypes['ActivityPage'], ParentType, ContextType, Partial<QueryAdminActivityArgs>>;
+  workspaceDashboard?: Resolver<ResolversTypes['WorkspaceDashboard'], ParentType, ContextType>;
+  adminDashboardFinance?: Resolver<ResolversTypes['DashboardFinance'], ParentType, ContextType, RequireFields<QueryAdminDashboardFinanceArgs, 'period'>>;
 };
 
 export type OrderStatusEventResolvers<ContextType = any, ParentType extends ResolversParentTypes['OrderStatusEvent'] = ResolversParentTypes['OrderStatusEvent']> = {
@@ -1088,6 +1177,60 @@ export type ActivityPageResolvers<ContextType = any, ParentType extends Resolver
   items?: Resolver<Array<ResolversTypes['ActivityEvent']>, ParentType, ContextType>;
 };
 
+export type DashboardStatusCountResolvers<ContextType = any, ParentType extends ResolversParentTypes['DashboardStatusCount'] = ResolversParentTypes['DashboardStatusCount']> = {
+  status?: Resolver<ResolversTypes['OrderStatus'], ParentType, ContextType>;
+  count?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+};
+
+export type DashboardOrderSummaryResolvers<ContextType = any, ParentType extends ResolversParentTypes['DashboardOrderSummary'] = ResolversParentTypes['DashboardOrderSummary']> = {
+  id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  customerName?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  createdAt?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  totalCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  status?: Resolver<ResolversTypes['OrderStatus'], ParentType, ContextType>;
+  payment?: Resolver<ResolversTypes['OrderPayment'], ParentType, ContextType>;
+};
+
+export type DashboardStockBookResolvers<ContextType = any, ParentType extends ResolversParentTypes['DashboardStockBook'] = ResolversParentTypes['DashboardStockBook']> = {
+  id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  title?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  stock?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+};
+
+export type WorkspaceDashboardResolvers<ContextType = any, ParentType extends ResolversParentTypes['WorkspaceDashboard'] = ResolversParentTypes['WorkspaceDashboard']> = {
+  generatedAt?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  fulfillment?: Resolver<Array<ResolversTypes['DashboardStatusCount']>, ParentType, ContextType>;
+  awaitingPreparation?: Resolver<Array<ResolversTypes['DashboardOrderSummary']>, ParentType, ContextType>;
+  readyToShip?: Resolver<Array<ResolversTypes['DashboardOrderSummary']>, ParentType, ContextType>;
+  recentOrders?: Resolver<Array<ResolversTypes['DashboardOrderSummary']>, ParentType, ContextType>;
+  lowStockCount?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  outOfStockCount?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  stockAlerts?: Resolver<Array<ResolversTypes['DashboardStockBook']>, ParentType, ContextType>;
+};
+
+export type DashboardPaymentDayResolvers<ContextType = any, ParentType extends ResolversParentTypes['DashboardPaymentDay'] = ResolversParentTypes['DashboardPaymentDay']> = {
+  date?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  capturedCents?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  refundedCents?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  paidOrderCount?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+};
+
+export type DashboardFinanceResolvers<ContextType = any, ParentType extends ResolversParentTypes['DashboardFinance'] = ResolversParentTypes['DashboardFinance']> = {
+  generatedAt?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  period?: Resolver<ResolversTypes['DashboardPeriod'], ParentType, ContextType>;
+  timeZone?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  startDate?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  endDate?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  currency?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  capturedCents?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  refundedCents?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  netCents?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  paidOrderCount?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  days?: Resolver<Array<ResolversTypes['DashboardPaymentDay']>, ParentType, ContextType>;
+  failedRefundCount?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  failedRefundOrders?: Resolver<Array<ResolversTypes['DashboardOrderSummary']>, ParentType, ContextType>;
+};
+
 export type Resolvers<ContextType = any> = {
   Book?: BookResolvers<ContextType>;
   BookPage?: BookPageResolvers<ContextType>;
@@ -1119,5 +1262,11 @@ export type Resolvers<ContextType = any> = {
   ActivityChange?: ActivityChangeResolvers<ContextType>;
   ActivityEvent?: ActivityEventResolvers<ContextType>;
   ActivityPage?: ActivityPageResolvers<ContextType>;
+  DashboardStatusCount?: DashboardStatusCountResolvers<ContextType>;
+  DashboardOrderSummary?: DashboardOrderSummaryResolvers<ContextType>;
+  DashboardStockBook?: DashboardStockBookResolvers<ContextType>;
+  WorkspaceDashboard?: WorkspaceDashboardResolvers<ContextType>;
+  DashboardPaymentDay?: DashboardPaymentDayResolvers<ContextType>;
+  DashboardFinance?: DashboardFinanceResolvers<ContextType>;
 };
 
