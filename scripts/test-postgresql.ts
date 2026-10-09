@@ -37,6 +37,8 @@ const cluster = new EmbeddedPostgres({
   password,
   persistent: false,
   createPostgresUser: false,
+  // Match application UTF-8 text instead of inheriting a Windows ANSI encoding.
+  initdbFlags: ['--encoding=UTF8'],
   postgresFlags: ['-h', '127.0.0.1'],
   onLog: () => {},
   onError: () => {},

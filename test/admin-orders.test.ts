@@ -67,6 +67,45 @@ function gql(query: string, auth = cookies) {
     query,
   })
 }
+it('searches saved order contacts and exact IDs with status/paging and unchanged owner scope', async () => {
+  await legacyOrder(1)
+  seedSubmittedOrder(db, {
+    name: '50%_Reader\\Club',
+    email: 'literal@example.com',
+    totalCents: 55,
+    createdAt: '2026-10-01 10:00:00',
+  })
+  seedSubmittedOrder(db, {
+    name: 'Other',
+    email: 'other@example.com',
+    totalCents: 55,
+    createdAt: '2026-10-01 10:00:00',
+  })
+  db.prepare("UPDATE orders SET status='PREPARING' WHERE id=2").run()
+  db.prepare("UPDATE orders SET created_at='2026-10-01 10:00:00'").run()
+  const search = (term: string, args = '') =>
+    gql(`{ adminOrders(search:${JSON.stringify(term)} ${args}) { total items { id } } }`)
+  for (const term of ['#002', '2', ' LITERAL@EXAMPLE ', '50%_Reader\\']) {
+    const result = await search(term)
+    expect(result.body.errors).toBeUndefined()
+    expect(result.body.data.adminOrders).toEqual({ total: 1, items: [{ id: '2' }] })
+  }
+  for (const term of ['#0', '999999999999999999999', 'missing'])
+    expect((await search(term)).body.data.adminOrders.total).toBe(0)
+  expect((await search('example', 'limit:1 offset:1')).body.data.adminOrders).toEqual({
+    total: 3,
+    items: [{ id: '2' }],
+  })
+  expect((await search('example', 'status:PREPARING')).body.data.adminOrders.total).toBe(1)
+  expect((await search('   ')).body.data.adminOrders.total).toBe(3)
+  expect((await search('x'.repeat(101))).body.errors[0].extensions.code).toBe('BAD_USER_INPUT')
+  const query = '{ adminOrders(search:"literal") { total } }'
+  expect((await gql(query, [])).body.errors[0].extensions.code).toBe('UNAUTHENTICATED')
+  expect((await gql(query, customer)).body.errors[0].extensions.code).toBe('FORBIDDEN')
+  db.prepare("UPDATE user_roles SET role='STAFF'").run()
+  expect((await gql(query)).body.data.adminOrders.total).toBe(1)
+  expect((await gql('{ myOrders { total } }', customer)).body.data.myOrders.total).toBe(1)
+})
 it('lists every request and legacy contact snapshot in stable newest-first order, without changing customer history', async () => {
   const placed = await legacyOrder(1)
   expect(placed.body.errors).toBeUndefined()

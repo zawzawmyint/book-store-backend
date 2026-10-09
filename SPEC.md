@@ -1,5 +1,7 @@
 # The Quiet Shelf API specification
 
+> **Proposed engineering work:** [Backend readability and consistency](specs/readability-consistency/SPEC.md) describes incremental refactoring with unchanged API and database behavior. Its acceptance criteria are not yet verified.
+
 > **Implemented infrastructure:** [Database support](specs/database-support/SPEC.md) provides SQLite development/test and PostgreSQL production support with shared application behavior.
 
 > **Implemented delivery:** [Delivery](specs/delivery/SPEC.md) is the current checkout and fulfillment contract.
@@ -7,6 +9,8 @@
 > **Implemented payment-key recovery:** [Payment operation keys](specs/payment-operation-keys/SPEC.md) defines durable Stripe idempotency identities and restart recovery.
 
 > **Implemented workspace dashboard:** [Dashboard](specs/dashboard/SPEC.md) defines Staff operations and Admin-only financial reporting.
+
+> **Implemented workspace search:** [Workspace search](specs/workspace-search/SPEC.md) adds Staff/Admin Books and Orders search plus an additive order filter, with verified SQLite/PostgreSQL parity and browser coverage.
 
 > This document describes implemented behavior. See [the Stripe checkout feature spec](specs/stripe-checkout/SPEC.md) for test-payment details, [the authentication feature spec](specs/authentication/SPEC.md) for the account contract, and [the demo-login feature spec](specs/demo-login/SPEC.md) for optional local demo accounts.
 

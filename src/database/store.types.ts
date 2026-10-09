@@ -57,6 +57,7 @@ export interface DomainStore {
     offset: number,
     userId?: string,
     status?: OrderRow['status'],
+    search?: string,
   ): Promise<{ total: number; items: OrderRow[] }>
   lines(ids: number[]): Promise<(typeof model.orderItems.$inferSelect)[]>
   insertLine(values: typeof model.orderItems.$inferInsert): Promise<void>

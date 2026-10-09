@@ -23,11 +23,23 @@ export function createResolvers(
   db: DatabaseInput,
   payments: ReturnType<typeof createPaymentService>,
 ): Resolvers<GraphQLContext> {
+
+
   const roles = createAdminRepository(db)
-  const orderResolvers = createOrderResolvers(createOrderRepository(db), roles, payments)
-  const adminBooks = createAdminBookResolvers(createAdminBookRepository(db), roles)
+  const orderRepository = createOrderRepository(db)
+  const adminBookRepository = createAdminBookRepository(db)
+  const dashboardRepository = createDashboardRepository(db)
+  const catalogRepository = createCatalogRepository(db)
+  const adminOrderRepository = createAdminOrderRepository(db)
+  const activityRepository = createActivityRepository(db)
+
+  const orderResolvers = createOrderResolvers(orderRepository, roles, payments)
+  const adminBooks = createAdminBookResolvers(adminBookRepository, roles)
   const admin = createAdminResolvers(roles)
-  const workspaceOrders = createAdminOrderRepository(db)
+  const dashboard = createDashboardResolvers(dashboardRepository, roles)
+  const books = createBookResolvers(catalogRepository)
+  const adminOrders = createAdminOrderResolvers(adminOrderRepository, roles)
+  const activity = createActivityResolvers(activityRepository, roles)
   return {
     OrderHistoryEntry: {
       delivery: async (order) =>
@@ -37,16 +49,16 @@ export function createResolvers(
       delivery: async (order) =>
         order.delivery ?? readDelivery(normalizeStore(db), Number(order.id)),
       history: async (order) =>
-        (await workspaceOrders.history(order.id)) as AdminOrderStatusEvent[],
+        (await adminOrderRepository.history(order.id)) as AdminOrderStatusEvent[],
     },
     Query: {
-      ...createDashboardResolvers(createDashboardRepository(db), roles),
-      ...createBookResolvers(createCatalogRepository(db)),
+      ...dashboard,
+      ...books,
       ...orderResolvers.Query,
       ...admin.Query,
       ...adminBooks.Query,
-      ...createAdminOrderResolvers(workspaceOrders, roles),
-      ...createActivityResolvers(createActivityRepository(db), roles),
+      ...adminOrders,
+      ...activity,
     },
     Mutation: { ...orderResolvers.Mutation, ...adminBooks.Mutation, ...admin.Mutation },
   }

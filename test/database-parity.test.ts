@@ -56,6 +56,60 @@ describe(`database contract: ${providerName}`, () => {
   let service: ReturnType<typeof createPaymentService>
   let buyer: { id: string; name: string; email: string }
   let now: number
+  it('matches case differences in accented and non-Latin saved customer names', async () => {
+    for (const [customerName, term] of [
+      ['ÉLODIE', 'élodie'],
+      ['АЛЕКСЕЙ', 'алексей'],
+    ]) {
+      const order = await store.createOrder({
+        customerName,
+        email: 'unicode@test.example',
+        subtotalCents: 100,
+        deliveryFeeCents: 0,
+        totalCents: 100,
+        createdAt: '2026-10-01 10:00:00',
+        status: 'SUBMITTED',
+      })
+      const result = await store.orderPage(5, 0, undefined, undefined, term)
+      expect(result.items.map((row) => row.id)).toEqual([order.id])
+      expect(result.total).toBe(1)
+    }
+  })
+  it('matches exact order IDs and escaped contacts with status/pagination and owner scope', async () => {
+    const values = {
+      subtotalCents: 100,
+      deliveryFeeCents: 0,
+      totalCents: 100,
+      createdAt: '2026-10-01 10:00:00',
+    }
+    const first = await store.createOrder({
+      ...values,
+      customerName: '50%_Reader\\Club',
+      email: 'literal@test.example',
+      userId: buyer.id,
+      status: 'PREPARING',
+    })
+    const second = await store.createOrder({
+      ...values,
+      customerName: 'Other',
+      email: 'other@test.example',
+      status: 'SUBMITTED',
+    })
+    for (const term of [`#00${first.id}`, String(first.id), ' LITERAL@TEST ', '50%_Reader\\']) {
+      const result = await store.orderPage(5, 0, undefined, undefined, term)
+      expect(result.total).toBe(1)
+      expect(result.items.map((row) => row.id)).toEqual([first.id])
+    }
+    expect((await store.orderPage(5, 0, undefined, undefined, '#99999999999999999999')).total).toBe(
+      0,
+    )
+    expect((await store.orderPage(5, 0, undefined, 'PREPARING', 'example')).total).toBe(1)
+    const paged = await store.orderPage(1, 1, undefined, undefined, 'example')
+    expect(paged.total).toBe(2)
+    expect(paged.items.map((row) => row.id)).toEqual([first.id])
+    expect((await store.orderPage(5, 0, buyer.id, undefined, String(second.id))).total).toBe(0)
+    expect((await store.orderPage(5, 0, buyer.id)).total).toBe(1)
+  })
   const address = {
     recipientName: 'Parity Recipient',
     phone: '+1 202 555 0123',

@@ -2,7 +2,7 @@ import { and, count, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from 'dr
 import * as s from './schema.js'
 import type { DomainStore } from '../store.types.js'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
-import { textSearch, stockAdjustment } from '../query.helpers.js'
+import { textSearch, stockAdjustment, orderSearch } from '../query.helpers.js'
 import { createDashboardQueries } from '../dashboard.queries.js'
 export function createPostgreSQLStore(orm: NodePgDatabase<typeof s>, scoped = false): DomainStore {
   return {
@@ -143,10 +143,11 @@ export function createPostgreSQLStore(orm: NodePgDatabase<typeof s>, scoped = fa
           .returning(),
       )
     },
-    async orderPage(limit, offset, userId, status) {
+    async orderPage(limit, offset, userId, status, search = '') {
       const where = and(
         userId ? eq(s.orders.userId, userId) : undefined,
         status ? eq(s.orders.status, status) : undefined,
+        orderSearch(search, s.orders.id, s.orders.customerName, s.orders.email),
       )
       return {
         total: FIRST(await orm.select({ n: count() }).from(s.orders).where(where))!.n,
