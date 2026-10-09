@@ -3,6 +3,11 @@ import type { z } from 'zod'
 import type { adminBooksInputSchema } from '../modules/books/book.validation.js'
 import type { adminUsersInputSchema } from '../modules/admin/admin.validation.js'
 import type { activityInputSchema } from '../modules/activity/activity.validation.js'
+import type {
+  DashboardRange,
+  WorkspaceDashboardData,
+  DashboardFinanceData,
+} from '../modules/dashboard/dashboard.types.js'
 
 // Logical records. Both physical schemas are checked against these contracts.
 export type BookRow = typeof model.books.$inferSelect
@@ -11,6 +16,8 @@ export type OperationRow = typeof model.paymentOperations.$inferSelect
 export type EventRow = typeof model.paymentEvents.$inferSelect
 export type Role = 'CUSTOMER' | 'STAFF' | 'ADMIN'
 export interface DomainStore {
+  dashboardWorkspace(): Promise<WorkspaceDashboardData>
+  dashboardFinance(range: DashboardRange): Promise<DashboardFinanceData>
   transaction<T>(work: (store: DomainStore) => Promise<T>): Promise<T>
   book(id: number): Promise<BookRow | undefined>
   catalog(

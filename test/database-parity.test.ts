@@ -104,6 +104,120 @@ describe(`database contract: ${providerName}`, () => {
     await database?.close()
   })
 
+  it('reports current dashboard work and bounded previews without changing records', async () => {
+    expect('dashboardWorkspace' in store).toBe(true)
+    const { createDashboardService } = await import('../src/modules/dashboard/dashboard.service.js')
+    const { createDashboardRepository } =
+      await import('../src/modules/dashboard/dashboard.repository.js')
+    for (const [index, stock] of [0, 1, 5, 6, 0].entries()) {
+      await store.updateBook(index + 1, { stock, archived: index === 4 })
+    }
+    const ids: number[] = []
+    for (let i = 0; i < 8; i++) {
+      const row = await store.createOrder({
+        customerName: 'Dashboard buyer',
+        email: 'private@test.example',
+        subtotalCents: 100,
+        deliveryFeeCents: 0,
+        totalCents: 100,
+        status: 'SUBMITTED',
+        paymentStatus: 'PAID',
+        paidAt: '2026-10-09T01:00:00Z',
+        createdAt: i % 2 ? '2026-10-09T01:00:00Z' : '2026-10-09 01:00:00',
+      })
+      ids.push(row.id)
+    }
+    await store.createOrder({
+      customerName: 'Unpaid',
+      email: 'private@test.example',
+      subtotalCents: 100,
+      deliveryFeeCents: 0,
+      totalCents: 100,
+    })
+    const dashboard = createDashboardService(createDashboardRepository(database.handle), () =>
+      Date.parse('2026-10-09T08:00:00Z'),
+    )
+    const result = await dashboard.workspace()
+    expect(result.fulfillment.map((r) => r.count)).toEqual([8, 0, 0, 0])
+    expect(result.awaitingPreparation.map((r) => r.id)).toEqual(ids.slice(0, 5).map(String))
+    expect(result.recentOrders).toHaveLength(5)
+    expect(result.recentOrders[1].id).toBe(String(ids[7]))
+    expect(result.stockAlerts.map((r) => r.id)).toEqual(['1', '2', '3'])
+    expect(result.lowStockCount).toBe(2)
+    expect(result.outOfStockCount).toBe(1)
+    expect(result.awaitingPreparation[0]).not.toHaveProperty('email')
+    expect((await store.orderPage(20, 0)).total).toBe(9)
+    expect((await store.book(1))!.stock).toBe(0)
+  })
+
+  it('reports exact daily captures and full refunds using Dubai boundaries on both providers', async () => {
+    expect('dashboardFinance' in store).toBe(true)
+    const { createDashboardService } = await import('../src/modules/dashboard/dashboard.service.js')
+    const { createDashboardRepository } =
+      await import('../src/modules/dashboard/dashboard.repository.js')
+    const add = (paidAt: string | null, refundedAt: string | null, totalCents: number) =>
+      store.createOrder({
+        customerName: 'Finance buyer',
+        email: 'private@test.example',
+        subtotalCents: totalCents,
+        deliveryFeeCents: 0,
+        totalCents,
+        paidAt,
+        refundedAt,
+        status: refundedAt ? 'CANCELLED' : 'SUBMITTED',
+        paymentStatus: refundedAt ? 'REFUNDED' : paidAt ? 'PAID' : 'PENDING',
+      })
+    await add('2026-10-02T20:00:00Z', '2026-10-08T20:00:00Z', 2000000000)
+    await add('2026-10-08T20:00:00Z', null, 2000000000)
+    await add('2026-10-02T19:59:59.999Z', null, 50)
+    await add('2026-10-09T20:00:00Z', null, 75)
+    await add(null, null, 100)
+    const failed = await add('2026-09-01T00:00:00Z', null, 25)
+    await store.updateOrder(failed.id, { status: 'CANCELLED', paymentStatus: 'REFUND_FAILED' })
+    const dashboard = createDashboardService(createDashboardRepository(database.handle), () =>
+      Date.parse('2026-10-09T08:00:00Z'),
+    )
+    const result = await dashboard.finance('DAYS_7')
+    expect(result).toMatchObject({
+      startDate: '2026-10-03',
+      endDate: '2026-10-09',
+      capturedCents: '4000000000',
+      refundedCents: '2000000000',
+      netCents: '2000000000',
+      paidOrderCount: 2,
+      failedRefundCount: 1,
+    })
+    expect(result.days).toHaveLength(7)
+    expect(result.days[0]).toEqual({
+      date: '2026-10-03',
+      capturedCents: '2000000000',
+      refundedCents: '0',
+      paidOrderCount: 1,
+    })
+    expect(result.days[1].capturedCents).toBe('0')
+    expect(result.days[6]).toEqual({
+      date: '2026-10-09',
+      capturedCents: '2000000000',
+      refundedCents: '2000000000',
+      paidOrderCount: 1,
+    })
+    expect((await dashboard.finance('DAYS_30')).days).toHaveLength(30)
+    expect((await dashboard.finance('DAYS_90')).days).toHaveLength(90)
+    await store.updateOrder(2, { paidAt: '2026-09-01T00:00:00Z' })
+    await store.updateOrder(1, { paidAt: '2026-09-01T00:00:00Z' })
+    expect((await dashboard.finance('DAYS_7')).netCents).toBe('-2000000000')
+    expect((await dashboard.finance('DAYS_7')).refundedCents).toBe('2000000000')
+    await expect(dashboard.finance(null)).rejects.toThrow()
+    const newYear = createDashboardService(createDashboardRepository(database.handle), () =>
+      Date.parse('2026-12-31T20:00:00Z'),
+    )
+    expect(await newYear.finance('DAYS_7')).toMatchObject({
+      startDate: '2026-12-26',
+      endDate: '2027-01-01',
+      capturedCents: '0',
+    })
+  })
+
   it('quotes normalized delivery and money without reserving stock or provider resources', async () => {
     const before = (await store.book(1))!.stock
     const quote = await service.quoteCheckout({

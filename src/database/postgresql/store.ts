@@ -3,8 +3,27 @@ import * as s from './schema.js'
 import type { DomainStore } from '../store.types.js'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { textSearch, stockAdjustment } from '../query.helpers.js'
+import { createDashboardQueries } from '../dashboard.queries.js'
 export function createPostgreSQLStore(orm: NodePgDatabase<typeof s>, scoped = false): DomainStore {
   return {
+    dashboardWorkspace: () =>
+      orm.transaction(
+        async (tx) =>
+          createDashboardQueries(
+            async <T>(query: import('drizzle-orm').SQL) => (await tx.execute(query)).rows as T[],
+            'postgresql',
+          ).workspace(),
+        { isolationLevel: 'repeatable read', accessMode: 'read only' },
+      ),
+    dashboardFinance: (range) =>
+      orm.transaction(
+        async (tx) =>
+          createDashboardQueries(
+            async <T>(query: import('drizzle-orm').SQL) => (await tx.execute(query)).rows as T[],
+            'postgresql',
+          ).finance(range),
+        { isolationLevel: 'repeatable read', accessMode: 'read only' },
+      ),
     transaction: async (work) =>
       orm.transaction(async (tx) => work(createPostgreSQLStore(tx, true))),
     async book(id) {

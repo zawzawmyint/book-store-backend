@@ -3,8 +3,15 @@ import * as s from './../schema.js'
 import type { DomainStore } from '../store.types.js'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { textSearch, stockAdjustment } from '../query.helpers.js'
+import { createDashboardQueries } from '../dashboard.queries.js'
 export function createSQLiteQueries(orm: BetterSQLite3Database): DomainStore {
+  const dashboard = createDashboardQueries(
+    async <T>(query: import('drizzle-orm').SQL) => orm.all(query) as T[],
+    'sqlite',
+  )
   return {
+    dashboardWorkspace: dashboard.workspace,
+    dashboardFinance: dashboard.finance,
     transaction: async () => {
       throw new Error('Transaction scope not initialized')
     },

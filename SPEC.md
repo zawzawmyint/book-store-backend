@@ -6,6 +6,8 @@
 
 > **Implemented payment-key recovery:** [Payment operation keys](specs/payment-operation-keys/SPEC.md) defines durable Stripe idempotency identities and restart recovery.
 
+> **Implemented workspace dashboard:** [Dashboard](specs/dashboard/SPEC.md) defines Staff operations and Admin-only financial reporting.
+
 > This document describes implemented behavior. See [the Stripe checkout feature spec](specs/stripe-checkout/SPEC.md) for test-payment details, [the authentication feature spec](specs/authentication/SPEC.md) for the account contract, and [the demo-login feature spec](specs/demo-login/SPEC.md) for optional local demo accounts.
 
 > The implemented role and permission model is defined in [the staff roles specification](specs/staff/SPEC.md), with user-directory compatibility details in [the user directory specification](specs/users/SPEC.md).
@@ -20,6 +22,10 @@ defines request processing, status history, inventory restoration, and its
 fresh-database migration policy.
 
 The implemented [activity history specification](specs/activity/SPEC.md) defines atomic change recording and Admin-only history queries. Its additive migration has not been applied to a production database.
+
+The implemented [dashboard specification](specs/dashboard/SPEC.md) defines the
+read-only workspace aggregates, bounded previews, exact-cent 7/30/90-day summaries,
+and the fixed Asia/Dubai reporting calendar. It adds no persistence schema change.
 
 Provide a GraphQL catalog and authenticated checkout API for the separate storefront.
 New orders require Stripe hosted Checkout in test mode with a required delivery address.
@@ -80,7 +86,7 @@ are authoritative in [the delivery specification](specs/delivery/SPEC.md).
 - Only Admin may use `adminUsers`, `adminUser`, `setUserRole`, and `resetUserPassword`. Directory search/filter includes Customer, Staff, and Admin. `setUserRole` assigns one role for an existing user and does not change identity, credentials, sessions, or orders. See [the staff roles specification](specs/staff/SPEC.md).
 - `setUserAdminAccess` and legacy `setCustomerAdminAccess` are deprecated compatibility mutations: true assigns Admin and false assigns Customer. Deprecated legacy user query/detail/password fields retain their declared types for existing clients.
 - `adminActivity` is Admin-only and returns the newest recorded catalog, account, and order-status changes first. It supports bounded pagination plus actor, action, changed-field, target, and UTC time-range filters. Book history is the same query filtered to a book target and includes cancellation stock restoration. Staff actions are recorded but Staff cannot read activity. The log begins after the updated backend runs with migration `0005_panoramic_invisible_woman` applied; it does not reconstruct prior changes.
-- Workspace permission guards read the current stored role before private validation or lookup and supply the authenticated user to resolver logic. Admin has `PROCESS_ORDERS`, `MANAGE_CATALOG`, `VIEW_ORDERS`, `ARCHIVE_BOOKS`, `MANAGE_USERS`, and `VIEW_ACTIVITY`; Staff has `PROCESS_ORDERS`, `MANAGE_CATALOG`, and `VIEW_ORDERS`; Customer and unknown roles have none of these workspace permissions. Guests receive `UNAUTHENTICATED`; users without the required permission receive `FORBIDDEN`. A role change affects the next request.
+- Workspace permission guards read the current stored role before private validation or lookup and supply the authenticated user to resolver logic. Admin has `PROCESS_ORDERS`, `MANAGE_CATALOG`, `VIEW_ORDERS`, `ARCHIVE_BOOKS`, `MANAGE_USERS`, `VIEW_ACTIVITY`, and `VIEW_DASHBOARD_FINANCE`; Staff has `PROCESS_ORDERS`, `MANAGE_CATALOG`, and `VIEW_ORDERS`; Customer and unknown roles have none of these workspace permissions. `workspaceDashboard` requires both `VIEW_ORDERS` and `MANAGE_CATALOG`, while `adminDashboardFinance` requires the Admin-only finance permission. Guests receive `UNAUTHENTICATED`; users without the required permission receive `FORBIDDEN`. A role change affects the next request.
 - Operator `admin:access` grant/revoke acts only on existing user IDs against the configured database, assigning Admin or Customer respectively. See [the staff roles specification](specs/staff/SPEC.md) for role and recovery limits.
 
 ## Data and operation

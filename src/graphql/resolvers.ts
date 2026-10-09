@@ -16,6 +16,8 @@ import { createAdminBookResolvers } from '../modules/books/admin-book.resolvers.
 import { createAdminOrderResolvers } from '../modules/orders/admin-order.resolvers.js'
 import { createActivityResolvers } from '../modules/activity/activity.resolvers.js'
 import type { createPaymentService } from '../modules/payments/payment.service.js'
+import { createDashboardRepository } from '../modules/dashboard/dashboard.repository.js'
+import { createDashboardResolvers } from '../modules/dashboard/dashboard.resolvers.js'
 
 export function createResolvers(
   db: DatabaseInput,
@@ -38,6 +40,7 @@ export function createResolvers(
         (await workspaceOrders.history(order.id)) as AdminOrderStatusEvent[],
     },
     Query: {
+      ...createDashboardResolvers(createDashboardRepository(db), roles),
       ...createBookResolvers(createCatalogRepository(db)),
       ...orderResolvers.Query,
       ...admin.Query,

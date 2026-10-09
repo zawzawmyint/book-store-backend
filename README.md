@@ -4,7 +4,7 @@ An Express + GraphQL + Drizzle bookstore API with Zod input validation. SQLite i
 development/test default and PostgreSQL is supported for production. This folder is its
 own Git repository and runs independently from the frontend.
 
-See [SPEC.md](SPEC.md) for the implemented API behavior, [the database support spec](specs/database-support/SPEC.md) for provider operation, [specs/payment-operation-keys/SPEC.md](specs/payment-operation-keys/SPEC.md) for durable payment idempotency and recovery, [specs/authentication/SPEC.md](specs/authentication/SPEC.md) for the account feature contract, [specs/order-workflow/SPEC.md](specs/order-workflow/SPEC.md) for request processing, [specs/demo-login/SPEC.md](specs/demo-login/SPEC.md) for local demo accounts, [specs/staff/SPEC.md](specs/staff/SPEC.md) for roles and permissions, [specs/users/SPEC.md](specs/users/SPEC.md) for user-directory compatibility, and [specs/activity/SPEC.md](specs/activity/SPEC.md) for the Admin-only activity contract.
+See [SPEC.md](SPEC.md) for the implemented API behavior, [the database support spec](specs/database-support/SPEC.md) for provider operation, [specs/payment-operation-keys/SPEC.md](specs/payment-operation-keys/SPEC.md) for durable payment idempotency and recovery, [specs/authentication/SPEC.md](specs/authentication/SPEC.md) for the account feature contract, [specs/order-workflow/SPEC.md](specs/order-workflow/SPEC.md) for request processing, [specs/demo-login/SPEC.md](specs/demo-login/SPEC.md) for local demo accounts, [specs/staff/SPEC.md](specs/staff/SPEC.md) for roles and permissions, [specs/users/SPEC.md](specs/users/SPEC.md) for user-directory compatibility, [specs/activity/SPEC.md](specs/activity/SPEC.md) for the Admin-only activity contract, and [specs/dashboard/SPEC.md](specs/dashboard/SPEC.md) for workspace reporting.
 
 ## Development workflow
 
@@ -173,6 +173,14 @@ Both commands are idempotent and reject unknown users. They do not create accoun
 Metadata edits exclude stock; inventory changes are signed deltas applied to current stored stock. A lost mutation response leaves the result uncertain: check inventory and decide deliberately before submitting another adjustment. Archive hides books and rejects new checkout lines while preserving earlier order snapshots; restore uses the same book ID. Low stock means five or fewer units.
 
 The Activity API records successful catalog changes, role changes, another-user password resets, and order status changes in the same transaction as the business write. Cancellation also records each restored book stock change. `adminActivity` is Admin-only; Staff changes are attributed but Staff cannot read history. It has a default limit of 20, maximum 50, newest-first ordering, and actor/action/changed-field/target/UTC-range filters. The log starts after the updated backend runs with `0005_panoramic_invisible_woman` applied; prior changes are not backfilled. The operator command records an `OPERATOR` event named **Operator command**, never an inferred person.
+
+`workspaceDashboard` is available to Staff and Admin only when both `VIEW_ORDERS`
+and `MANAGE_CATALOG` apply. `adminDashboardFinance` is Admin-only through
+`VIEW_DASHBOARD_FINANCE`. It returns read-only, bounded operational previews and
+7/30/90-day exact-cent payment/refund summaries in fixed `Asia/Dubai` calendar days.
+The dashboard adds no migration, provider call, reporting table, or environment
+variable; see [the dashboard specification](specs/dashboard/SPEC.md) for fields,
+eligibility, and payment semantics.
 
 Before migrating persisted data, stop writers and make a consistent SQLite backup (including any required WAL state, or use SQLite's backup API). The staff-role migration copies old admin memberships as Admin and drops the old table. Activity migration `0005_panoramic_invisible_woman` is additive and preserves existing data; an earlier compatible binary may ignore its table but will not record events. Preserve the table and document any resulting history gap, or restore the matching pre-migration backup with compatible application versions. The test suites use isolated databases and do not grant development/production access.
 

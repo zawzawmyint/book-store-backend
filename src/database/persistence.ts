@@ -94,6 +94,19 @@ function sqliteStore(raw: Database.Database): DomainStore {
             }
           })
       const operation = target[key]
+      if (key === 'dashboardWorkspace' || key === 'dashboardFinance')
+        return (...args: unknown[]) =>
+          serializeSQLite(raw, async () => {
+            raw.exec('BEGIN')
+            try {
+              const result = await Reflect.apply(operation, target, args)
+              raw.exec('COMMIT')
+              return result
+            } catch (error) {
+              raw.exec('ROLLBACK')
+              throw error
+            }
+          })
       return (...args: unknown[]) =>
         serializeSQLite(raw, () => Reflect.apply(operation, target, args))
     },
