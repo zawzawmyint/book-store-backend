@@ -8,6 +8,8 @@ See [SPEC.md](SPEC.md) for the implemented API behavior, [the database support s
 
 ## Development workflow
 
+Proposed engineering work: [Backend readability and consistency](specs/readability-consistency/SPEC.md) defines incremental behavior-preserving refactoring. It is not yet implemented and does not change the current API contract.
+
 Future behavior changes follow spec-driven development (SDD) and test-driven development (TDD). Write or revise the relevant spec before implementation, with a proposed contract and testable acceptance criteria. For each criterion, write a focused failing test, confirm the failure is caused by the missing behavior, make it pass, and refactor. Finish with the checks below and coordinate frontend tests for contract changes; then update the spec to reflect the delivered behavior and mark a feature spec `Implemented`. See [AGENTS.md](AGENTS.md) for the full workflow and cross-repository rules.
 
 ## Start
