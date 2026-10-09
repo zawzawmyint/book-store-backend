@@ -24,7 +24,7 @@ export const orderTypeDefs = `#graphql
  extend type Query {
  deliveryOptions: DeliveryOptions!
  quoteCheckout(input: QuoteCheckoutInput!): CheckoutQuote!
- adminOrders(limit: Int = 20, offset: Int = 0, status: OrderStatusFilter = ALL): AdminOrdersPage!
+ adminOrders(limit: Int = 20, offset: Int = 0, status: OrderStatusFilter = ALL, search: String): AdminOrdersPage!
  adminOrder(id: ID!): AdminOrder
  myOrder(id: ID!): MyOrder
  myOrders(limit: Int = 20, offset: Int = 0): MyOrdersPage!

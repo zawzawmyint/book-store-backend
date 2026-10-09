@@ -129,6 +129,7 @@ export type QueryAdminOrdersArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
   offset?: InputMaybe<Scalars['Int']['input']>;
   status?: InputMaybe<OrderStatusFilter>;
+  search?: InputMaybe<Scalars['String']['input']>;
 };
 
 

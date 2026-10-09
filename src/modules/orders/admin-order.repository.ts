@@ -169,12 +169,13 @@ export function createAdminOrderRepository(input: DatabaseInput) {
         return (await get(input.id, tx))!
       })
     },
-    async list(limit: number, offset: number, status: 'ALL' | OrderStatus = 'ALL') {
+    async list(limit: number, offset: number, status: 'ALL' | OrderStatus = 'ALL', search = '') {
       const page = await store.orderPage(
         limit,
         offset,
         undefined,
         status === 'ALL' ? undefined : status,
+        search,
       )
       return { total: page.total, items: await withLines(store, page.items) }
     },

@@ -7,9 +7,9 @@ export function createAdminOrderService(repository: ReturnType<typeof createAdmi
     setStatus(input: unknown, actor: import('../activity/activity.types.js').ActivityActor) {
       return repository.setStatus(validated(setOrderStatusSchema, input), actor)
     },
-    list(limit: number, offset: number, status: string = 'ALL') {
-      const page = validated(adminOrderPageSchema, { limit, offset, status })
-      return repository.list(page.limit, page.offset, page.status)
+    list(limit: number, offset: number, status: string = 'ALL', search = '') {
+      const page = validated(adminOrderPageSchema, { limit, offset, status, search })
+      return repository.list(page.limit, page.offset, page.status, page.search)
     },
     get(id: string) {
       return repository.get(validated(numericIdSchema, id))

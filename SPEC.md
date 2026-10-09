@@ -8,6 +8,8 @@
 
 > **Implemented workspace dashboard:** [Dashboard](specs/dashboard/SPEC.md) defines Staff operations and Admin-only financial reporting.
 
+> **Implemented workspace search:** [Workspace search](specs/workspace-search/SPEC.md) adds Staff/Admin Books and Orders search plus an additive order filter, with verified SQLite/PostgreSQL parity and browser coverage.
+
 > This document describes implemented behavior. See [the Stripe checkout feature spec](specs/stripe-checkout/SPEC.md) for test-payment details, [the authentication feature spec](specs/authentication/SPEC.md) for the account contract, and [the demo-login feature spec](specs/demo-login/SPEC.md) for optional local demo accounts.
 
 > The implemented role and permission model is defined in [the staff roles specification](specs/staff/SPEC.md), with user-directory compatibility details in [the user directory specification](specs/users/SPEC.md).

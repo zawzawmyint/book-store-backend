@@ -57,5 +57,6 @@ export const setOrderStatusSchema = z
       })
   })
 export const adminOrderPageSchema = orderPageSchema.extend({
+  search: z.string().trim().max(100).default(''),
   status: z.enum(['ALL', ...orderStatuses]).default('ALL'),
 })

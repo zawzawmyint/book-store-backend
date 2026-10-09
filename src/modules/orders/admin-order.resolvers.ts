@@ -16,7 +16,12 @@ export function createAdminOrderResolvers(
     adminOrders: async (_, args, context) => {
       await guard(context.user, 'VIEW_ORDERS')
       try {
-        return await service.list(args.limit ?? 20, args.offset ?? 0, args.status ?? 'ALL')
+        return await service.list(
+          args.limit ?? 20,
+          args.offset ?? 0,
+          args.status ?? 'ALL',
+          args.search ?? '',
+        )
       } catch (error) {
         return rethrowResolverError(error)
       }
