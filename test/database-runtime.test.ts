@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { loadConfig } from '../src/config/env.js'
 import { openDatabase } from '../src/database/runtime.js'
-import { postgresqlPoolConfig } from '../src/database/postgresql/connection.js'
+import { postgreSQLPoolConfig } from '../src/database/postgresql/connection.js'
 const secret = 'runtime-test-secret-longer-than-thirty-two-characters'
 describe('provider runtime', () => {
   it('opens SQLite without a PostgreSQL URL and closes idempotently', async () => {
@@ -19,7 +19,7 @@ describe('provider runtime', () => {
       DATABASE_URL: 'postgresql://user:secret@localhost/store',
       BETTER_AUTH_SECRET: secret,
     })
-    expect(postgresqlPoolConfig(config)).toMatchObject({
+    expect(postgreSQLPoolConfig(config)).toMatchObject({
       max: 10,
       connectionTimeoutMillis: 10000,
       statement_timeout: 30000,

@@ -5,11 +5,11 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { deepEqual, rejects, strictEqual } from 'node:assert/strict'
 import { loadConfig } from '../src/config/env.js'
-import { migratePostgresql } from '../src/database/postgresql/connection.js'
+import { migratePostgreSQL } from '../src/database/postgresql/connection.js'
 
 // Only called with the database just created by the UUID-owned disposable runner.
 // Apply the actual historical migration to verify delivery refuses populated data.
-export async function verifyPostgresqlDeliveryGuard(url: string, directory: string) {
+export async function verifyPostgreSQLDeliveryGuard(url: string, directory: string) {
   const migrationsFolder = join(directory, 'pre-delivery-migrations')
   await mkdir(join(migrationsFolder, 'meta'), { recursive: true })
   const source = resolve('drizzle/postgresql')
@@ -34,7 +34,7 @@ export async function verifyPostgresqlDeliveryGuard(url: string, directory: stri
       PG_TLS_MODE: 'disable',
       BETTER_AUTH_SECRET: 'postgresql-test-secret-at-least-thirty-two-characters',
     })
-    await rejects(migratePostgresql(config), /fresh database/)
+    await rejects(migratePostgreSQL(config), /fresh database/)
     const before = await pool.query('SELECT status,total_cents,payment_status FROM orders')
     deepEqual(before.rows, [
       { status: 'COMPLETED', total_cents: 1699, payment_status: 'LEGACY_UNPAID' },

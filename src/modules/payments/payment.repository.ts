@@ -85,14 +85,14 @@ export function createPaymentRepository(input: DatabaseInput, now: () => number)
         if (row.status === 'CANCELLED') await queueRefund(tx, row.id)
       }
     } else if (s.status === 'expired' && row.paymentStatus === 'PENDING') {
-      const workflow = createAdminOrderRepository(tx)
+      const adminOrderRepository = createAdminOrderRepository(tx)
       const intent = row.cancellationIntent
         ? (JSON.parse(row.cancellationIntent) as {
-            input: Parameters<typeof workflow.setStatus>[0]
+            input: Parameters<typeof adminOrderRepository.setStatus>[0]
             actor: ActivityActor
           })
         : null
-      await workflow.setStatus(
+      await adminOrderRepository.setStatus(
         intent?.input ?? {
           id: String(row.id),
           expectedStatus: row.status,
@@ -373,3 +373,5 @@ export function createPaymentRepository(input: DatabaseInput, now: () => number)
       }),
   }
 }
+
+export type PaymentRepository = ReturnType<typeof createPaymentRepository>

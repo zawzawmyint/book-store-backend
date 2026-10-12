@@ -6,13 +6,13 @@ import { join, resolve } from 'node:path'
 import { createServer } from 'node:net'
 import { spawn } from 'node:child_process'
 import { loadConfig } from '../src/config/env.js'
-import { migratePostgresql } from '../src/database/postgresql/connection.js'
+import { migratePostgreSQL } from '../src/database/postgresql/connection.js'
 import { openDatabase } from '../src/database/runtime.js'
 import { seedRuntimeBooks } from '../src/database/runtime-seed.js'
 import { smokeBuiltApp } from './built-app-smoke.js'
 import { rejects } from 'node:assert/strict'
 import { readMigrationFiles } from 'drizzle-orm/migrator'
-import { verifyPostgresqlDeliveryGuard } from './delivery-migration-guard.js'
+import { verifyPostgreSQLDeliveryGuard } from './delivery-migration-guard.js'
 
 const browser = process.argv[2] === 'browser'
 const server = createServer()
@@ -66,11 +66,11 @@ try {
   await cluster.createDatabase(guardName)
   const guardUrl = new URL(url)
   guardUrl.pathname = `/${guardName}`
-  await verifyPostgresqlDeliveryGuard(guardUrl.toString(), directory)
+  await verifyPostgreSQLDeliveryGuard(guardUrl.toString(), directory)
   stage = 'schema readiness and migrations'
   await rejects(openDatabase(config), /PostgreSQL schema/)
-  await migratePostgresql(config)
-  await migratePostgresql(config)
+  await migratePostgreSQL(config)
+  await migratePostgreSQL(config)
   const migratedHash = readMigrationFiles({ migrationsFolder: resolve('drizzle/postgresql') }).at(
     -1,
   )?.hash

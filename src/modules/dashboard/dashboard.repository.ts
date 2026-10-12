@@ -8,3 +8,5 @@ export function createDashboardRepository(input: DatabaseInput) {
     finance: (range: DashboardRange) => store.dashboardFinance(range),
   }
 }
+
+export type DashboardRepository = ReturnType<typeof createDashboardRepository>

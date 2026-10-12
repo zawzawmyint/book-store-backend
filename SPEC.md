@@ -1,6 +1,6 @@
 # The Quiet Shelf API specification
 
-> **Proposed engineering work:** [Backend readability and consistency](specs/readability-consistency/SPEC.md) describes incremental refactoring with unchanged API and database behavior. Its acceptance criteria are not yet verified.
+> **Implemented engineering work:** [Backend readability and consistency](specs/readability-consistency/SPEC.md) records verified dependency, service-contract, and database-adapter readability refactoring with unchanged API and database behavior.
 
 > **Implemented infrastructure:** [Database support](specs/database-support/SPEC.md) provides SQLite development/test and PostgreSQL production support with shared application behavior.
 

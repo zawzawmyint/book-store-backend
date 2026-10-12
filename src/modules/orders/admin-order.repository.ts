@@ -181,3 +181,5 @@ export function createAdminOrderRepository(input: DatabaseInput) {
     },
   }
 }
+
+export type AdminOrderRepository = ReturnType<typeof createAdminOrderRepository>

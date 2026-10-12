@@ -103,3 +103,5 @@ export function createAdminBookRepository(input: DatabaseInput) {
     },
   }
 }
+
+export type AdminBookRepository = ReturnType<typeof createAdminBookRepository>

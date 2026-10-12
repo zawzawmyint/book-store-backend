@@ -4,11 +4,11 @@ import type { AuthenticatedUser, GraphQLContext } from '../../graphql/context.js
 import { rethrowResolverError } from '../../graphql/errors.js'
 import { validated } from '../../shared/validation.js'
 import { createPermissionGuard } from './admin.authorization.js'
-import type { createAdminRepository } from './admin.repository.js'
+import type { AdminRepository } from './admin.repository.js'
 import { ValidationError } from '../../shared/errors.js'
 import { adminUsersInputSchema, userPasswordSchema, userIdSchema } from './admin.validation.js'
 
-export function createAdminResolvers(repository: ReturnType<typeof createAdminRepository>): {
+export function createAdminResolvers(repository: AdminRepository): {
   Query: Pick<
     QueryResolvers<GraphQLContext>,
     'viewer' | 'adminUsers' | 'adminUser' | 'adminCustomers' | 'adminCustomer'

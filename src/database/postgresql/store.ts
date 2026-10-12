@@ -1,10 +1,13 @@
 import { and, count, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm'
-import * as s from './schema.js'
+import * as schema from './schema.js'
 import type { DomainStore } from '../store.types.js'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { textSearch, stockAdjustment, orderSearch } from '../query.helpers.js'
 import { createDashboardQueries } from '../dashboard.queries.js'
-export function createPostgreSQLStore(orm: NodePgDatabase<typeof s>, scoped = false): DomainStore {
+export function createPostgreSQLStore(
+  orm: NodePgDatabase<typeof schema>,
+  scoped = false,
+): DomainStore {
   return {
     dashboardWorkspace: () =>
       orm.transaction(
@@ -27,26 +30,26 @@ export function createPostgreSQLStore(orm: NodePgDatabase<typeof s>, scoped = fa
     transaction: async (work) =>
       orm.transaction(async (tx) => work(createPostgreSQLStore(tx, true))),
     async book(id) {
-      return FIRST(
+      return firstRow(
         await orm
           .select()
-          .from(s.books)
-          .where(eq(s.books.id, id))
+          .from(schema.books)
+          .where(eq(schema.books.id, id))
           .for(scoped ? 'update' : 'share'),
       )
     },
     async catalog(search, limit, offset) {
       const where = and(
-        eq(s.books.archived, false),
-        textSearch(search, s.books.title, s.books.author, s.books.genre),
+        eq(schema.books.archived, false),
+        textSearch(search, schema.books.title, schema.books.author, schema.books.genre),
       )
       return {
-        total: FIRST(await orm.select({ n: count() }).from(s.books).where(where))!.n,
+        total: firstRow(await orm.select({ n: count() }).from(schema.books).where(where))!.n,
         items: await orm
           .select()
-          .from(s.books)
+          .from(schema.books)
           .where(where)
-          .orderBy(s.books.id)
+          .orderBy(schema.books.id)
           .limit(limit)
           .offset(offset),
       }
@@ -54,108 +57,118 @@ export function createPostgreSQLStore(orm: NodePgDatabase<typeof s>, scoped = fa
     async genres() {
       return (
         await orm
-          .selectDistinct({ genre: s.books.genre })
-          .from(s.books)
-          .where(eq(s.books.archived, false))
-          .orderBy(s.books.genre)
-      ).map((r) => r.genre)
+          .selectDistinct({ genre: schema.books.genre })
+          .from(schema.books)
+          .where(eq(schema.books.archived, false))
+          .orderBy(schema.books.genre)
+      ).map((row) => row.genre)
     },
     async adminBooks(input) {
       const where = and(
-        input.filter === 'ALL' ? undefined : eq(s.books.archived, input.filter === 'ARCHIVED'),
-        input.lowStockOnly ? lte(s.books.stock, 5) : undefined,
-        textSearch(input.search, s.books.title, s.books.author, s.books.genre),
+        input.filter === 'ALL' ? undefined : eq(schema.books.archived, input.filter === 'ARCHIVED'),
+        input.lowStockOnly ? lte(schema.books.stock, 5) : undefined,
+        textSearch(input.search, schema.books.title, schema.books.author, schema.books.genre),
       )
       return {
-        total: FIRST(await orm.select({ n: count() }).from(s.books).where(where))!.n,
+        total: firstRow(await orm.select({ n: count() }).from(schema.books).where(where))!.n,
         items: await orm
           .select()
-          .from(s.books)
+          .from(schema.books)
           .where(where)
-          .orderBy(s.books.id)
+          .orderBy(schema.books.id)
           .limit(input.limit)
           .offset(input.offset),
       }
     },
-    async createBook(v) {
-      return FIRST(await orm.insert(s.books).values(v).returning())!
+    async createBook(values) {
+      return firstRow(await orm.insert(schema.books).values(values).returning())!
     },
-    async updateBook(id, v) {
-      return FIRST(await orm.update(s.books).set(v).where(eq(s.books.id, id)).returning())
+    async updateBook(id, values) {
+      return firstRow(
+        await orm.update(schema.books).set(values).where(eq(schema.books.id, id)).returning(),
+      )
     },
     async adjustStock(id, delta) {
-      const { next, bounds } = stockAdjustment(s.books.stock, delta)
-      return FIRST(
+      const { next, bounds } = stockAdjustment(schema.books.stock, delta)
+      return firstRow(
         await orm
-          .update(s.books)
+          .update(schema.books)
           .set({ stock: next })
-          .where(and(eq(s.books.id, id), bounds))
+          .where(and(eq(schema.books.id, id), bounds))
           .returning(),
       )
     },
     async delivery(id) {
-      return FIRST(
-        await orm.select().from(s.orderDeliveries).where(eq(s.orderDeliveries.orderId, id)),
-      )
-    },
-    async insertDelivery(v) {
-      await orm.insert(s.orderDeliveries).values(v)
-    },
-    async updateDelivery(id, v) {
-      await orm.update(s.orderDeliveries).set(v).where(eq(s.orderDeliveries.orderId, id))
-    },
-    async order(id) {
-      return FIRST(
+      return firstRow(
         await orm
           .select()
-          .from(s.orders)
-          .where(eq(s.orders.id, id))
+          .from(schema.orderDeliveries)
+          .where(eq(schema.orderDeliveries.orderId, id)),
+      )
+    },
+    async insertDelivery(values) {
+      await orm.insert(schema.orderDeliveries).values(values)
+    },
+    async updateDelivery(id, values) {
+      await orm
+        .update(schema.orderDeliveries)
+        .set(values)
+        .where(eq(schema.orderDeliveries.orderId, id))
+    },
+    async order(id) {
+      return firstRow(
+        await orm
+          .select()
+          .from(schema.orders)
+          .where(eq(schema.orders.id, id))
           .for(scoped ? 'update' : 'share'),
       )
     },
     async orderBySession(id) {
-      return FIRST(
+      return firstRow(
         await orm
           .select()
-          .from(s.orders)
-          .where(eq(s.orders.stripeSessionId, id))
+          .from(schema.orders)
+          .where(eq(schema.orders.stripeSessionId, id))
           .for(scoped ? 'update' : 'share'),
       )
     },
     async orderByRefund(id) {
-      return FIRST(
+      return firstRow(
         await orm
           .select()
-          .from(s.orders)
-          .where(eq(s.orders.stripeRefundId, id))
+          .from(schema.orders)
+          .where(eq(schema.orders.stripeRefundId, id))
           .for(scoped ? 'update' : 'share'),
       )
     },
-    async createOrder(v) {
-      return FIRST(await orm.insert(s.orders).values(v).returning())!
+    async createOrder(values) {
+      return firstRow(await orm.insert(schema.orders).values(values).returning())!
     },
-    async updateOrder(id, v, status) {
-      return FIRST(
+    async updateOrder(id, values, status) {
+      return firstRow(
         await orm
-          .update(s.orders)
-          .set(v)
-          .where(and(eq(s.orders.id, id), status ? eq(s.orders.status, status) : undefined))
+          .update(schema.orders)
+          .set(values)
+          .where(
+            and(eq(schema.orders.id, id), status ? eq(schema.orders.status, status) : undefined),
+          )
           .returning(),
       )
     },
     async orderPage(limit, offset, userId, status, search = '') {
       const where = and(
-        userId ? eq(s.orders.userId, userId) : undefined,
-        status ? eq(s.orders.status, status) : undefined,
-        orderSearch(search, s.orders.id, s.orders.customerName, s.orders.email),
+        userId ? eq(schema.orders.userId, userId) : undefined,
+        status ? eq(schema.orders.status, status) : undefined,
+        orderSearch(search, schema.orders.id, schema.orders.customerName, schema.orders.email),
       )
       return {
-        total: FIRST(await orm.select({ n: count() }).from(s.orders).where(where))!.n,
+        total: firstRow(await orm.select({ n: count() }).from(schema.orders).where(where))!.n,
         items: await orm
           .select()
-          .from(s.orders)
+          .from(schema.orders)
           .where(where)
-          .orderBy(desc(s.orders.createdAt), desc(s.orders.id))
+          .orderBy(desc(schema.orders.createdAt), desc(schema.orders.id))
           .limit(limit)
           .offset(offset),
       }
@@ -164,155 +177,160 @@ export function createPostgreSQLStore(orm: NodePgDatabase<typeof s>, scoped = fa
       return ids.length
         ? await orm
             .select()
-            .from(s.orderItems)
-            .where(inArray(s.orderItems.orderId, ids))
-            .orderBy(s.orderItems.id)
+            .from(schema.orderItems)
+            .where(inArray(schema.orderItems.orderId, ids))
+            .orderBy(schema.orderItems.id)
         : []
     },
-    async insertLine(v) {
-      await orm.insert(s.orderItems).values(v)
+    async insertLine(values) {
+      await orm.insert(schema.orderItems).values(values)
     },
     async history(id) {
       return await orm
         .select()
-        .from(s.orderStatusEvents)
-        .where(eq(s.orderStatusEvents.orderId, id))
-        .orderBy(s.orderStatusEvents.id)
+        .from(schema.orderStatusEvents)
+        .where(eq(schema.orderStatusEvents.orderId, id))
+        .orderBy(schema.orderStatusEvents.id)
     },
-    async insertHistory(v) {
-      await orm.insert(s.orderStatusEvents).values(v)
+    async insertHistory(values) {
+      await orm.insert(schema.orderStatusEvents).values(values)
     },
     async role(id) {
       return (
-        FIRST(await orm.select().from(s.userRoles).where(eq(s.userRoles.userId, id)))?.role ??
-        'CUSTOMER'
+        firstRow(await orm.select().from(schema.userRoles).where(eq(schema.userRoles.userId, id)))
+          ?.role ?? 'CUSTOMER'
       )
     },
     async setRole(id, role) {
       await orm
-        .insert(s.userRoles)
+        .insert(schema.userRoles)
         .values({ userId: id, role })
-        .onConflictDoUpdate({ target: s.userRoles.userId, set: { role } })
+        .onConflictDoUpdate({ target: schema.userRoles.userId, set: { role } })
     },
     async user(id) {
-      return FIRST(
+      return firstRow(
         await orm
           .select()
-          .from(s.user)
-          .where(eq(s.user.id, id))
+          .from(schema.user)
+          .where(eq(schema.user.id, id))
           .for(scoped ? 'update' : 'share'),
       )
     },
     async users(input) {
       const where = and(
-        input.search ? textSearch(input.search, s.user.name, s.user.email) : undefined,
+        input.search ? textSearch(input.search, schema.user.name, schema.user.email) : undefined,
         input.role === 'ALL'
           ? undefined
-          : sql`coalesce(${s.userRoles.role},'CUSTOMER') = ${input.role}`,
+          : sql`coalesce(${schema.userRoles.role},'CUSTOMER') = ${input.role}`,
       )
       return {
-        total: FIRST(
+        total: firstRow(
           await orm
             .select({ n: count() })
-            .from(s.user)
-            .leftJoin(s.userRoles, eq(s.userRoles.userId, s.user.id))
+            .from(schema.user)
+            .leftJoin(schema.userRoles, eq(schema.userRoles.userId, schema.user.id))
             .where(where),
         )!.n,
         items: await orm
           .select({
-            id: s.user.id,
-            name: s.user.name,
-            email: s.user.email,
-            createdAt: s.user.createdAt,
-            role: s.userRoles.role,
+            id: schema.user.id,
+            name: schema.user.name,
+            email: schema.user.email,
+            createdAt: schema.user.createdAt,
+            role: schema.userRoles.role,
           })
-          .from(s.user)
-          .leftJoin(s.userRoles, eq(s.userRoles.userId, s.user.id))
+          .from(schema.user)
+          .leftJoin(schema.userRoles, eq(schema.userRoles.userId, schema.user.id))
           .where(where)
-          .orderBy(desc(s.user.createdAt), desc(s.user.id))
+          .orderBy(desc(schema.user.createdAt), desc(schema.user.id))
           .limit(input.limit)
           .offset(input.offset),
       }
     },
     async credential(id) {
-      return FIRST(
+      return firstRow(
         await orm
           .select()
-          .from(s.account)
-          .where(and(eq(s.account.userId, id), eq(s.account.providerId, 'credential'))),
+          .from(schema.account)
+          .where(and(eq(schema.account.userId, id), eq(schema.account.providerId, 'credential'))),
       )
     },
     async password(id, hash) {
       return (
         (
           await orm
-            .update(s.account)
+            .update(schema.account)
             .set({ password: hash, updatedAt: new Date() })
-            .where(eq(s.account.id, id))
+            .where(eq(schema.account.id, id))
             .returning()
         ).length === 1
       )
     },
     async revokeSessions(id) {
-      await orm.delete(s.session).where(eq(s.session.userId, id))
+      await orm.delete(schema.session).where(eq(schema.session.userId, id))
     },
-    async insertActivity(v) {
-      await orm.insert(s.activityEvents).values(v)
+    async insertActivity(values) {
+      await orm.insert(schema.activityEvents).values(values)
     },
     async activity(input) {
-      const e = s.activityEvents
+      const activityEvents = schema.activityEvents
       const where = and(
-        input.actorUserId ? eq(e.actorUserId, input.actorUserId) : undefined,
-        input.action ? eq(e.action, input.action) : undefined,
-        input.targetType ? eq(e.targetType, input.targetType) : undefined,
-        input.targetId ? eq(e.targetId, input.targetId) : undefined,
-        input.from ? gte(e.createdAt, input.from) : undefined,
-        input.to ? lt(e.createdAt, input.to) : undefined,
+        input.actorUserId ? eq(activityEvents.actorUserId, input.actorUserId) : undefined,
+        input.action ? eq(activityEvents.action, input.action) : undefined,
+        input.targetType ? eq(activityEvents.targetType, input.targetType) : undefined,
+        input.targetId ? eq(activityEvents.targetId, input.targetId) : undefined,
+        input.from ? gte(activityEvents.createdAt, input.from) : undefined,
+        input.to ? lt(activityEvents.createdAt, input.to) : undefined,
         input.changedField
-          ? sql`exists (select 1 from jsonb_array_elements(${e.changesJson}::jsonb) entry where entry->>'field' = ${input.changedField})`
+          ? sql`exists (select 1 from jsonb_array_elements(${activityEvents.changesJson}::jsonb) entry where entry->>'field' = ${input.changedField})`
           : undefined,
       )
       return {
-        total: FIRST(await orm.select({ n: count() }).from(e).where(where))!.n,
+        total: firstRow(await orm.select({ n: count() }).from(activityEvents).where(where))!.n,
         items: await orm
           .select()
-          .from(e)
+          .from(activityEvents)
           .where(where)
-          .orderBy(desc(e.id))
+          .orderBy(desc(activityEvents.id))
           .limit(input.limit)
           .offset(input.offset),
       }
     },
     async checkout(id, key) {
       if (scoped) await orm.execute(sql`select pg_advisory_xact_lock(hashtext(${id + ':' + key}))`)
-      return FIRST(
+      return firstRow(
         await orm
           .select()
-          .from(s.checkoutRequests)
-          .where(and(eq(s.checkoutRequests.userId, id), eq(s.checkoutRequests.requestKey, key))),
+          .from(schema.checkoutRequests)
+          .where(
+            and(
+              eq(schema.checkoutRequests.userId, id),
+              eq(schema.checkoutRequests.requestKey, key),
+            ),
+          ),
       )
     },
-    async insertCheckout(v) {
-      await orm.insert(s.checkoutRequests).values(v)
+    async insertCheckout(values) {
+      await orm.insert(schema.checkoutRequests).values(values)
     },
     async operation(id) {
-      return FIRST(
+      return firstRow(
         await orm
           .select()
-          .from(s.paymentOperations)
-          .where(eq(s.paymentOperations.id, id))
+          .from(schema.paymentOperations)
+          .where(eq(schema.paymentOperations.id, id))
           .for(scoped ? 'update' : 'share'),
       )
     },
     async checkoutOperation(id) {
-      return FIRST(
+      return firstRow(
         await orm
           .select()
-          .from(s.paymentOperations)
+          .from(schema.paymentOperations)
           .where(
             and(
-              eq(s.paymentOperations.orderId, id),
-              eq(s.paymentOperations.kind, 'CREATE_SESSION'),
+              eq(schema.paymentOperations.orderId, id),
+              eq(schema.paymentOperations.kind, 'CREATE_SESSION'),
             ),
           ),
       )
@@ -320,22 +338,27 @@ export function createPostgreSQLStore(orm: NodePgDatabase<typeof s>, scoped = fa
     async refundOperations(id) {
       return await orm
         .select()
-        .from(s.paymentOperations)
-        .where(and(eq(s.paymentOperations.orderId, id), eq(s.paymentOperations.kind, 'REFUND')))
+        .from(schema.paymentOperations)
+        .where(
+          and(
+            eq(schema.paymentOperations.orderId, id),
+            eq(schema.paymentOperations.kind, 'REFUND'),
+          ),
+        )
     },
-    async insertOperation(v) {
-      await orm.insert(s.paymentOperations).values(v).onConflictDoNothing()
+    async insertOperation(values) {
+      await orm.insert(schema.paymentOperations).values(values).onConflictDoNothing()
     },
-    async updateOperation(id, v, token) {
+    async updateOperation(id, values, token) {
       return (
         (
           await orm
-            .update(s.paymentOperations)
-            .set(v)
+            .update(schema.paymentOperations)
+            .set(values)
             .where(
               and(
-                eq(s.paymentOperations.id, id),
-                token ? eq(s.paymentOperations.leaseToken, token) : undefined,
+                eq(schema.paymentOperations.id, id),
+                token ? eq(schema.paymentOperations.leaseToken, token) : undefined,
               ),
             )
             .returning()
@@ -345,12 +368,12 @@ export function createPostgreSQLStore(orm: NodePgDatabase<typeof s>, scoped = fa
     async queuedOperations(now) {
       return await orm
         .select()
-        .from(s.paymentOperations)
+        .from(schema.paymentOperations)
         .where(
           and(
-            eq(s.paymentOperations.state, 'PENDING'),
-            lte(s.paymentOperations.retryAt, now),
-            lte(s.paymentOperations.leaseUntil, now),
+            eq(schema.paymentOperations.state, 'PENDING'),
+            lte(schema.paymentOperations.retryAt, now),
+            lte(schema.paymentOperations.leaseUntil, now),
           ),
         )
         .limit(20)
@@ -358,45 +381,47 @@ export function createPostgreSQLStore(orm: NodePgDatabase<typeof s>, scoped = fa
     async pendingOrders(afterId) {
       return await orm
         .select()
-        .from(s.orders)
+        .from(schema.orders)
         .where(
           and(
-            eq(s.orders.paymentRequired, true),
-            sql`${s.orders.id} > ${afterId}`,
+            eq(schema.orders.paymentRequired, true),
+            sql`${schema.orders.id} > ${afterId}`,
             or(
-              inArray(s.orders.paymentStatus, ['PENDING', 'REFUND_PENDING']),
-              sql`${s.orders.cancellationIntent} IS NOT NULL`,
+              inArray(schema.orders.paymentStatus, ['PENDING', 'REFUND_PENDING']),
+              sql`${schema.orders.cancellationIntent} IS NOT NULL`,
             ),
           ),
         )
-        .orderBy(s.orders.id)
+        .orderBy(schema.orders.id)
         .limit(20)
     },
     async event(id) {
-      return FIRST(
+      return firstRow(
         await orm
           .select()
-          .from(s.paymentEvents)
-          .where(eq(s.paymentEvents.id, id))
+          .from(schema.paymentEvents)
+          .where(eq(schema.paymentEvents.id, id))
           .for(scoped ? 'update' : 'share'),
       )
     },
-    async insertEvent(v) {
-      await orm.insert(s.paymentEvents).values(v).onConflictDoNothing()
+    async insertEvent(values) {
+      await orm.insert(schema.paymentEvents).values(values).onConflictDoNothing()
     },
-    async updateEvent(id, v) {
-      await orm.update(s.paymentEvents).set(v).where(eq(s.paymentEvents.id, id))
+    async updateEvent(id, values) {
+      await orm.update(schema.paymentEvents).set(values).where(eq(schema.paymentEvents.id, id))
     },
     async pendingEvents(id) {
       return await orm
         .select()
-        .from(s.paymentEvents)
-        .where(and(isNull(s.paymentEvents.processedAt), sql`${s.paymentEvents.id} > ${id}`))
-        .orderBy(s.paymentEvents.id)
+        .from(schema.paymentEvents)
+        .where(
+          and(isNull(schema.paymentEvents.processedAt), sql`${schema.paymentEvents.id} > ${id}`),
+        )
+        .orderBy(schema.paymentEvents.id)
         .limit(20)
     },
   }
 }
-function FIRST<T>(rows: T[]): T | undefined {
+function firstRow<T>(rows: T[]): T | undefined {
   return rows[0]
 }
