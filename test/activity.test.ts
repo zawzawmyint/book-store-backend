@@ -1,6 +1,6 @@
+import { verifiedFixtureRequest, capturedFixtureSender } from './verified-auth-fixture.js'
 import { deliveryOptions, reviewedInlineCheckout } from './delivery-fixtures.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import request from 'supertest'
 import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/database/connection.js'
 import { createAdminRepository } from '../src/modules/admin/admin.repository.js'
@@ -21,6 +21,7 @@ const details = {
 const options = {
   frontendOrigin: 'http://localhost:5173',
   authBaseURL: 'http://localhost:5173',
+  emailSender: capturedFixtureSender,
   authSecret: 'activity-secret-at-least-thirty-two-characters',
 }
 describe('audited writes', () => {
@@ -212,7 +213,7 @@ describe('activity API', () => {
       provider: new FakePaymentProvider(),
     })
     for (const role of ['admin', 'staff', 'customer']) {
-      const response = await request(app)
+      const response = await verifiedFixtureRequest(app, db, options)
         .post('/api/auth/sign-up/email')
         .set('Origin', options.frontendOrigin)
         .send({
@@ -243,7 +244,9 @@ describe('activity API', () => {
   })
   afterEach(() => db.close())
   const gql = (query: string, auth = admin, variables = {}) => {
-    const req = request(app).post('/graphql').set('Origin', options.frontendOrigin)
+    const req = verifiedFixtureRequest(app, db, options)
+      .post('/graphql')
+      .set('Origin', options.frontendOrigin)
     if (auth.length) req.set('Cookie', auth)
     return req.send({
       query,
@@ -515,9 +518,10 @@ it('denies activity to guests before validating filters', async () => {
     const app = await createApp(db, {
       frontendOrigin: 'http://localhost:5173',
       authBaseURL: 'http://localhost:5173',
+      emailSender: capturedFixtureSender,
       authSecret: 'activity-secret-at-least-thirty-two-characters',
     })
-    const result = await request(app).post('/graphql').send({
+    const result = await verifiedFixtureRequest(app, db, options).post('/graphql').send({
       query: '{ adminActivity(limit: 51, from: "invalid") { total } }',
     })
     expect(result.body.errors[0].extensions.code).toBe('UNAUTHENTICATED')

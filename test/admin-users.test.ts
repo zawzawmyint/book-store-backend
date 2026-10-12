@@ -1,6 +1,6 @@
+import { verifiedFixtureRequest, capturedFixtureSender } from './verified-auth-fixture.js'
 import { seedSubmittedOrder } from './order-fixtures.js'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import request from 'supertest'
 import type Database from 'better-sqlite3'
 import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/database/connection.js'
@@ -8,6 +8,7 @@ import { createDatabase } from '../src/database/connection.js'
 const options = {
   frontendOrigin: 'http://localhost:5173',
   authBaseURL: 'http://localhost:5173',
+  emailSender: capturedFixtureSender,
   authSecret: 'admin-test-secret-at-least-thirty-two-characters',
 }
 let db: Database.Database
@@ -27,7 +28,7 @@ beforeEach(async () => {
   insert.run('w-wild', '100% Account', 'wild_card@example.com', 500, 500)
   seedSubmittedOrder(db, { name: 'Guest Only', email: 'guest-only@example.com', totalCents: 100 })
   for (const email of ['admin@example.com', 'customer@example.com']) {
-    const res = await request(app)
+    const res = await verifiedFixtureRequest(app, db, options)
       .post('/api/auth/sign-up/email')
       .set('Origin', options.frontendOrigin)
       .send({ name: 'Signed Reader', email, password: 'correct-horse-battery-staple' })
@@ -42,7 +43,9 @@ beforeEach(async () => {
 afterEach(() => db.close())
 
 function gql(query: string, variables: Record<string, unknown> = {}, auth?: string[]) {
-  const req = request(app).post('/graphql').set('Origin', options.frontendOrigin)
+  const req = verifiedFixtureRequest(app, db, options)
+    .post('/graphql')
+    .set('Origin', options.frontendOrigin)
   if (auth?.length) req.set('Cookie', auth)
   return req.send({ query, variables })
 }
@@ -112,9 +115,25 @@ it('lists registered accounts for an admin, newest first, without guest contacts
     'w-wild',
   ])
   expect(ordered.body.data.adminUsers.items[0].createdAt).toBe('1970-01-01T00:00:02.000Z')
-  const hidden = await gql('{ adminUsers { items { emailVerified } } }', {}, adminCookies)
+  const verification = await gql('{ adminUsers { items { id emailVerified } } }', {}, adminCookies)
+  expect(verification.body.errors).toBeUndefined()
+  expect(
+    verification.body.data.adminUsers.items.find((item: { id: string }) => item.id === adminId)
+      .emailVerified,
+  ).toBe(true)
+  expect(
+    verification.body.data.adminUsers.items.find((item: { id: string }) => item.id === 'b-old')
+      .emailVerified,
+  ).toBe(false)
+  const detail = await gql('{ adminUser(id: "b-old") { emailVerified } }', {}, adminCookies)
+  expect(detail.body.data.adminUser.emailVerified).toBe(false)
+  db.prepare('UPDATE user SET email_verified = 1 WHERE id = ?').run('b-old')
+  expect(
+    (await gql('{ adminUser(id: "b-old") { emailVerified } }', {}, adminCookies)).body.data
+      .adminUser.emailVerified,
+  ).toBe(true)
+  const hidden = await gql('{ adminUsers { items { password } } }', {}, adminCookies)
   expect(hidden.body.errors).toBeDefined()
-  expect(hidden.body.data?.adminUsers).toBeUndefined()
 })
 
 it('filters literal name and email search, role, and pages before returning rows', async () => {

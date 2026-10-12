@@ -1,6 +1,6 @@
+import { verifiedFixtureRequest, capturedFixtureSender } from './verified-auth-fixture.js'
 import { seedSubmittedOrder } from './order-fixtures.js'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import request from 'supertest'
 import type Database from 'better-sqlite3'
 import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/database/connection.js'
@@ -8,6 +8,7 @@ import { createDatabase } from '../src/database/connection.js'
 const options = {
   frontendOrigin: 'http://localhost:5173',
   authBaseURL: 'http://localhost:5173',
+  emailSender: capturedFixtureSender,
   authSecret: 'customer-details-secret-at-least-32-chars',
 }
 const password = 'correct-horse-battery-staple'
@@ -22,7 +23,7 @@ beforeEach(async () => {
   db = createDatabase(':memory:')
   app = await createApp(db, options)
   for (const email of ['admin@example.com', 'customer@example.com']) {
-    const res = await request(app)
+    const res = await verifiedFixtureRequest(app, db, options)
       .post('/api/auth/sign-up/email')
       .set('Origin', options.frontendOrigin)
       .send({ name: email.startsWith('admin') ? 'Ada Admin' : 'Bea Reader', email, password })
@@ -46,7 +47,9 @@ beforeEach(async () => {
 afterEach(() => db.close())
 
 function gql(query: string, variables: Record<string, unknown> = {}, auth?: string[]) {
-  const req = request(app).post('/graphql').set('Origin', options.frontendOrigin)
+  const req = verifiedFixtureRequest(app, db, options)
+    .post('/graphql')
+    .set('Origin', options.frontendOrigin)
   if (auth?.length) req.set('Cookie', auth)
   return req.send({ query, variables })
 }
@@ -99,7 +102,9 @@ function storedPassword(userId: string) {
 }
 
 function authPost(path: string, body: Record<string, unknown>, cookies?: string[]) {
-  const req = request(app).post(path).set('Origin', options.frontendOrigin)
+  const req = verifiedFixtureRequest(app, db, options)
+    .post(path)
+    .set('Origin', options.frontendOrigin)
   if (cookies?.length) req.set('Cookie', cookies)
   return req.send(body)
 }
@@ -217,10 +222,18 @@ it('sets another password, removes every session, and leaves the account and ord
   expect(again.body.errors).toBeUndefined()
   expect(again.body.data.resetUserPassword.email).toBe('customer@example.com')
   expect(
-    (await request(app).get('/api/auth/get-session').set('Cookie', customerCookies)).body,
+    (
+      await verifiedFixtureRequest(app, db, options)
+        .get('/api/auth/get-session')
+        .set('Cookie', customerCookies)
+    ).body,
   ).toBeNull()
   expect(
-    (await request(app).get('/api/auth/get-session').set('Cookie', extraCookies)).body,
+    (
+      await verifiedFixtureRequest(app, db, options)
+        .get('/api/auth/get-session')
+        .set('Cookie', extraCookies)
+    ).body,
   ).toBeNull()
   expect(
     (await authPost('/api/auth/sign-in/email', { email: 'customer@example.com', password })).status,
@@ -247,7 +260,11 @@ it('keeps surrounding spaces in a new password', async () => {
     ).status,
   ).toBe(200)
   expect(
-    (await request(app).get('/api/auth/get-session').set('Cookie', customerCookies)).body,
+    (
+      await verifiedFixtureRequest(app, db, options)
+        .get('/api/auth/get-session')
+        .set('Cookie', customerCookies)
+    ).body,
   ).toBeNull()
 })
 
@@ -260,7 +277,11 @@ it('rejects the caller, an out-of-range password, and an account with no passwor
     extensions: { code: 'BAD_USER_INPUT' },
   })
   expect(
-    (await request(app).get('/api/auth/get-session').set('Cookie', adminCookies)).body.user.id,
+    (
+      await verifiedFixtureRequest(app, db, options)
+        .get('/api/auth/get-session')
+        .set('Cookie', adminCookies)
+    ).body.user.id,
   ).toBe(adminId)
   for (const newPassword of ['short', 'x'.repeat(129), '1234567']) {
     const result = await gql(reset, { userId: customerId, newPassword }, adminCookies)
@@ -298,7 +319,7 @@ it('rejects the caller, an out-of-range password, and an account with no passwor
 })
 
 it('removes another admin session and keeps their membership', async () => {
-  const other = await request(app)
+  const other = await verifiedFixtureRequest(app, db, options)
     .post('/api/auth/sign-up/email')
     .set('Origin', options.frontendOrigin)
     .send({ name: 'Second Admin', email: 'second@example.com', password })
@@ -324,9 +345,17 @@ it('removes another admin session and keeps their membership', async () => {
     db.prepare('SELECT count(*) AS count FROM session WHERE user_id = ?').get(otherId),
   ).toEqual({ count: 0 })
   expect(
-    (await request(app).get('/api/auth/get-session').set('Cookie', otherCookies)).body,
+    (
+      await verifiedFixtureRequest(app, db, options)
+        .get('/api/auth/get-session')
+        .set('Cookie', otherCookies)
+    ).body,
   ).toBeNull()
   expect(
-    (await request(app).get('/api/auth/get-session').set('Cookie', adminCookies)).body.user.id,
+    (
+      await verifiedFixtureRequest(app, db, options)
+        .get('/api/auth/get-session')
+        .set('Cookie', adminCookies)
+    ).body.user.id,
   ).toBe(adminId)
 })

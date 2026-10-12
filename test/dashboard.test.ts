@@ -1,5 +1,5 @@
+import { verifiedFixtureRequest, capturedFixtureSender } from './verified-auth-fixture.js'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import request from 'supertest'
 import type Database from 'better-sqlite3'
 import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/database/connection.js'
@@ -7,6 +7,7 @@ import { createDatabase } from '../src/database/connection.js'
 const options = {
   frontendOrigin: 'http://localhost:5173',
   authBaseURL: 'http://localhost:5173',
+  emailSender: capturedFixtureSender,
   authSecret: 'dashboard-test-secret-at-least-thirty-two-characters',
 }
 let db: Database.Database
@@ -16,7 +17,7 @@ beforeEach(async () => {
   db = createDatabase(':memory:')
   app = await createApp(db, options)
   for (const role of ['ADMIN', 'STAFF', 'CUSTOMER']) {
-    const response = await request(app)
+    const response = await verifiedFixtureRequest(app, db, options)
       .post('/api/auth/sign-up/email')
       .set('Origin', options.frontendOrigin)
       .send({
@@ -34,7 +35,9 @@ beforeEach(async () => {
 })
 afterEach(() => db.close())
 function gql(query: string, role = 'ADMIN') {
-  const call = request(app).post('/graphql').set('Origin', options.frontendOrigin)
+  const call = verifiedFixtureRequest(app, db, options)
+    .post('/graphql')
+    .set('Origin', options.frontendOrigin)
   if (cookies[role]) call.set('Cookie', cookies[role])
   return call.send({ query })
 }

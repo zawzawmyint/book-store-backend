@@ -1,6 +1,6 @@
+import { verifiedFixtureRequest, capturedFixtureSender } from './verified-auth-fixture.js'
 import { deliveryOptions, reviewedInput } from './delivery-fixtures.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import request from 'supertest'
 import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/database/connection.js'
 import { seedBooks } from '../src/database/seed.js'
@@ -13,6 +13,7 @@ const mutation = `mutation Order($input: CreateCheckoutInput!) { createCheckout(
 const authOptions = {
   frontendOrigin: 'http://localhost:5173',
   authBaseURL: 'http://localhost:4000',
+  emailSender: capturedFixtureSender,
   authSecret: 'test-secret-that-is-at-least-thirty-two-characters-long',
 }
 
@@ -28,7 +29,7 @@ describe('book store GraphQL API', () => {
       ...deliveryOptions,
       provider: new FakePaymentProvider(),
     })
-    const signUp = await request(app)
+    const signUp = await verifiedFixtureRequest(app, db, authOptions)
       .post('/api/auth/sign-up/email')
       .set('Origin', authOptions.frontendOrigin)
       .send({
@@ -42,16 +43,16 @@ describe('book store GraphQL API', () => {
   afterEach(() => db.close())
 
   it('lists and searches seeded books', async () => {
-    const all = await request(app).post('/graphql').send({ query })
+    const all = await verifiedFixtureRequest(app, db, authOptions).post('/graphql').send({ query })
     expect(all.status).toBe(200)
     expect(all.body.data.books.total).toBeGreaterThanOrEqual(8)
 
-    const searched = await request(app)
+    const searched = await verifiedFixtureRequest(app, db, authOptions)
       .post('/graphql')
       .send({ query, variables: { search: 'gatsby' } })
     expect(searched.body.data.books.total).toBe(1)
     expect(searched.body.data.books.items[0].title).toBe('The Great Gatsby')
-    const genre = await request(app)
+    const genre = await verifiedFixtureRequest(app, db, authOptions)
       .post('/graphql')
       .send({ query, variables: { search: 'Gothic Fiction' } })
     expect(genre.body.data.books.total).toBe(2)
@@ -61,7 +62,9 @@ describe('book store GraphQL API', () => {
     db.prepare(
       'INSERT INTO books (title, author, genre, description, price_cents, stock) VALUES (?, ?, ?, ?, ?, ?)',
     ).run('A New Shelf', 'Test Author', 'New Genre', 'A test book', 1000, 1)
-    const response = await request(app).post('/graphql').send({ query: '{ genres }' })
+    const response = await verifiedFixtureRequest(app, db, authOptions)
+      .post('/graphql')
+      .send({ query: '{ genres }' })
     expect(response.body.errors).toBeUndefined()
     expect(response.body.data.genres).toContain('Classic Fiction')
     expect(response.body.data.genres).toContain('New Genre')
@@ -71,20 +74,22 @@ describe('book store GraphQL API', () => {
 
   it('treats search wildcard characters literally', async () => {
     for (const search of ['%', '_', '\\']) {
-      const response = await request(app).post('/graphql').send({ query, variables: { search } })
+      const response = await verifiedFixtureRequest(app, db, authOptions)
+        .post('/graphql')
+        .send({ query, variables: { search } })
       expect(response.body.errors).toBeUndefined()
       expect(response.body.data.books.total).toBe(0)
     }
   })
 
   it('reports invalid input as a client error', async () => {
-    const page = await request(app)
+    const page = await verifiedFixtureRequest(app, db, authOptions)
       .post('/graphql')
       .send({ query: '{ books(limit: 100) { total } }' })
     expect(page.body.errors[0].extensions.code).toBe('BAD_USER_INPUT')
     expect(page.body.errors[0].message).toBe('Too big: expected number to be <=24')
 
-    const order = await request(app)
+    const order = await verifiedFixtureRequest(app, db, authOptions)
       .post('/graphql')
       .set('Origin', authOptions.frontendOrigin)
       .set('Cookie', cookies)
@@ -104,7 +109,7 @@ describe('book store GraphQL API', () => {
   })
 
   it('retains nullable public lookups and numeric ID compatibility', async () => {
-    const response = await request(app).post('/graphql').send({
+    const response = await verifiedFixtureRequest(app, db, authOptions).post('/graphql').send({
       query:
         '{ leading: book(id: "01") { id } invalid: book(id: "abc") { id } missing: book(id: "99999") { id } }',
     })
@@ -113,7 +118,7 @@ describe('book store GraphQL API', () => {
   })
 
   it('places an authenticated order using server prices and decrements stock', async () => {
-    const order = await request(app)
+    const order = await verifiedFixtureRequest(app, db, authOptions)
       .post('/graphql')
       .set('Origin', authOptions.frontendOrigin)
       .set('Cookie', cookies)
@@ -140,7 +145,7 @@ describe('book store GraphQL API', () => {
 
   it('rejects out of stock orders without saving anything', async () => {
     db.prepare('UPDATE books SET stock = 1 WHERE id = 1').run()
-    const order = await request(app)
+    const order = await verifiedFixtureRequest(app, db, authOptions)
       .post('/graphql')
       .set('Origin', authOptions.frontendOrigin)
       .set('Cookie', cookies)
@@ -161,7 +166,7 @@ describe('book store GraphQL API', () => {
 
   it('does not write a partial order when one of two books is out of stock', async () => {
     db.prepare('UPDATE books SET stock = 0 WHERE id = 2').run()
-    const order = await request(app)
+    const order = await verifiedFixtureRequest(app, db, authOptions)
       .post('/graphql')
       .set('Origin', authOptions.frontendOrigin)
       .set('Cookie', cookies)
@@ -190,7 +195,7 @@ describe('book store GraphQL API', () => {
     db.exec(
       "CREATE TRIGGER reject_second_line BEFORE INSERT ON order_items WHEN NEW.book_id = 2 BEGIN SELECT RAISE(ABORT, 'forced line failure'); END",
     )
-    const response = await request(app)
+    const response = await verifiedFixtureRequest(app, db, authOptions)
       .post('/graphql')
       .set('Origin', authOptions.frontendOrigin)
       .set('Cookie', cookies)

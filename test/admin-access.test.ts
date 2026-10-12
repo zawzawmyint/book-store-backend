@@ -1,11 +1,12 @@
+import { verifiedFixtureRequest, capturedFixtureSender } from './verified-auth-fixture.js'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import request from 'supertest'
 import type Database from 'better-sqlite3'
 import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/database/connection.js'
 const options = {
   frontendOrigin: 'http://localhost:5173',
   authBaseURL: 'http://localhost:5173',
+  emailSender: capturedFixtureSender,
   authSecret: 'admin-test-secret-at-least-thirty-two-characters',
 }
 let db: Database.Database
@@ -16,12 +17,12 @@ beforeEach(async () => {
 })
 afterEach(() => db.close())
 it('resolves customer/admin access from membership and revokes an existing session immediately', async () => {
-  const anonymous = await request(app).post('/graphql').send({
+  const anonymous = await verifiedFixtureRequest(app, db, options).post('/graphql').send({
     query: '{ viewer { id role } }',
   })
   expect(anonymous.body.errors).toBeUndefined()
   expect(anonymous.body.data.viewer).toBeNull()
-  const signed = await request(app)
+  const signed = await verifiedFixtureRequest(app, db, options)
     .post('/api/auth/sign-up/email')
     .set('Origin', options.frontendOrigin)
     .send({
@@ -34,7 +35,7 @@ it('resolves customer/admin access from membership and revokes an existing sessi
   const cookies = signed.headers['set-cookie'] as string[]
   const id = signed.body.user.id as string
   const viewer = () =>
-    request(app)
+    verifiedFixtureRequest(app, db, options)
       .post('/graphql')
       .set('Origin', options.frontendOrigin)
       .set('Cookie', cookies)
@@ -58,7 +59,7 @@ it('resolves customer/admin access from membership and revokes an existing sessi
     'mutation { setCustomerAdminAccess(userId: "missing", enabled: true) { id } }',
     'mutation { resetCustomerPassword(userId: "missing", newPassword: "new-password-123") { id } }',
   ]) {
-    const denied = await request(app)
+    const denied = await verifiedFixtureRequest(app, db, options)
       .post('/graphql')
       .set('Origin', options.frontendOrigin)
       .set('Cookie', cookies)

@@ -68,7 +68,14 @@ export interface DomainStore {
   user(id: string): Promise<typeof model.user.$inferSelect | undefined>
   users(input: z.infer<typeof adminUsersInputSchema>): Promise<{
     total: number
-    items: { id: string; name: string; email: string; createdAt: Date; role: Role | null }[]
+    items: {
+      id: string
+      name: string
+      email: string
+      emailVerified: boolean
+      createdAt: Date
+      role: Role | null
+    }[]
   }>
   credential(userId: string): Promise<typeof model.account.$inferSelect | undefined>
   password(id: string, hash: string): Promise<boolean>

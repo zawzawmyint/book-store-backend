@@ -202,6 +202,7 @@ export function createSQLiteQueries(orm: BetterSQLite3Database): DomainStore {
             id: schema.user.id,
             name: schema.user.name,
             email: schema.user.email,
+            emailVerified: schema.user.emailVerified,
             createdAt: schema.user.createdAt,
             role: schema.userRoles.role,
           })

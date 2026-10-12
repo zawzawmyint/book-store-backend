@@ -1,3 +1,6 @@
+import { revokeUnverifiedSessions } from '../src/modules/auth-email/session-rollout.js'
+import { capturedFixtureSender } from './verified-auth-fixture.js'
+import { createSeedAccountStore } from '../src/database/runtime-seed.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import request from 'supertest'
 import { randomUUID } from 'node:crypto'
@@ -25,6 +28,7 @@ if (!['sqlite', 'postgresql'].includes(providerName)) throw new Error('Invalid t
 const options = {
   frontendOrigin: 'http://localhost:5173',
   authBaseURL: 'http://localhost:5173',
+  emailSender: capturedFixtureSender,
   authSecret: 'database-parity-secret-at-least-thirty-two-characters',
   deliveryEnabled: true,
   deliveryCountryCodes: ['US', 'CA'],
@@ -147,6 +151,7 @@ describe(`database contract: ${providerName}`, () => {
         },
       })
     ).user
+    await createSeedAccountStore(database.handle).markVerified(buyer.id)
     provider = new FakePaymentProvider()
     now = Date.now()
     service = createPaymentService(
@@ -156,6 +161,106 @@ describe(`database contract: ${providerName}`, () => {
   })
   afterEach(async () => {
     await database?.close()
+  })
+
+  it('returns the saved verification flag in admin user lists and details on either provider', async () => {
+    const pending = (
+      await createAuth(database.handle, options).api.signUpEmail({
+        body: {
+          name: 'Pending Reader',
+          email: 'pending-parity@example.com',
+          password: 'parity-password-123',
+        },
+      })
+    ).user
+    const repository = createAdminRepository(database.handle)
+    const page = await repository.listUsers({ search: '', role: 'ALL', limit: 20, offset: 0 })
+    expect(page.items.find((user) => user.id === buyer.id)?.emailVerified).toBe(true)
+    expect(page.items.find((user) => user.id === pending.id)?.emailVerified).toBe(false)
+    expect((await repository.getUser(pending.id)).emailVerified).toBe(false)
+    await createSeedAccountStore(database.handle).markVerified(pending.id)
+    expect((await repository.getUser(pending.id)).emailVerified).toBe(true)
+  })
+
+  it('verifies captured email, resets once and revokes old sessions on either provider', async () => {
+    const messages: Array<{ text: string }> = []
+    const app = await createApp(database.handle, {
+      ...options,
+      emailSender: {
+        async send(message) {
+          messages.push(message)
+        },
+      },
+    })
+    const post = (path: string, body: object) =>
+      request(app).post(`/api/auth/${path}`).set('Origin', options.frontendOrigin).send(body)
+    const credentials = { email: 'recovery-parity@example.com', password: 'parity-password-123' }
+    const latest = () => new URL(messages.at(-1)!.text.match(/https?:\/\/[^\s]+/)![0])
+    try {
+      const signup = await post('sign-up/email', { name: 'Recovery Reader', ...credentials })
+      expect(signup.body.token).toBeNull()
+      expect((await post('sign-in/email', credentials)).status).toBe(403)
+      let url = latest()
+      expect((await request(app).get(url.pathname + url.search)).status).toBe(302)
+      const login = await post('sign-in/email', credentials)
+      expect(login.status).toBe(200)
+      expect((await post('request-password-reset', { email: credentials.email })).status).toBe(200)
+      url = latest()
+      const token = url.pathname.split('/').at(-1)
+      expect(
+        (await post('reset-password', { token, newPassword: 'replacement-password-123' })).status,
+      ).toBe(200)
+      expect(
+        (await post('reset-password', { token, newPassword: 'another-password-123' })).status,
+      ).toBe(400)
+      const viewer = await request(app)
+        .post('/graphql')
+        .set('Origin', options.frontendOrigin)
+        .set('Cookie', login.headers['set-cookie'])
+        .send({ query: '{ viewer { id } }' })
+      expect(viewer.body.data.viewer).toBeNull()
+    } finally {
+      await app.locals.close()
+    }
+  })
+
+  it('previews and revokes only unverified sessions without changing account, role or order data', async () => {
+    const auth = createAuth(database.handle, options)
+    const context = await auth.$context
+    const old = (
+      await auth.api.signUpEmail({
+        body: {
+          name: 'Old Admin',
+          email: 'old-admin@example.com',
+          password: 'rollout-password-123',
+        },
+      })
+    ).user
+    await createSeedAccountStore(database.handle).markVerified(old.id)
+    const oldSession = await auth.api.signInEmail({
+      body: { email: old.email, password: 'rollout-password-123' },
+    })
+    const verifiedSession = await auth.api.signInEmail({
+      body: { email: buyer.email, password: 'parity-password-123' },
+    })
+    await createAdminRepository(database.handle).setUserRole(old.id, 'ADMIN', operatorActor)
+    await service.createCheckout(input(), buyer)
+    const orders = await store.orderPage(20, 0)
+    await context.internalAdapter.updateUser(old.id, { emailVerified: false })
+    expect(await revokeUnverifiedSessions(database.handle)).toEqual({
+      unverifiedUsers: 1,
+      sessions: 1,
+    })
+    expect(await context.internalAdapter.findSession(oldSession.token)).not.toBeNull()
+    expect(await revokeUnverifiedSessions(database.handle, true)).toEqual({
+      unverifiedUsers: 1,
+      sessions: 1,
+    })
+    expect(await context.internalAdapter.findSession(oldSession.token)).toBeNull()
+    expect(await context.internalAdapter.findSession(verifiedSession.token)).not.toBeNull()
+    expect((await context.internalAdapter.findUserById(old.id))?.emailVerified).toBe(false)
+    expect(await store.orderPage(20, 0)).toEqual(orders)
+    expect(await store.role(old.id)).toBe('ADMIN')
   })
 
   it('reports current dashboard work and bounded previews without changing records', async () => {

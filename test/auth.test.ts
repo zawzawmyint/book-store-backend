@@ -1,6 +1,6 @@
+import { verifiedFixtureRequest, capturedFixtureSender } from './verified-auth-fixture.js'
 import { deliveryOptions, reviewedInput } from './delivery-fixtures.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import request from 'supertest'
 import { request as httpRequest } from 'node:http'
 import { once } from 'node:events'
 import type Database from 'better-sqlite3'
@@ -12,6 +12,7 @@ import { FakePaymentProvider } from './fake-payment-provider.js'
 const authOptions = {
   frontendOrigin: 'http://localhost:5173',
   authBaseURL: 'http://localhost:4000',
+  emailSender: capturedFixtureSender,
   authSecret: 'test-secret-that-is-at-least-thirty-two-characters-long',
 }
 const orderMutation =
@@ -31,7 +32,7 @@ describe('customer authentication and order ownership', () => {
   })
   afterEach(() => db.close())
   async function signUp(name: string, email: string) {
-    const response = await request(app)
+    const response = await verifiedFixtureRequest(app, db, authOptions)
       .post('/api/auth/sign-up/email')
       .set('Origin', authOptions.frontendOrigin)
       .send({
@@ -44,7 +45,7 @@ describe('customer authentication and order ownership', () => {
     return response.headers['set-cookie'] as string[]
   }
   it('rejects unauthenticated order writes without touching stock', async () => {
-    const result = await request(app)
+    const result = await verifiedFixtureRequest(app, db, authOptions)
       .post('/graphql')
       .set('Origin', authOptions.frontendOrigin)
       .send({
@@ -74,7 +75,7 @@ describe('customer authentication and order ownership', () => {
   it('stores a signed-in order under its session user and lists only that user orders', async () => {
     const adaCookies = await signUp('Ada Reader', 'ada@example.com')
     const bobCookies = await signUp('Bob Reader', 'bob@example.com')
-    const placed = await request(app)
+    const placed = await verifiedFixtureRequest(app, db, authOptions)
       .post('/graphql')
       .set('Origin', authOptions.frontendOrigin)
       .set('Cookie', adaCookies)
@@ -103,7 +104,7 @@ describe('customer authentication and order ownership', () => {
     expect(stored.user_id).toBeTruthy()
     expect(stored.customer_name).toBe('Ada Reader')
     expect(stored.email).toBe('ada@example.com')
-    const ownHistory = await request(app)
+    const ownHistory = await verifiedFixtureRequest(app, db, authOptions)
       .post('/graphql')
       .set('Origin', authOptions.frontendOrigin)
       .set('Cookie', adaCookies)
@@ -113,7 +114,7 @@ describe('customer authentication and order ownership', () => {
     expect(ownHistory.body.errors).toBeUndefined()
     expect(ownHistory.body.data.myOrders.total).toBe(1)
     expect(ownHistory.body.data.myOrders.items[0].id).toBe(placed.body.data.createCheckout.order.id)
-    const otherHistory = await request(app)
+    const otherHistory = await verifiedFixtureRequest(app, db, authOptions)
       .post('/graphql')
       .set('Origin', authOptions.frontendOrigin)
       .set('Cookie', bobCookies)
@@ -124,14 +125,16 @@ describe('customer authentication and order ownership', () => {
       total: 0,
       items: [],
     })
-    const anonymousHistory = await request(app).post('/graphql').send({
-      query: historyQuery,
-    })
+    const anonymousHistory = await verifiedFixtureRequest(app, db, authOptions)
+      .post('/graphql')
+      .send({
+        query: historyQuery,
+      })
     expect(anonymousHistory.body.errors[0].extensions.code).toBe('UNAUTHENTICATED')
   })
   it('restores a session after sign-in and invalidates it on sign-out', async () => {
     await signUp('Ada Reader', 'ada@example.com')
-    const signIn = await request(app)
+    const signIn = await verifiedFixtureRequest(app, db, authOptions)
       .post('/api/auth/sign-in/email')
       .set('Origin', authOptions.frontendOrigin)
       .send({
@@ -140,16 +143,18 @@ describe('customer authentication and order ownership', () => {
       })
     expect(signIn.status).toBe(200)
     const cookies = signIn.headers['set-cookie'] as string[]
-    const session = await request(app).get('/api/auth/get-session').set('Cookie', cookies)
+    const session = await verifiedFixtureRequest(app, db, authOptions)
+      .get('/api/auth/get-session')
+      .set('Cookie', cookies)
     expect(session.body.user.email).toBe('ada@example.com')
-    expect(session.body.user.emailVerified).toBe(false)
-    const signOut = await request(app)
+    expect(session.body.user.emailVerified).toBe(true)
+    const signOut = await verifiedFixtureRequest(app, db, authOptions)
       .post('/api/auth/sign-out')
       .set('Origin', authOptions.frontendOrigin)
       .set('Cookie', cookies)
       .send({})
     expect(signOut.status).toBe(200)
-    const afterSignOut = await request(app)
+    const afterSignOut = await verifiedFixtureRequest(app, db, authOptions)
       .post('/graphql')
       .set('Origin', authOptions.frontendOrigin)
       .set('Cookie', cookies)
@@ -160,7 +165,7 @@ describe('customer authentication and order ownership', () => {
   })
   it('rejects an authenticated GraphQL request from another origin', async () => {
     const cookies = await signUp('Ada Reader', 'ada@example.com')
-    const response = await request(app)
+    const response = await verifiedFixtureRequest(app, db, authOptions)
       .post('/graphql')
       .set('Origin', 'https://untrusted.example')
       .set('Cookie', cookies)
@@ -173,7 +178,7 @@ describe('customer authentication and order ownership', () => {
     await signUp('Ada Reader', 'ada@example.com')
     const statuses: number[] = []
     for (let attempt = 0; attempt < 4; attempt++) {
-      const response = await request(app)
+      const response = await verifiedFixtureRequest(app, db, authOptions)
         .post('/api/auth/sign-in/email')
         .set('Origin', authOptions.frontendOrigin)
         .set('X-Forwarded-For', `198.51.100.${attempt + 1}`)
@@ -191,7 +196,7 @@ describe('customer authentication and order ownership', () => {
       name: 'Ada Reader',
     })
     for (const name of ['   ', 'x'.repeat(121)]) {
-      const response = await request(app)
+      const response = await verifiedFixtureRequest(app, db, authOptions)
         .post('/api/auth/sign-up/email')
         .set('Origin', authOptions.frontendOrigin)
         .send({
@@ -202,7 +207,7 @@ describe('customer authentication and order ownership', () => {
       expect(response.status).toBe(400)
     }
     for (const name of ['   ', 'x'.repeat(121)]) {
-      const response = await request(app)
+      const response = await verifiedFixtureRequest(app, db, authOptions)
         .post('/api/auth/update-user')
         .set('Origin', authOptions.frontendOrigin)
         .set('Cookie', cookies)
@@ -213,7 +218,7 @@ describe('customer authentication and order ownership', () => {
     }
   })
   it('rejects an empty sign-up name', async () => {
-    const response = await request(app)
+    const response = await verifiedFixtureRequest(app, db, authOptions)
       .post('/api/auth/sign-up/email')
       .set('Origin', authOptions.frontendOrigin)
       .send({
@@ -229,7 +234,7 @@ describe('customer authentication and order ownership', () => {
       email: 'ada@example.com',
       password: 'secret',
     })
-    const sized = await request(app)
+    const sized = await verifiedFixtureRequest(app, db, authOptions)
       .post('/api/auth/sign-up/email')
       .set('Origin', authOptions.frontendOrigin)
       .set('Content-Type', 'application/json')

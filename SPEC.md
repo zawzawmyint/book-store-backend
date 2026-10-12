@@ -1,5 +1,7 @@
 # The Quiet Shelf API specification
 
+> **Implemented auth email:** [Verification and recovery](specs/auth-email/SPEC.md) requires verified email for account access, exposes its read-only status in the Admin user directory, and documents SMTP configuration, recovery, and rollout.
+
 > **Implemented engineering work:** [Backend readability and consistency](specs/readability-consistency/SPEC.md) records verified dependency, service-contract, and database-adapter readability refactoring with unchanged API and database behavior.
 
 > **Implemented infrastructure:** [Database support](specs/database-support/SPEC.md) provides SQLite development/test and PostgreSQL production support with shared application behavior.

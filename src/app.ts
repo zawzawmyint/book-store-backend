@@ -53,7 +53,10 @@ export async function createApp(
     app.disable('x-powered-by')
     app.get('/health', (_req, res) => res.json({ status: 'ok' }))
     app.locals.payments = paymentService
-    app.locals.close = () => server.stop()
+    app.locals.close = async () => {
+      await auth.closeMail()
+      await server.stop()
+    }
     app.post(
       '/api/payments/stripe/webhook',
       express.raw({ type: 'application/json', limit: '100kb' }),
@@ -127,8 +130,11 @@ export async function createApp(
       },
       expressMiddleware(server, {
         context: async ({ req }) => {
-          const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) })
-          return { user: session?.user ?? null }
+          const session = await auth.api.getSession({
+            headers: fromNodeHeaders(req.headers),
+            query: { disableCookieCache: true },
+          })
+          return { user: session?.user.emailVerified ? session.user : null }
         },
       }),
     )

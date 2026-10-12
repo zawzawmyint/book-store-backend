@@ -1,6 +1,6 @@
 # The Quiet Shelf API — authentication and authorization specification
 
-> **Status:** Implemented. Email verification and password recovery remain deferred.
+> **Status:** Implemented. [Auth email verification and recovery](../auth-email/SPEC.md) extends this contract.
 
 ## Goal
 
@@ -18,10 +18,10 @@ Require a Better Auth session for order requests and expose each customer's own 
 
 ## Scope
 
-- Enable Better Auth email-and-password sign-up, sign-in, sign-out, and persistent browser sessions. Successful sign-up establishes a session immediately. **Email verification is not required** in this release.
-- Require a valid session for `createCheckout`, `myOrders`, and owner-scoped `myOrder`. Leave catalog queries and `/health` public. Deprecated `placeOrder` cannot create an unpaid order.
+- Better Auth email-and-password sign-up sends verification mail and creates no usable session. Sign-in requires a verified email; sign-out and persistent sessions remain available to verified users. Password recovery sends a reset link and requires a fresh sign-in after completion.
+- Require a valid verified session for `createCheckout`, `myOrders`, and owner-scoped `myOrder`. Leave catalog queries and `/health` public. Deprecated `placeOrder` cannot create an unpaid order.
 - Store order ownership by Better Auth user ID. Do not assign historical guest orders to accounts; the later workflow migration requires fresh or zero-order data as documented in [the order-workflow specification](../order-workflow/SPEC.md).
-- Defer email verification, password reset and other email flows, social login, guest checkout, claiming past orders, and shipping. Stripe hosted test payment is delivered by [the checkout specification](../stripe-checkout/SPEC.md). Admin roles, originally outside this account feature, are now delivered by [the admin feature](../admin/SPEC.md).
+- The delivered email flow is specified by [Auth email verification and recovery](../auth-email/SPEC.md). Social login, guest checkout, claiming past orders, and shipping remain deferred. Stripe hosted test payment is delivered by [the checkout specification](../stripe-checkout/SPEC.md). Admin roles, originally outside this account feature, are now delivered by [the admin feature](../admin/SPEC.md).
 
 ## HTTP and GraphQL contract
 
@@ -53,7 +53,7 @@ Require a Better Auth session for order requests and expose each customer's own 
 - Keep Better Auth rate limiting enabled in production. Trust forwarded IP headers only when a deployment proxy is configured to overwrite or sanitize them.
 - Limit `/api/auth/*` request bodies to 64 KiB. Validate and trim the account name to 1–120 characters on both sign-up and update. Use the socket IP for rate limiting unless `AUTH_TRUSTED_PROXY_IP` identifies a proxy that overwrites `X-Real-IP` and blocks direct API access.
 - Accept the authenticated GraphQL order mutation only from the configured storefront origin and with a JSON request. Enforce authorization in the resolver regardless of frontend route guards.
-- Do not treat an unverified email as verified. An email sender, verification, and recovery are a later release and are required before serving real customer accounts in production.
+- GraphQL resolves an unverified session as unauthenticated after bypassing cookie-cached session data. Auth account operations also enforce verified email. Verification/recovery sender, rollout, and SMTP requirements are defined by [Auth email verification and recovery](../auth-email/SPEC.md).
 
 ## Files affected
 

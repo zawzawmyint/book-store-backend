@@ -1,6 +1,6 @@
+import { verifiedFixtureRequest, capturedFixtureSender } from './verified-auth-fixture.js'
 import { deliveryOptions, reviewedInlineCheckout } from './delivery-fixtures.js'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import request from 'supertest'
 import type Database from 'better-sqlite3'
 import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/database/connection.js'
@@ -10,6 +10,7 @@ import { FakePaymentProvider } from './fake-payment-provider.js'
 const options = {
   frontendOrigin: 'http://localhost:5173',
   authBaseURL: 'http://localhost:4000',
+  emailSender: capturedFixtureSender,
   authSecret: 'test-secret-that-is-at-least-thirty-two-characters-long',
 }
 const password = 'correct-horse-battery-staple'
@@ -25,7 +26,7 @@ beforeEach(async () => {
 })
 afterEach(() => db.close())
 async function signUp(name: string, email: string) {
-  const response = await request(app)
+  const response = await verifiedFixtureRequest(app, db, options)
     .post('/api/auth/sign-up/email')
     .set('Origin', options.frontendOrigin)
     .send({
@@ -37,14 +38,16 @@ async function signUp(name: string, email: string) {
   return response.headers['set-cookie'] as string[]
 }
 function authPost(path: string, cookies: string[] | undefined, body: Record<string, unknown>) {
-  const req = request(app).post(path).set('Origin', options.frontendOrigin)
+  const req = verifiedFixtureRequest(app, db, options)
+    .post(path)
+    .set('Origin', options.frontendOrigin)
   if (cookies?.length) req.set('Cookie', cookies)
   return req.send(body)
 }
 it('renames the signed-in account, keeps past order snapshots, and rejects other account fields', async () => {
   const ada = await signUp('Ada Reader', 'ada@example.com')
   const bob = await signUp('Bob Reader', 'bob@example.com')
-  const placed = await request(app)
+  const placed = await verifiedFixtureRequest(app, db, options)
     .post('/graphql')
     .set('Origin', options.frontendOrigin)
     .set('Cookie', ada)
@@ -71,7 +74,7 @@ it('renames the signed-in account, keeps past order snapshots, and rejects other
     email: 'ada@example.com',
   })
   const nextCookies = (renamed.headers['set-cookie'] as string[] | undefined) ?? ada
-  const later = await request(app)
+  const later = await verifiedFixtureRequest(app, db, options)
     .post('/graphql')
     .set('Origin', options.frontendOrigin)
     .set('Cookie', nextCookies)
@@ -114,7 +117,9 @@ it('renames the signed-in account, keeps past order snapshots, and rejects other
       email: 'bob@example.com',
     },
   )
-  const bobSession = await request(app).get('/api/auth/get-session').set('Cookie', bob)
+  const bobSession = await verifiedFixtureRequest(app, db, options)
+    .get('/api/auth/get-session')
+    .set('Cookie', bob)
   expect(bobSession.body.user.name).toBe('Bob Reader')
   expect(db.prepare('SELECT email FROM user WHERE email = ?').get('ada@example.com')).toEqual({
     email: 'ada@example.com',
@@ -175,9 +180,13 @@ it('changes a password when the current password matches and keeps only the curr
   expect(changed.status).toBe(200)
   expect(db.prepare('SELECT password FROM account').get()).not.toEqual(before)
   const nextCookies = changed.headers['set-cookie'] as string[]
-  const session = await request(app).get('/api/auth/get-session').set('Cookie', nextCookies)
+  const session = await verifiedFixtureRequest(app, db, options)
+    .get('/api/auth/get-session')
+    .set('Cookie', nextCookies)
   expect(session.body.user.email).toBe('ada@example.com')
-  const stale = await request(app).get('/api/auth/get-session').set('Cookie', cookies)
+  const stale = await verifiedFixtureRequest(app, db, options)
+    .get('/api/auth/get-session')
+    .set('Cookie', cookies)
   expect(stale.body).toBeNull()
   expect(
     (

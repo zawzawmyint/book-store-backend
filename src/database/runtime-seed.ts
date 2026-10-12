@@ -10,6 +10,24 @@ export type SeedDatabase = DatabaseHandle | Database.Database
 
 export function createSeedAccountStore(input: SeedDatabase) {
   return {
+    async markVerified(id: string): Promise<void> {
+      if ('provider' in input && input.provider === 'postgresql') {
+        const schema = await import('./postgresql/schema.js')
+        await input.orm
+          .update(schema.user)
+          .set({ emailVerified: true })
+          .where(eq(schema.user.id, id))
+        return
+      }
+      const raw = 'provider' in input ? input.raw : input
+      await serializeSQLite(raw, async () => {
+        drizzle(raw)
+          .update(sqliteSchema.user)
+          .set({ emailVerified: true })
+          .where(eq(sqliteSchema.user.id, id))
+          .run()
+      })
+    },
     async findByEmail(email: string): Promise<{ id: string } | undefined> {
       if ('provider' in input && input.provider === 'postgresql') {
         const schema = await import('./postgresql/schema.js')
