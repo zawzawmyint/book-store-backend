@@ -1,6 +1,8 @@
 import { isIP } from 'node:net'
+import type { SmtpConfig } from '../modules/email/email.service.js'
 
 export type AppConfig = {
+  smtp?: SmtpConfig
   port: number
   databasePath: string
   databaseProvider: 'sqlite' | 'postgresql'
@@ -142,7 +144,52 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     throw new Error('STRIPE_SECRET_KEY must be a test server key')
   if (stripeCheckoutEnabled && (!stripeSecretKey || !stripeWebhookSecret?.startsWith('whsec_')))
     throw new Error('Enabled Stripe checkout requires test server and webhook signing secrets')
+  const smtpKeys = [
+    'SMTP_HOST',
+    'SMTP_PORT',
+    'SMTP_SECURE',
+    'SMTP_USERNAME',
+    'SMTP_PASSWORD',
+    'SMTP_FROM',
+    'SMTP_REPLY_TO',
+  ]
+  let smtp: SmtpConfig | undefined
+  if (smtpKeys.some((key) => env[key] !== undefined)) {
+    const host = (env.SMTP_HOST ?? '').replace(/\.$/, '').toLowerCase()
+    const smtpPort = Number(env.SMTP_PORT)
+    const secure = env.SMTP_SECURE === 'true'
+    const address = (value: string) =>
+      /^[^\s<>@,;\r\n]+@[^\s<>@,;\r\n]+\.[^\s<>@,;\r\n]+$/.test(value)
+    if (
+      !/^[A-Za-z0-9.-]+$/.test(host) ||
+      !['true', 'false'].includes(env.SMTP_SECURE ?? '') ||
+      ![465, 587].includes(smtpPort) ||
+      secure !== (smtpPort === 465) ||
+      !address(env.SMTP_FROM ?? '') ||
+      !!env.SMTP_USERNAME !== !!env.SMTP_PASSWORD ||
+      (env.SMTP_REPLY_TO && !address(env.SMTP_REPLY_TO))
+    )
+      throw new Error(
+        'SMTP requires a valid host, sender, paired credentials and port 587/STARTTLS or 465/TLS',
+      )
+    if (nodeEnv === 'production' && /(^|\.)ethereal\.email$/i.test(host))
+      throw new Error('Ethereal SMTP is development-only')
+    if (nodeEnv === 'production' && !env.SMTP_USERNAME)
+      throw new Error('Production SMTP requires credentials')
+    smtp = {
+      host,
+      port: smtpPort,
+      secure,
+      username: env.SMTP_USERNAME,
+      password: env.SMTP_PASSWORD,
+      from: `The Quiet Shelf <${env.SMTP_FROM}>`,
+      replyTo: env.SMTP_REPLY_TO,
+    }
+  }
+  if (nodeEnv === 'production' && !smtp)
+    throw new Error('Production requires complete SMTP configuration')
   return {
+    smtp,
     port,
     databasePath,
     databaseProvider,

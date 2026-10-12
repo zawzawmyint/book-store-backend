@@ -19,7 +19,8 @@ database. It creates or verifies these Better Auth email-and-password accounts:
 - `demo-admin@example.com` — Admin
 
 They share the local-only password `BookstoreDemo123!`. The command uses normal
-Better Auth signup/sign-in and the server-owned role repository. It creates no
+Better Auth signup and the server-owned role repository, verifies the exact reserved
+fixtures after checking their password, and removes seed-created sessions. It creates no
 catalog or order data and does not reset existing catalog or order data.
 
 ## Repeatability and safeguards

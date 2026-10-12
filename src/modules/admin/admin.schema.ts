@@ -6,6 +6,7 @@ export const adminTypeDefs = `#graphql
     id: ID!
     name: String!
     email: String!
+    emailVerified: Boolean!
     role: UserRole!
     createdAt: String!
   }
@@ -16,6 +17,7 @@ export const adminTypeDefs = `#graphql
     id: ID!
     name: String!
     email: String!
+    emailVerified: Boolean!
     role: UserRole!
     createdAt: String!
   }

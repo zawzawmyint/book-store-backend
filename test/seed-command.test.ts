@@ -7,6 +7,12 @@ it('rejects sample catalog seeding in production before connecting', () => {
     env: {
       ...process.env,
       NODE_ENV: 'production',
+      SMTP_HOST: 'smtp.example.com',
+      SMTP_PORT: '587',
+      SMTP_SECURE: 'false',
+      SMTP_FROM: 'sender@example.com',
+      SMTP_USERNAME: 'fixture',
+      SMTP_PASSWORD: 'fixture',
       DB_PROVIDER: 'postgresql',
       DATABASE_URL: 'postgresql://test:test@127.0.0.1:1/seed_guard',
       FRONTEND_ORIGIN: 'https://store.example.com',

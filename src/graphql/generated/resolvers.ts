@@ -555,6 +555,7 @@ export type AdminUser = {
   id: Scalars['ID']['output'];
   name: Scalars['String']['output'];
   email: Scalars['String']['output'];
+  emailVerified: Scalars['Boolean']['output'];
   role: UserRole;
   createdAt: Scalars['String']['output'];
 };
@@ -577,6 +578,7 @@ export type AdminCustomer = {
   id: Scalars['ID']['output'];
   name: Scalars['String']['output'];
   email: Scalars['String']['output'];
+  emailVerified: Scalars['Boolean']['output'];
   role: UserRole;
   createdAt: Scalars['String']['output'];
 };
@@ -1129,6 +1131,7 @@ export type AdminUserResolvers<ContextType = any, ParentType extends ResolversPa
   id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
   name?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   email?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  emailVerified?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
   role?: Resolver<ResolversTypes['UserRole'], ParentType, ContextType>;
   createdAt?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
 };
@@ -1142,6 +1145,7 @@ export type AdminCustomerResolvers<ContextType = any, ParentType extends Resolve
   id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
   name?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   email?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  emailVerified?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
   role?: Resolver<ResolversTypes['UserRole'], ParentType, ContextType>;
   createdAt?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
 };

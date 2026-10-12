@@ -15,6 +15,12 @@ describe('provider runtime', () => {
   it('bounds PostgreSQL connection and statement waits and verifies production TLS', () => {
     const config = loadConfig({
       NODE_ENV: 'production',
+      SMTP_HOST: 'smtp.example.com',
+      SMTP_PORT: '587',
+      SMTP_SECURE: 'false',
+      SMTP_FROM: 'sender@example.com',
+      SMTP_USERNAME: 'fixture',
+      SMTP_PASSWORD: 'fixture',
       FRONTEND_ORIGIN: 'https://store.example.com',
       DATABASE_URL: 'postgresql://user:secret@localhost/store',
       BETTER_AUTH_SECRET: secret,

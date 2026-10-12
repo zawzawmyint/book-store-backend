@@ -1,5 +1,7 @@
 # The Quiet Shelf API
 
+Implemented feature: [Auth email verification and recovery](specs/auth-email/SPEC.md) requires verified email for account access, exposes read-only verification status in the Admin user directory, provides password recovery, and sends mail through configured SMTP.
+
 An Express + GraphQL + Drizzle bookstore API with Zod input validation. SQLite is the
 development/test default and PostgreSQL is supported for production. This folder is its
 own Git repository and runs independently from the frontend.
@@ -29,13 +31,23 @@ The API starts at `http://localhost:4000/graphql`; Better Auth serves `/api/auth
 
 Configure `PORT`, `DB_PROVIDER`, `DATABASE_PATH`, `DATABASE_URL`, `PG_POOL_MAX`,
 `PG_TLS_MODE`, `PG_CA_FILE`, `FRONTEND_ORIGIN`, `BETTER_AUTH_URL`,
-`BETTER_AUTH_SECRET`, and `NODE_ENV` in `.env` as applicable. SQLite is the default
+`BETTER_AUTH_SECRET`, `NODE_ENV`, and the SMTP settings below in `.env` as applicable. SQLite is the default
 outside production. Production requires `DB_PROVIDER=postgresql`, a PostgreSQL URL,
 and `PG_TLS_MODE=verify-full`; `PG_CA_FILE` may provide a trusted CA bundle. URL TLS
 parameters are rejected so TLS policy is controlled only by these environment variables.
 Set `BETTER_AUTH_URL` to the public storefront origin that proxies `/api/auth`
 (localhost:5173 in development). The secret must be random and at least 32 characters;
 do not use the schema generator's test secret in a running server.
+
+Production requires complete SMTP configuration: `SMTP_HOST`, `SMTP_PORT`,
+`SMTP_SECURE`, `SMTP_USERNAME`, `SMTP_PASSWORD`, and `SMTP_FROM`; `SMTP_REPLY_TO`
+is optional. Use port 587 with `SMTP_SECURE=false` (STARTTLS) or 465 with
+`SMTP_SECURE=true` (TLS). `SMTP_FROM` becomes the address in the **The Quiet Shelf**
+display sender and must be authorized by the provider. Ethereal is accepted only
+outside production. Configure the provider credentials, sender/domain verification,
+and HTTPS frontend/auth origins yourself; never commit them. SMTP delivery is
+best-effort (there is no durable queue), so users recover from a failed delivery by
+requesting another verification or reset email.
 
 Delivery checkout is disabled until all three delivery variables are explicitly set:
 `DELIVERY_ENABLED=true`, a comma-separated uppercase ISO country allowlist in
@@ -54,7 +66,25 @@ and repeat-seed behavior. The command refuses production before opening the
 database, does not seed or reset catalog/order data, and does not provide an HTTP
 endpoint. If a demo password was changed, reset it manually through the existing
 Admin user-management UI before running the command again; a detected password
-mismatch leaves demo accounts and roles unchanged.
+mismatch leaves demo accounts and roles unchanged. The exact reserved demo accounts
+are marked verified after their password is checked; ordinary accounts and real
+Staff/Admin accounts still require verification.
+
+## Email-verification rollout
+
+New sign-ups have no usable session until their email is verified; verification and
+password reset both require a subsequent sign-in. Before enabling this flow for an
+existing database, preview then apply removal of sessions belonging to unverified
+accounts:
+
+```powershell
+bun run auth:revoke-unverified preview
+bun run auth:revoke-unverified apply
+```
+
+The command uses the configured database, reports counts only, and deletes only
+unverified users' sessions. It preserves users, credentials, roles, and orders. It
+does not mark accounts verified or apply the change automatically.
 
 ## GraphQL examples
 
@@ -208,6 +238,8 @@ After changing a module GraphQL schema, run `bun run codegen` here to refresh th
 `bun run test` uses in-memory SQLite. `bun run test:postgres` provisions a disposable
 local PostgreSQL 17.10 instance and runs the shared parity suite. New orders use Stripe hosted Checkout
 in test mode with a required delivery address and reviewed fee-inclusive total. Email verification and self-service password
-recovery are deferred. An admin can still set another account's password. Before a live
+recovery are implemented through Better Auth and configured SMTP. Captured-mail tests
+prove the flow, but live Ethereal/Brevo inbox delivery has not been exercised. An admin can
+still set another account's password. Before a live
 launch, specify and implement live-payment, fulfillment, customer communication,
 monitoring, and deployment controls.

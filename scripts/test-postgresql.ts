@@ -75,7 +75,7 @@ try {
     -1,
   )?.hash
   const commandEnv = {
-    ...process.env,
+    ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('SMTP_'))),
     NODE_ENV: 'test',
     DB_PROVIDER: 'postgresql',
     DATABASE_URL: url,
@@ -147,7 +147,9 @@ try {
       cwd,
       stdio: 'inherit',
       env: {
-        ...process.env,
+        ...Object.fromEntries(
+          Object.entries(process.env).filter(([key]) => !key.startsWith('SMTP_')),
+        ),
         DATABASE_TEST_PROVIDER: 'postgresql',
         TEST_DATABASE_URL: url,
         TEST_DATABASE_RUN_ID: runId,

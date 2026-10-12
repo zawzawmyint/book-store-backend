@@ -5,6 +5,7 @@ import { openDatabase } from './database/runtime.js'
 import { seedRuntimeBooks } from './database/runtime-seed.js'
 import { createStripePaymentProvider } from './modules/payments/stripe.provider.js'
 import { startPaymentWorker } from './modules/payments/payment.worker.js'
+import { createEmailSender } from './modules/email/email.service.js'
 
 const config = loadConfig()
 const database = await openDatabase(config)
@@ -19,6 +20,8 @@ try {
       authBaseURL: config.authBaseURL,
       authSecret: config.authSecret,
       trustedProxyIp: config.trustedProxyIp,
+      emailSender:
+        config.nodeEnv !== 'test' && config.smtp ? createEmailSender(config.smtp) : undefined,
     },
     {
       deliveryEnabled: config.deliveryEnabled,

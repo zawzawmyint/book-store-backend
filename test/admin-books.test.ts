@@ -1,6 +1,6 @@
+import { verifiedFixtureRequest, capturedFixtureSender } from './verified-auth-fixture.js'
 import { deliveryOptions, reviewedInlineCheckout } from './delivery-fixtures.js'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import request from 'supertest'
 import type Database from 'better-sqlite3'
 import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/database/connection.js'
@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto'
 const options = {
   frontendOrigin: 'http://localhost:5173',
   authBaseURL: 'http://localhost:5173',
+  emailSender: capturedFixtureSender,
   authSecret: 'admin-test-secret-at-least-thirty-two-characters',
 }
 let db: Database.Database
@@ -24,7 +25,7 @@ beforeEach(async () => {
     provider: new FakePaymentProvider(),
   })
   for (const email of ['admin@example.com', 'customer@example.com']) {
-    const res = await request(app)
+    const res = await verifiedFixtureRequest(app, db, options)
       .post('/api/auth/sign-up/email')
       .set('Origin', options.frontendOrigin)
       .send({
@@ -48,7 +49,9 @@ const details = {
   priceCents: 1234,
 }
 function gql(query: string, variables = {}, auth: string[] = cookies) {
-  const req = request(app).post('/graphql').set('Origin', options.frontendOrigin)
+  const req = verifiedFixtureRequest(app, db, options)
+    .post('/graphql')
+    .set('Origin', options.frontendOrigin)
   if (auth.length) req.set('Cookie', auth)
   return req.send({
     query,

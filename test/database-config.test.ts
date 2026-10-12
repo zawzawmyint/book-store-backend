@@ -4,6 +4,12 @@ const base = { BETTER_AUTH_SECRET: 'test-secret-that-is-at-least-thirty-two-char
 const prod = {
   ...base,
   NODE_ENV: 'production',
+  SMTP_HOST: 'smtp.example.com',
+  SMTP_PORT: '587',
+  SMTP_SECURE: 'false',
+  SMTP_FROM: 'sender@example.com',
+  SMTP_USERNAME: 'fixture',
+  SMTP_PASSWORD: 'fixture',
   FRONTEND_ORIGIN: 'https://store.example.com',
   BETTER_AUTH_URL: 'https://store.example.com',
   DATABASE_URL: 'postgresql://user:password@localhost/store',

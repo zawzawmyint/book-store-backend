@@ -27,7 +27,15 @@ export function createAdminRepository(input: DatabaseInput) {
   }
   function present(
     row:
-      { id: string; name: string; email: string; createdAt: Date; role: Role | null } | undefined,
+      | {
+          id: string
+          name: string
+          email: string
+          emailVerified: boolean
+          createdAt: Date
+          role: Role | null
+        }
+      | undefined,
   ) {
     if (!row) throw new ValidationError('User was not found')
     return {

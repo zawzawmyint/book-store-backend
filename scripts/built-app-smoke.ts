@@ -17,7 +17,9 @@ export async function smokeBuiltApp(provider: 'sqlite' | 'postgresql', databaseU
   const child = spawn(process.execPath, [resolve('dist/server.js')], {
     stdio: ['ignore', 'ignore', 'pipe'],
     env: {
-      ...process.env,
+      ...Object.fromEntries(
+        Object.entries(process.env).filter(([key]) => !key.startsWith('SMTP_')),
+      ),
       NODE_ENV: 'test',
       DB_PROVIDER: provider,
       PORT: String(port),

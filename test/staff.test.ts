@@ -1,5 +1,5 @@
+import { verifiedFixtureRequest, capturedFixtureSender } from './verified-auth-fixture.js'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import request from 'supertest'
 import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/database/connection.js'
 import { createAdminRepository } from '../src/modules/admin/admin.repository.js'
@@ -7,6 +7,7 @@ import { operatorActor } from '../src/modules/activity/activity.types.js'
 const options = {
   frontendOrigin: 'http://localhost:5173',
   authBaseURL: 'http://localhost:5173',
+  emailSender: capturedFixtureSender,
   authSecret: 'staff-test-secret-at-least-thirty-two-characters',
 }
 let db: ReturnType<typeof createDatabase>
@@ -17,7 +18,7 @@ beforeEach(async () => {
   db = createDatabase(':memory:')
   app = await createApp(db, options)
   for (const role of ['admin', 'staff', 'customer']) {
-    const res = await request(app)
+    const res = await verifiedFixtureRequest(app, db, options)
       .post('/api/auth/sign-up/email')
       .set('Origin', options.frontendOrigin)
       .send({
@@ -41,7 +42,9 @@ beforeEach(async () => {
 })
 afterEach(() => db.close())
 function gql(query: string, cookies?: string[], variables: Record<string, unknown> = {}) {
-  const req = request(app).post('/graphql').set('Origin', options.frontendOrigin)
+  const req = verifiedFixtureRequest(app, db, options)
+    .post('/graphql')
+    .set('Origin', options.frontendOrigin)
   if (cookies) req.set('Cookie', cookies)
   return req.send({
     query,

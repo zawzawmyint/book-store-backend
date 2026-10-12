@@ -21,7 +21,8 @@
     "test:postgres": "tsc -p tsconfig.json && tsx scripts/test-postgresql.ts",
     "test:postgres:browser": "tsc -p tsconfig.json && tsx scripts/test-postgresql.ts browser",
     "lint": "oxlint src test",
-    "codegen": "graphql-codegen --config codegen.ts"
+    "codegen": "graphql-codegen --config codegen.ts",
+    "auth:revoke-unverified": "tsx src/modules/auth-email/session-rollout-cli.ts"
   },
   "keywords": [],
   "author": "",
@@ -38,6 +39,7 @@
     "drizzle-orm": "^0.45.3",
     "express": "^5.2.1",
     "graphql": "^16.14.2",
+    "nodemailer": "^10.1.0",
     "pg": "^8.23.1",
     "stripe": "^23.0.0",
     "zod": "^4.6.5"
@@ -50,6 +52,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^26.6.3",
+    "@types/nodemailer": "^8.0.2",
     "@types/pg": "8.23.1",
     "@types/supertest": "^7.2.1",
     "drizzle-kit": "^0.31.11",

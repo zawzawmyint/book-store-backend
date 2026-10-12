@@ -9,7 +9,8 @@ export async function seedDemoAccounts(
   nodeEnv: 'development' | 'test' | 'production',
 ) {
   if (nodeEnv === 'production') throw new Error('Demo accounts are disabled in production')
-  const auth = createAuth(db, options)
+  // Reserved local fixtures need no delivery, and never use production credentials.
+  const auth = createAuth(db, { ...options, emailSender: { async send() {} } })
   const roles = createAdminRepository(db)
   const accounts = createSeedAccountStore(db)
   const demoRoles = ['CUSTOMER', 'STAFF', 'ADMIN'] as const
@@ -21,8 +22,13 @@ export async function seedDemoAccounts(
     const existing = await accounts.findByEmail(email)
     if (existing) {
       try {
-        const login = await auth.api.signInEmail({ body: { email, password } })
-        await accounts.deleteSessionToken(login.token)
+        const context = await auth.$context
+        const credential = await context.internalAdapter.findCredentialAccount(existing.id)
+        if (
+          !credential?.password ||
+          !(await context.password.verify({ hash: credential.password, password }))
+        )
+          throw new Error('Credential mismatch')
         existingIds.set(email, existing.id)
       } catch {
         throw new Error(
@@ -45,6 +51,7 @@ export async function seedDemoAccounts(
       id = signup.user.id
       if (signup.token) await accounts.deleteSessionToken(signup.token)
     }
+    await accounts.markVerified(id!)
     await roles.setUserRole(id!, role, operatorActor)
   }
 }

@@ -25,6 +25,7 @@ type AdminUser {
   id: ID!
   name: String!
   email: String!
+  emailVerified: Boolean!
   role: UserRole!
   createdAt: String!
 }
@@ -47,7 +48,7 @@ extend type Mutation {
 }
 ```
 
-`viewer`, `AdminUser`, and compatibility `AdminCustomer` may return all three roles. `setUserRole` is the canonical assignment mutation and requires Admin's user-management permission. The old Boolean mutations are deprecated compatibility fields; true assigns Admin and false assigns Customer.
+`viewer`, `AdminUser`, and compatibility `AdminCustomer` may return all three roles. `AdminUser` and compatibility `AdminCustomer` also expose the stored `emailVerified` state as a read-only Boolean. `setUserRole` is the canonical assignment mutation and requires Admin's user-management permission. The old Boolean mutations are deprecated compatibility fields; true assigns Admin and false assigns Customer.
 
 ## Compatibility and release
 
@@ -66,7 +67,7 @@ The new frontend works with the new backend; it is not expected to work with an 
 - Directory and management operations require a valid session and current Admin role before validation or user lookup. Guests receive `UNAUTHENTICATED`; Customer and Staff roles receive `FORBIDDEN`, without learning whether a target exists.
 - List all registered users, including the caller. Do not include guest-order contacts or associate orders by email.
 - Search trims, accepts at most 100 characters, and matches name/email case-insensitively with literal SQL wildcard handling. Pagination accepts limit 1–50 and nonnegative offset. Total is filtered before pagination; order by registration time descending, then user ID descending.
-- Return only ID, name, email, role, and UTC ISO registration time. Preserve existing unknown-user and invalid-input errors.
+- Return only ID, name, email, read-only `emailVerified`, role, and UTC ISO registration time. Preserve existing unknown-user and invalid-input errors. The verification field does not add an admin control, filter, or role-based bypass.
 - `setUserRole` is idempotent, applies only to an existing exact user ID, and changes no credentials, sessions, or orders. Self-demotion and final-admin demotion remain allowed; access changes on the next protected request.
 - Password reset accepts 8–128 characters, uses the existing Better Auth hasher, removes the target's sessions, and rejects self-reset. Own-password changes stay in the profile flow. Preserve rejection of targets without password credentials.
 
@@ -91,8 +92,9 @@ The User vocabulary accommodates Staff without another directory rename. `user_r
 - [x] Role assignment, self-demotion, unknown targets, and password reset/session revocation retain their specified behavior.
 - [x] Internal canonical code and tests use User terminology; customer-named API identifiers remain only for deliberate compatibility or shopping concepts.
 - [x] Existing admins were preserved by the coordinated Staff migration; Customer, Staff, and Admin can shop.
+- [x] Canonical and compatibility list/detail projections expose the stored verification state without changing authorization, mutations, pagination, or private fields.
 - [x] Backend codegen, `bun run test`, `bun run lint`, and `bun run build` pass; the coordinated frontend's browser journey passes against this API.
 
 ## Validation and unresolved decisions
 
-`test/admin-users.test.ts` and `test/user-details.test.ts` cover the canonical directory/detail operations, authorization and validation, role changes, and password-reset session revocation. Compatibility fields are deprecated wrappers over shared resolver behavior and retain their original declared customer-named types. The Staff role extension is verified in [the staff roles specification](../staff/SPEC.md). Legacy-contract removal timing remains a separate decision.
+`test/admin-users.test.ts` and `test/user-details.test.ts` cover the canonical directory/detail operations, including both stored verification states, authorization and validation, role changes, and password-reset session revocation. SQLite/PostgreSQL adapters share the same verification projection. Compatibility fields are deprecated wrappers over shared resolver behavior and retain their original declared customer-named types. The Staff role extension is verified in [the staff roles specification](../staff/SPEC.md). Legacy-contract removal timing remains a separate decision.

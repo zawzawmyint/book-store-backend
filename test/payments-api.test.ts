@@ -1,6 +1,7 @@
+import request from 'supertest'
+import { verifiedFixtureRequest, capturedFixtureSender } from './verified-auth-fixture.js'
 import { deliveryOptions } from './delivery-fixtures.js'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import request from 'supertest'
 import { randomUUID } from 'node:crypto'
 import { createDatabase } from '../src/database/connection.js'
 import { createApp } from '../src/app.js'
@@ -9,6 +10,7 @@ import { FakePaymentProvider } from './fake-payment-provider.js'
 const options = {
   frontendOrigin: 'http://localhost:5173',
   authBaseURL: 'http://localhost:4000',
+  emailSender: capturedFixtureSender,
   authSecret: 'payments-test-secret-at-least-thirty-two-characters',
 }
 let db: ReturnType<typeof createDatabase>,
@@ -24,7 +26,7 @@ beforeEach(async () => {
     ...deliveryOptions,
   })
   for (const name of ['buyer', 'other', 'staff']) {
-    const r = await request(app)
+    const r = await verifiedFixtureRequest(app, db, options)
       .post('/api/auth/sign-up/email')
       .set('Origin', options.frontendOrigin)
       .send({
@@ -45,7 +47,9 @@ beforeEach(async () => {
 })
 afterEach(() => db.close())
 function gql(query: string, cookies: string[] = buyer) {
-  const r = request(app).post('/graphql').set('Origin', options.frontendOrigin)
+  const r = verifiedFixtureRequest(app, db, options)
+    .post('/graphql')
+    .set('Origin', options.frontendOrigin)
   if (cookies.length) r.set('Cookie', cookies)
   return r.send({
     query,
@@ -107,7 +111,7 @@ it('preserves raw signed webhook bytes, size bounds, durable queuing and duplica
   })
   expect(
     (
-      await request(app)
+      await verifiedFixtureRequest(app, db, options)
         .post('/api/payments/stripe/webhook')
         .set('Content-Type', 'application/json')
         .set('stripe-signature', 'forged')
@@ -122,7 +126,7 @@ it('preserves raw signed webhook bytes, size bounds, durable queuing and duplica
   )
   expect(
     (
-      await request(app)
+      await verifiedFixtureRequest(app, db, options)
         .post('/api/payments/stripe/webhook')
         .set('Content-Type', 'application/json')
         .set('stripe-signature', 'valid')
@@ -133,7 +137,7 @@ it('preserves raw signed webhook bytes, size bounds, durable queuing and duplica
   provider.unavailable = true
   expect(
     (
-      await request(app)
+      await verifiedFixtureRequest(app, db, options)
         .post('/api/payments/stripe/webhook')
         .set('Content-Type', 'application/json')
         .set('stripe-signature', 'valid')
@@ -147,7 +151,7 @@ it('preserves raw signed webhook bytes, size bounds, durable queuing and duplica
   for (let n = 0; n < 2; n++)
     expect(
       (
-        await request(app)
+        await verifiedFixtureRequest(app, db, options)
           .post('/api/payments/stripe/webhook')
           .set('Content-Type', 'application/json')
           .set('stripe-signature', 'valid')
@@ -162,7 +166,7 @@ it('preserves raw signed webhook bytes, size bounds, durable queuing and duplica
   })
   expect(
     (
-      await request(app)
+      await verifiedFixtureRequest(app, db, options)
         .post('/api/payments/stripe/webhook')
         .set('Content-Type', 'application/json')
         .send('x'.repeat(102401))
@@ -184,7 +188,7 @@ it('disabled checkout returns a safe availability error while legacy reads remai
   })
 })
 it('rejects malformed signed event envelopes as invalid payloads instead of queue failures', async () => {
-  const r = await request(app)
+  const r = await verifiedFixtureRequest(app, db, options)
     .post('/api/payments/stripe/webhook')
     .set('Content-Type', 'application/json')
     .set('stripe-signature', 'valid')

@@ -1,3 +1,4 @@
+import { capturedFixtureSender } from './verified-auth-fixture.js'
 import { expect, it } from 'vitest'
 import request from 'supertest'
 import { createDatabase } from '../src/database/connection.js'
@@ -8,6 +9,7 @@ import { seedDemoAccounts } from '../src/database/demo-seed.js'
 const options = {
   frontendOrigin: 'http://localhost:5173',
   authBaseURL: 'http://localhost:5173',
+  emailSender: capturedFixtureSender,
   authSecret: 'demo-test-secret-at-least-thirty-two-characters',
 }
 
