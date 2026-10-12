@@ -1,5 +1,5 @@
 import { validated } from '../../shared/validation.js'
-import type { createDashboardRepository } from './dashboard.repository.js'
+import type { DashboardRepository } from './dashboard.repository.js'
 import { dashboardPeriodSchema } from './dashboard.validation.js'
 
 const DAY = 86400000
@@ -7,7 +7,7 @@ const DUBAI_OFFSET = 4 * 3600000
 const date = (instant: number) => new Date(instant).toISOString().slice(0, 10)
 
 export function createDashboardService(
-  repository: ReturnType<typeof createDashboardRepository>,
+  repository: DashboardRepository,
   now: () => number = Date.now,
 ) {
   return {

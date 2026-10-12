@@ -1,6 +1,6 @@
 import { validated } from '../../shared/validation.js'
 import type { ActivityActor } from '../activity/activity.types.js'
-import type { createAdminBookRepository } from './admin-book.repository.js'
+import type { AdminBookRepository } from './admin-book.repository.js'
 import {
   adminBookIdSchema,
   adminBooksInputSchema,
@@ -9,7 +9,7 @@ import {
   stockDeltaSchema,
 } from './book.validation.js'
 
-export function createAdminBookService(repository: ReturnType<typeof createAdminBookRepository>) {
+export function createAdminBookService(repository: AdminBookRepository) {
   return {
     list: (input: unknown) => repository.list(validated(adminBooksInputSchema, input)),
     get: (id: string) => repository.get(validated(adminBookIdSchema, id)),

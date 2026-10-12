@@ -31,17 +31,15 @@ export async function createApp(
   options: AuthOptions,
   paymentOptions: Omit<PaymentOptions, 'frontendOrigin'> = {},
 ) {
-  const payments = createPaymentService(
-    createPaymentRepository(db, paymentOptions.now ?? Date.now),
-    {
-      ...paymentOptions,
-      frontendOrigin: options.frontendOrigin,
-    },
-  )
+  const paymentRepository = createPaymentRepository(db, paymentOptions.now ?? Date.now)
+  const paymentService = createPaymentService(paymentRepository, {
+    ...paymentOptions,
+    frontendOrigin: options.frontendOrigin,
+  })
   const auth = createAuth(db, options)
   const server = new ApolloServer<GraphQLContext>({
     typeDefs,
-    resolvers: createResolvers(db, payments),
+    resolvers: createResolvers(db, paymentService),
     formatError: publicGraphQLError,
   })
   try {
@@ -54,7 +52,7 @@ export async function createApp(
     const app = express()
     app.disable('x-powered-by')
     app.get('/health', (_req, res) => res.json({ status: 'ok' }))
-    app.locals.payments = payments
+    app.locals.payments = paymentService
     app.locals.close = () => server.stop()
     app.post(
       '/api/payments/stripe/webhook',
@@ -81,7 +79,7 @@ export async function createApp(
           return
         }
         try {
-          await payments.handleEvent(event)
+          await paymentService.handleEvent(event)
           res.sendStatus(200)
         } catch {
           res.sendStatus(503)

@@ -7,22 +7,22 @@ import type { OrderCustomer } from '../orders/order.types.js'
 import type { ActivityActor } from '../activity/activity.types.js'
 import { ProviderRejection, type PaymentProvider, type ProviderEvent } from './payment.provider.js'
 import { checkoutInputSchema } from './payment.validation.js'
-import type { createPaymentRepository } from './payment.repository.js'
+import type { PaymentRepository } from './payment.repository.js'
 
 export type PaymentOptions = DeliveryConfig & {
   provider?: PaymentProvider
   now?: () => number
   frontendOrigin: string
 }
-export function createPaymentService(
-  repository: ReturnType<typeof createPaymentRepository>,
-  options: PaymentOptions,
-) {
+
+export type PaymentService = ReturnType<typeof createPaymentService>
+
+export function createPaymentService(repository: PaymentRepository, options: PaymentOptions) {
   // Cursor rotation keeps bounded sweeps fair even when old resources stay pending.
-  let orderCursor = 0,
-    eventCursor = ''
-  const now = options.now ?? Date.now,
-    provider = options.provider
+  let orderCursor = 0
+  let eventCursor = ''
+  const now = options.now ?? Date.now
+  const provider = options.provider
   function requireProvider() {
     if (!provider) throw new PaymentUnavailableError()
     return provider
@@ -36,8 +36,8 @@ export function createPaymentService(
     return order
   }
   async function runOperation(id: string) {
-    const api = requireProvider(),
-      op = await repository.claim(id)
+    const api = requireProvider()
+    const op = await repository.claim(id)
     if (!op) {
       const current = await repository.operation(id)
       if (current && current.state !== 'DONE' && current.state !== 'FAILED')
@@ -191,8 +191,8 @@ export function createPaymentService(
       return readOrder(id, customer)
     },
     async setOrderStatus(input: unknown, actor: ActivityActor) {
-      const parsed = validated(setOrderStatusSchema, input),
-        row = await repository.get(Number(parsed.id))
+      const parsed = validated(setOrderStatusSchema, input)
+      const row = await repository.get(Number(parsed.id))
       if (!row) throw new ValidationError('Order was not found')
       if (row.status === parsed.status) return repository.workflow.setStatus(parsed, actor)
       if (row.status !== parsed.expectedStatus)

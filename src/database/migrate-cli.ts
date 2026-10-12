@@ -1,11 +1,11 @@
 import 'dotenv/config'
 import { loadConfig } from '../config/env.js'
 import { openDatabase } from './runtime.js'
-import { migratePostgresql } from './postgresql/connection.js'
+import { migratePostgreSQL } from './postgresql/connection.js'
 
 const config = loadConfig()
 if (config.databaseProvider === 'postgresql') {
-  await migratePostgresql(config)
+  await migratePostgreSQL(config)
 } else {
   const database = await openDatabase(config)
   await database.close()

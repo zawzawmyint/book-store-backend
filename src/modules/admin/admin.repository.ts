@@ -83,3 +83,5 @@ export function createAdminRepository(input: DatabaseInput) {
     },
   }
 }
+
+export type AdminRepository = ReturnType<typeof createAdminRepository>

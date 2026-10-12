@@ -33,3 +33,5 @@ export function createActivityRepository(input: DatabaseInput) {
     },
   }
 }
+
+export type ActivityRepository = ReturnType<typeof createActivityRepository>

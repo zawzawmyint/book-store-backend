@@ -2,13 +2,13 @@ import type { AuthenticatedUser, GraphQLContext } from '../../graphql/context.js
 import type { QueryResolvers, MutationResolvers } from '../../graphql/generated/resolvers.js'
 import { rethrowResolverError } from '../../graphql/errors.js'
 import { createPermissionGuard, type Permission } from '../admin/admin.authorization.js'
-import type { createAdminRepository } from '../admin/admin.repository.js'
+import type { AdminRepository } from '../admin/admin.repository.js'
 import { createAdminBookService } from './admin-book.service.js'
-import type { createAdminBookRepository } from './admin-book.repository.js'
+import type { AdminBookRepository } from './admin-book.repository.js'
 
 export function createAdminBookResolvers(
-  repository: ReturnType<typeof createAdminBookRepository>,
-  roles: ReturnType<typeof createAdminRepository>,
+  repository: AdminBookRepository,
+  adminRepository: AdminRepository,
 ): {
   Query: Pick<QueryResolvers<GraphQLContext>, 'adminBooks' | 'adminBook'>
   Mutation: Pick<
@@ -16,8 +16,8 @@ export function createAdminBookResolvers(
     'createBook' | 'updateBook' | 'adjustBookStock' | 'setBookArchived'
   >
 } {
-  const guard = createPermissionGuard(roles.getUserRole)
-  const service = createAdminBookService(repository)
+  const guard = createPermissionGuard(adminRepository.getUserRole)
+  const adminBookService = createAdminBookService(repository)
   const run = async <T>(
     context: GraphQLContext,
     action: (user: AuthenticatedUser) => T,
@@ -34,7 +34,7 @@ export function createAdminBookResolvers(
     Query: {
       adminBooks: (_, args, ctx) =>
         run(ctx, () =>
-          service.list({
+          adminBookService.list({
             search: args.search ?? '',
             filter: args.filter ?? 'ACTIVE',
             lowStockOnly: args.lowStockOnly ?? false,
@@ -42,24 +42,38 @@ export function createAdminBookResolvers(
             offset: args.offset ?? 0,
           }),
         ),
-      adminBook: (_, args, ctx) => run(ctx, () => service.get(args.id)),
+      adminBook: (_, args, ctx) => run(ctx, () => adminBookService.get(args.id)),
     },
     Mutation: {
       createBook: (_, args, ctx) =>
-        run(ctx, async (user) => service.create(args.input, await roles.getActivityActor(user.id))),
+        run(ctx, async (user) =>
+          adminBookService.create(args.input, await adminRepository.getActivityActor(user.id)),
+        ),
       updateBook: (_, args, ctx) =>
         run(ctx, async (user) =>
-          service.update(args.id, args.input, await roles.getActivityActor(user.id)),
+          adminBookService.update(
+            args.id,
+            args.input,
+            await adminRepository.getActivityActor(user.id),
+          ),
         ),
       adjustBookStock: (_, args, ctx) =>
         run(ctx, async (user) =>
-          service.adjustStock(args.id, args.delta, await roles.getActivityActor(user.id)),
+          adminBookService.adjustStock(
+            args.id,
+            args.delta,
+            await adminRepository.getActivityActor(user.id),
+          ),
         ),
       setBookArchived: (_, args, ctx) =>
         run(
           ctx,
           async (user) =>
-            service.archive(args.id, args.archived, await roles.getActivityActor(user.id)),
+            adminBookService.archive(
+              args.id,
+              args.archived,
+              await adminRepository.getActivityActor(user.id),
+            ),
           'ARCHIVE_BOOKS',
         ),
     },

@@ -15,17 +15,15 @@ import { createAdminResolvers } from '../modules/admin/admin.resolvers.js'
 import { createAdminBookResolvers } from '../modules/books/admin-book.resolvers.js'
 import { createAdminOrderResolvers } from '../modules/orders/admin-order.resolvers.js'
 import { createActivityResolvers } from '../modules/activity/activity.resolvers.js'
-import type { createPaymentService } from '../modules/payments/payment.service.js'
+import type { PaymentService } from '../modules/payments/payment.service.js'
 import { createDashboardRepository } from '../modules/dashboard/dashboard.repository.js'
 import { createDashboardResolvers } from '../modules/dashboard/dashboard.resolvers.js'
 
 export function createResolvers(
   db: DatabaseInput,
-  payments: ReturnType<typeof createPaymentService>,
+  paymentService: PaymentService,
 ): Resolvers<GraphQLContext> {
-
-
-  const roles = createAdminRepository(db)
+  const adminRepository = createAdminRepository(db)
   const orderRepository = createOrderRepository(db)
   const adminBookRepository = createAdminBookRepository(db)
   const dashboardRepository = createDashboardRepository(db)
@@ -33,13 +31,13 @@ export function createResolvers(
   const adminOrderRepository = createAdminOrderRepository(db)
   const activityRepository = createActivityRepository(db)
 
-  const orderResolvers = createOrderResolvers(orderRepository, roles, payments)
-  const adminBooks = createAdminBookResolvers(adminBookRepository, roles)
-  const admin = createAdminResolvers(roles)
-  const dashboard = createDashboardResolvers(dashboardRepository, roles)
-  const books = createBookResolvers(catalogRepository)
-  const adminOrders = createAdminOrderResolvers(adminOrderRepository, roles)
-  const activity = createActivityResolvers(activityRepository, roles)
+  const orderResolvers = createOrderResolvers(orderRepository, adminRepository, paymentService)
+  const adminBookResolvers = createAdminBookResolvers(adminBookRepository, adminRepository)
+  const adminResolvers = createAdminResolvers(adminRepository)
+  const dashboardResolvers = createDashboardResolvers(dashboardRepository, adminRepository)
+  const bookResolvers = createBookResolvers(catalogRepository)
+  const adminOrderResolvers = createAdminOrderResolvers(adminOrderRepository, adminRepository)
+  const activityResolvers = createActivityResolvers(activityRepository, adminRepository)
   return {
     OrderHistoryEntry: {
       delivery: async (order) =>
@@ -52,14 +50,18 @@ export function createResolvers(
         (await adminOrderRepository.history(order.id)) as AdminOrderStatusEvent[],
     },
     Query: {
-      ...dashboard,
-      ...books,
+      ...dashboardResolvers,
+      ...bookResolvers,
       ...orderResolvers.Query,
-      ...admin.Query,
-      ...adminBooks.Query,
-      ...adminOrders,
-      ...activity,
+      ...adminResolvers.Query,
+      ...adminBookResolvers.Query,
+      ...adminOrderResolvers,
+      ...activityResolvers,
     },
-    Mutation: { ...orderResolvers.Mutation, ...adminBooks.Mutation, ...admin.Mutation },
+    Mutation: {
+      ...orderResolvers.Mutation,
+      ...adminBookResolvers.Mutation,
+      ...adminResolvers.Mutation,
+    },
   }
 }

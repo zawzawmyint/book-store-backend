@@ -7,17 +7,17 @@ import type {
 import type { MutationResolvers, QueryResolvers } from '../../graphql/generated/resolvers.js'
 import type { GraphQLContext } from '../../graphql/context.js'
 import { rethrowResolverError } from '../../graphql/errors.js'
-import type { createOrderRepository } from './order.repository.js'
+import type { OrderRepository } from './order.types.js'
 import { createOrderService } from './order.service.js'
-import type { createPaymentService } from '../payments/payment.service.js'
+import type { PaymentService } from '../payments/payment.service.js'
 import { createPermissionGuard } from '../admin/admin.authorization.js'
-import type { createAdminRepository } from '../admin/admin.repository.js'
+import type { AdminRepository } from '../admin/admin.repository.js'
 import { requireUser } from '../../shared/authentication.js'
 
 export function createOrderResolvers(
-  repository: ReturnType<typeof createOrderRepository>,
-  roles: ReturnType<typeof createAdminRepository>,
-  payments: ReturnType<typeof createPaymentService>,
+  repository: OrderRepository,
+  adminRepository: AdminRepository,
+  paymentService: PaymentService,
 ): {
   Query: Pick<
     QueryResolvers<GraphQLContext>,
@@ -33,14 +33,14 @@ export function createOrderResolvers(
     | 'retryOrderRefund'
   >
 } {
-  const service = createOrderService(repository)
-  const guard = createPermissionGuard(roles.getUserRole)
+  const orderService = createOrderService(repository)
+  const guard = createPermissionGuard(adminRepository.getUserRole)
   return {
     Query: {
       deliveryOptions: (_, _args, context) => {
         requireUser(context.user)
         try {
-          return payments.deliveryOptions()
+          return paymentService.deliveryOptions()
         } catch (error) {
           return rethrowResolverError(error)
         }
@@ -48,7 +48,7 @@ export function createOrderResolvers(
       quoteCheckout: async (_, args, context) => {
         requireUser(context.user)
         try {
-          return await payments.quoteCheckout(args.input)
+          return await paymentService.quoteCheckout(args.input)
         } catch (error) {
           return rethrowResolverError(error)
         }
@@ -56,7 +56,7 @@ export function createOrderResolvers(
       myOrder: async (_, args, context) => {
         const user = requireUser(context.user)
         try {
-          return (await service.myOrder(user.id, args.id)) as MyOrder | null
+          return (await orderService.myOrder(user.id, args.id)) as MyOrder | null
         } catch (error) {
           return rethrowResolverError(error)
         }
@@ -64,7 +64,7 @@ export function createOrderResolvers(
       myOrders: async (_, args, context) => {
         const user = requireUser(context.user)
         try {
-          return (await service.myOrders(
+          return (await orderService.myOrders(
             user.id,
             args.limit ?? 20,
             args.offset ?? 0,
@@ -78,11 +78,11 @@ export function createOrderResolvers(
       setOrderStatus: async (_, args, context) => {
         const user = await guard(context.user, 'PROCESS_ORDERS')
         try {
-          return await payments.setOrderStatus(args.input, {
+          return await paymentService.setOrderStatus(args.input, {
             source: 'GRAPHQL',
             userId: user.id,
             name: user.name,
-            role: await roles.getUserRole(user.id),
+            role: await adminRepository.getUserRole(user.id),
           })
         } catch (error) {
           return rethrowResolverError(error)
@@ -91,7 +91,7 @@ export function createOrderResolvers(
       createCheckout: async (_, args, context) => {
         const user = requireUser(context.user)
         try {
-          return (await payments.createCheckout(args.input, user)) as CheckoutResult
+          return (await paymentService.createCheckout(args.input, user)) as CheckoutResult
         } catch (error) {
           return rethrowResolverError(error)
         }
@@ -99,7 +99,7 @@ export function createOrderResolvers(
       resumeCheckout: async (_, args, context) => {
         const user = requireUser(context.user)
         try {
-          return (await payments.resumeCheckout(args.orderId, user)) as CheckoutResult
+          return (await paymentService.resumeCheckout(args.orderId, user)) as CheckoutResult
         } catch (error) {
           return rethrowResolverError(error)
         }
@@ -107,7 +107,7 @@ export function createOrderResolvers(
       refreshOrderPayment: async (_, args, context) => {
         const user = requireUser(context.user)
         try {
-          return (await payments.refreshOrderPayment(args.orderId, user)) as MyOrder
+          return (await paymentService.refreshOrderPayment(args.orderId, user)) as MyOrder
         } catch (error) {
           return rethrowResolverError(error)
         }
@@ -115,7 +115,7 @@ export function createOrderResolvers(
       retryOrderRefund: async (_, args, context) => {
         await guard(context.user, 'PROCESS_ORDERS')
         try {
-          return await payments.retryOrderRefund(args.orderId)
+          return await paymentService.retryOrderRefund(args.orderId)
         } catch (error) {
           return rethrowResolverError(error)
         }
@@ -123,7 +123,7 @@ export function createOrderResolvers(
       placeOrder: async (_, args, context) => {
         const user = requireUser(context.user)
         try {
-          return service.placeOrder(args.input, user) as OrderReceipt
+          return orderService.placeOrder(args.input, user) as OrderReceipt
         } catch (error) {
           return rethrowResolverError(error)
         }

@@ -7,7 +7,7 @@ import { readMigrationFiles } from 'drizzle-orm/migrator'
 import type { AppConfig } from '../../config/env.js'
 import * as schema from './schema.js'
 const migrationsFolder = fileURLToPath(new URL('../../../drizzle/postgresql/', import.meta.url))
-export function postgresqlPoolConfig(config: AppConfig): PoolConfig {
+export function postgreSQLPoolConfig(config: AppConfig): PoolConfig {
   if (!config.databaseUrl) throw new Error('DATABASE_URL is required')
   return {
     connectionString: config.databaseUrl,
@@ -24,15 +24,15 @@ export function postgresqlPoolConfig(config: AppConfig): PoolConfig {
         : false,
   }
 }
-export function createPostgresqlPool(config: AppConfig) {
-  const pool = new Pool(postgresqlPoolConfig(config))
+export function createPostgreSQLPool(config: AppConfig) {
+  const pool = new Pool(postgreSQLPoolConfig(config))
   // Idle clients are discarded by pg after errors. Never expose connection secrets.
   pool.on('error', () => {
     console.error('PostgreSQL idle connection unavailable')
   })
   return pool
 }
-export async function assertPostgresqlReady(pool: Pool) {
+export async function assertPostgreSQLReady(pool: Pool) {
   const migrations = readMigrationFiles({ migrationsFolder })
   const expected = migrations.at(-1)?.hash
   try {
@@ -49,8 +49,8 @@ export async function assertPostgresqlReady(pool: Pool) {
     throw new Error('PostgreSQL schema is unavailable or outdated; run db:migrate before startup')
   }
 }
-export async function migratePostgresql(config: AppConfig) {
-  const pool = createPostgresqlPool(config)
+export async function migratePostgreSQL(config: AppConfig) {
+  const pool = createPostgreSQLPool(config)
   try {
     await migrate(drizzle(pool, { schema }), { migrationsFolder })
   } finally {

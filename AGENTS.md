@@ -30,12 +30,14 @@ Use this order for future implementation work. Existing specs describe the curre
 ## Code boundaries
 
 - Define GraphQL types and resolvers in each module; compose them in `src/graphql/schema.ts` and `src/graphql/resolvers.ts`.
+- For internal dependency wiring, construct repositories before the services or resolvers that consume them, then compose the result. Use role-specific `*Repository`, `*Service`, and `*Resolvers` names; export an inferred repository alias from its owning repository when no existing explicit contract applies.
 - Regenerate `src/graphql/generated/resolvers.ts` with `bun run codegen` after schema changes. Do not hand-edit it.
 - Define input validation and normalization in module-local `*.validation.ts` Zod schemas invoked by services. Keep GraphQL contracts, API input schemas, and persistence schemas separate. Keep business rules in services and Drizzle queries in repositories; preserve input limits and `BAD_USER_INPUT` errors.
 - Keep local order pricing, stock changes, and payment state transitions in their required database transactions. Calculate totals from stored prices, not client values; never hold a database transaction across a provider network call.
 - Define logical table changes in both the SQLite schema (`src/database/schema.ts`) and PostgreSQL schema (`src/database/postgresql/`). Generate and review migrations for both `drizzle/` and `drizzle/postgresql/`. `bun run db:migrate` preserves SQLite legacy adoption and applies PostgreSQL migrations explicitly; PostgreSQL startup only checks readiness. The order-workflow migration deliberately rejects populated pre-workflow SQLite orders rather than inventing status history; use an explicit, authorized development reset or a separately designed data migration. Do not edit or commit runtime SQLite files in `data/`.
 - Keep configuration in `src/config/env.ts` and update `.env.example` when an environment variable changes.
 - Keep Better Auth's Express handler before JSON body parsing, derive order identity from the server session, and generate auth tables with `auth.cli.ts` before generating Drizzle migrations. Do not claim legacy guest orders by email.
+- For behavior-preserving refactors, establish a passing baseline and rerun relevant existing tests after each pass. Add a failing test when a behavior gap is found; do not manufacture failing tests for naming-only or signature-clarity changes.
 
 ## Cross-repository workflow
 

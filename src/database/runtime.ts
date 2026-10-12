@@ -8,7 +8,7 @@ import type { AppConfig } from '../config/env.js'
 import { createDatabase } from './connection.js'
 import * as sqliteSchema from './schema.js'
 import * as postgresSchema from './postgresql/schema.js'
-import { createPostgresqlPool, assertPostgresqlReady } from './postgresql/connection.js'
+import { createPostgreSQLPool, assertPostgreSQLReady } from './postgresql/connection.js'
 export type DatabaseHandle =
   | { provider: 'sqlite'; raw: Database.Database; orm: BetterSQLite3Database<typeof sqliteSchema> }
   | { provider: 'postgresql'; pool: Pool; orm: NodePgDatabase<typeof postgresSchema> }
@@ -39,9 +39,9 @@ export async function openDatabase(
       },
     }
   }
-  const pool = createPostgresqlPool(config)
+  const pool = createPostgreSQLPool(config)
   try {
-    await assertPostgresqlReady(pool)
+    await assertPostgreSQLReady(pool)
     let closing: Promise<void> | undefined
     return {
       handle: {
