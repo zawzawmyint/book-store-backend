@@ -1,4 +1,6 @@
 import { revokeUnverifiedSessions } from '../src/modules/auth-email/session-rollout.js'
+import { createCartRepository } from '../src/modules/cart/cart.repository.js'
+import { createCartService } from '../src/modules/cart/cart.service.js'
 import { capturedFixtureSender } from './verified-auth-fixture.js'
 import { createSeedAccountStore } from '../src/database/runtime-seed.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -60,6 +62,379 @@ describe(`database contract: ${providerName}`, () => {
   let service: ReturnType<typeof createPaymentService>
   let buyer: { id: string; name: string; email: string }
   let now: number
+  it.skipIf(providerName !== 'postgresql')(
+    'projects a cart without waiting for another owner stock write lock',
+    async () => {
+      if (database.handle.provider !== 'postgresql') return
+      const cart = createCartService(createCartRepository(database.handle))
+      await cart.set(buyer.id, {
+        bookId: '1',
+        quantity: 1,
+        expectedRevision: '0',
+        requestKey: randomUUID(),
+      })
+      const writer = await database.handle.pool.connect()
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        await writer.query('BEGIN')
+        await writer.query('SELECT id FROM books WHERE id=1 FOR UPDATE')
+        const reading = cart.read(buyer.id)
+        const timeout = new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error('Cart projection waited for unrelated stock writer')),
+            2000,
+          )
+        })
+        expect((await Promise.race([reading, timeout])).items[0].bookId).toBe('1')
+      } finally {
+        if (timer) clearTimeout(timer)
+        await writer.query('ROLLBACK')
+        writer.release()
+      }
+    },
+  )
+  it('rolls paid truth and cleanup back together on local failure, then recovers exactly once', async () => {
+    const cart = createCartService(createCartRepository(database.handle))
+    await cart.set(buyer.id, {
+      bookId: '1',
+      quantity: 1,
+      expectedRevision: '0',
+      requestKey: randomUUID(),
+    })
+    const checkout = await service.createCheckout({ ...input(), cartRevision: '1' }, buyer)
+    const row = (await store.order(Number(checkout.order.id)))!
+    provider.pay(row.stripeSessionId!)
+    const fault = new Proxy(store, {
+      get(target, key) {
+        if (key === 'transaction')
+          return (work: (tx: DomainStore) => Promise<unknown>) =>
+            target.transaction((tx) =>
+              work(
+                new Proxy(tx, {
+                  get(scoped, field) {
+                    if (field === 'cleanCartSnapshot')
+                      return async () => {
+                        throw new Error('Injected cart cleanup failure')
+                      }
+                    return Reflect.get(scoped, field)
+                  },
+                }),
+              ),
+            )
+        return Reflect.get(target, key)
+      },
+    })
+    await expect(
+      createPaymentRepository(fault, () => now).reconcileSession(
+        await provider.retrieveSession(row.stripeSessionId!),
+      ),
+    ).rejects.toThrow('Injected')
+    expect((await store.order(row.id))!.paymentStatus).toBe('PENDING')
+    expect((await store.cartSnapshot(row.id))!.cleanedAt).toBeNull()
+    expect((await cart.read(buyer.id)).items).toHaveLength(1)
+    await service.recover()
+    expect((await store.order(row.id))!.paymentStatus).toBe('PAID')
+    expect((await cart.read(buyer.id)).items).toEqual([])
+  })
+  it('retains unavailable lines with live metadata, permits repair and never reserves stock', async () => {
+    const cart = createCartService(createCartRepository(database.handle))
+    const set = (quantity: number, expectedRevision: string) =>
+      cart.set(buyer.id, { bookId: '1', quantity, expectedRevision, requestKey: randomUUID() })
+    await set(3, '0')
+    await store.updateBook(1, { archived: true, stock: 1, priceCents: 999 })
+    expect((await cart.read(buyer.id)).items[0]).toMatchObject({
+      quantity: 3,
+      available: false,
+      priceCents: 999,
+      stock: 1,
+    })
+    await expect(set(4, '1')).rejects.toThrow('unavailable')
+    await set(2, '1')
+    const merged = await cart.merge(buyer.id, {
+      items: [{ bookId: '1', quantity: 1 }],
+      expectedRevision: '2',
+      requestKey: randomUUID(),
+    })
+    expect(merged.items[0].quantity).toBe(2)
+    expect(merged.mergeNotices).toEqual([{ bookId: '1', reason: 'UNAVAILABLE' }])
+    await set(0, '2')
+    expect((await cart.read(buyer.id)).items).toEqual([])
+    expect((await store.book(1))!.stock).toBe(1)
+  })
+  it('normalizes merge ordering, keeps account lines at capacity and rejects invalid snapshots atomically', async () => {
+    const cart = createCartService(createCartRepository(database.handle))
+    for (let i = 0; i < 22; i++)
+      await store.createBook({
+        title: `Extra ${i}`,
+        author: 'Author',
+        genre: 'Genre',
+        description: 'Book',
+        priceCents: 100,
+        stock: 10,
+      })
+    const account = Array.from({ length: 19 }, (_, i) => ({ bookId: String(i + 1), quantity: 1 }))
+    const initial = await cart.merge(buyer.id, {
+      items: account,
+      expectedRevision: '0',
+      requestKey: randomUUID(),
+    })
+    expect(initial.items).toHaveLength(19)
+    const result = await cart.merge(buyer.id, {
+      items: [
+        { bookId: '22', quantity: 1 },
+        { bookId: '20', quantity: 1 },
+        { bookId: '21', quantity: 1 },
+      ],
+      expectedRevision: '1',
+      requestKey: randomUUID(),
+    })
+    expect(result.items.map((l) => l.bookId)).toEqual(
+      Array.from({ length: 20 }, (_, i) => String(i + 1)),
+    )
+    expect(result.mergeNotices).toEqual([
+      { bookId: '21', reason: 'LINE_LIMIT' },
+      { bookId: '22', reason: 'LINE_LIMIT' },
+    ])
+    await expect(
+      cart.set(buyer.id, {
+        bookId: '21',
+        quantity: 1,
+        expectedRevision: '2',
+        requestKey: randomUUID(),
+      }),
+    ).rejects.toThrow('20')
+    const key = randomUUID()
+    expect(() =>
+      cart.merge(buyer.id, {
+        items: [
+          { bookId: '1', quantity: 1 },
+          { bookId: '1', quantity: 2 },
+        ],
+        expectedRevision: '2',
+        requestKey: key,
+      }),
+    ).toThrow('once')
+    expect(await store.cartOperation(buyer.id, key)).toBeUndefined()
+    expect((await cart.read(buyer.id)).revision).toBe('2')
+  })
+  it('does not consume failed operation keys and persists version changes after remove and re-add', async () => {
+    const cart = createCartService(createCartRepository(database.handle)),
+      key = randomUUID()
+    await expect(
+      cart.set(buyer.id, { bookId: '1', quantity: 1, expectedRevision: '7', requestKey: key }),
+    ).rejects.toThrow('cart changed')
+    expect(await store.cartOperation(buyer.id, key)).toBeUndefined()
+    const first = await cart.set(buyer.id, {
+      bookId: '1',
+      quantity: 1,
+      expectedRevision: '0',
+      requestKey: key,
+    })
+    const noOp = await cart.set(buyer.id, {
+      bookId: '1',
+      quantity: 1,
+      expectedRevision: '1',
+      requestKey: randomUUID(),
+    })
+    expect(noOp.revision).toBe('1')
+    expect(noOp.items[0].lineVersion).toBe(first.items[0].lineVersion)
+    await cart.set(buyer.id, {
+      bookId: '1',
+      quantity: 0,
+      expectedRevision: '1',
+      requestKey: randomUUID(),
+    })
+    const added = await cart.set(buyer.id, {
+      bookId: '1',
+      quantity: 1,
+      expectedRevision: '2',
+      requestKey: randomUUID(),
+    })
+    expect(added.items[0].lineVersion).not.toBe(first.items[0].lineVersion)
+    expect(
+      (
+        await cart.set(buyer.id, {
+          bookId: '1',
+          quantity: 1,
+          expectedRevision: '0',
+          requestKey: key,
+        })
+      ).revision,
+    ).toBe('3')
+    for (const input of [
+      { quantity: 11 },
+      { quantity: -1 },
+      { quantity: 1.5 },
+      { bookId: '01' },
+      { expectedRevision: '-1' },
+      { expectedRevision: '0'.repeat(101) },
+      { requestKey: 'not-uuid' },
+    ])
+      expect(() =>
+        cart.set(buyer.id, {
+          bookId: '1',
+          quantity: 1,
+          expectedRevision: '3',
+          requestKey: randomUUID(),
+          ...input,
+        }),
+      ).toThrow()
+    expect((await cart.read(buyer.id)).revision).toBe('3')
+  })
+  it('validates exact checkout lines, replays original revision and preserves remove/re-added paid lines', async () => {
+    const cart = createCartService(createCartRepository(database.handle))
+    await cart.set(buyer.id, {
+      bookId: '1',
+      quantity: 1,
+      expectedRevision: '0',
+      requestKey: randomUUID(),
+    })
+    await expect(
+      service.createCheckout(
+        {
+          ...input(),
+          items: [{ bookId: '1', quantity: 2 }],
+          expectedTotalCents: 3898,
+          cartRevision: '1',
+        },
+        buyer,
+      ),
+    ).rejects.toThrow('cart changed')
+    const payload = { ...input(), cartRevision: '1' },
+      saved = await service.createCheckout(payload, buyer)
+    await cart.set(buyer.id, {
+      bookId: '1',
+      quantity: 0,
+      expectedRevision: '1',
+      requestKey: randomUUID(),
+    })
+    await cart.set(buyer.id, {
+      bookId: '1',
+      quantity: 1,
+      expectedRevision: '2',
+      requestKey: randomUUID(),
+    })
+    expect((await service.createCheckout(payload, buyer)).order.id).toBe(saved.order.id)
+    await expect(service.createCheckout({ ...payload, cartRevision: '3' }, buyer)).rejects.toThrow(
+      'Request key',
+    )
+    const row = (await store.order(Number(saved.order.id)))!
+    provider.pay(row.stripeSessionId!)
+    await service.recover()
+    expect((await cart.read(buyer.id)).revision).toBe('3')
+    expect((await cart.read(buyer.id)).items).toHaveLength(1)
+    expect((await store.cartSnapshot(row.id))!.cleanedAt).toBeTruthy()
+  })
+  it('serializes first-cart writers and durable merges on both database providers', async () => {
+    const cart = createCartService(createCartRepository(database.handle))
+    const operation = { bookId: '1', quantity: 2, expectedRevision: '0', requestKey: randomUUID() }
+    const results = await Promise.allSettled([
+      cart.set(buyer.id, operation),
+      cart.set(buyer.id, { ...operation, quantity: 3, requestKey: randomUUID() }),
+    ])
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+    expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1)
+    const current = await cart.read(buyer.id)
+    expect(current.revision).toBe('1')
+    const merge = {
+      items: [{ bookId: '1', quantity: 10 }],
+      expectedRevision: '1',
+      requestKey: randomUUID(),
+    }
+    const merged = await cart.merge(buyer.id, merge)
+    expect(merged.items[0].quantity).toBe(10)
+    expect(merged.mergeNotices).toEqual([{ bookId: '1', reason: 'QUANTITY_LIMIT' }])
+    await cart.set(buyer.id, {
+      bookId: '2',
+      quantity: 1,
+      expectedRevision: '2',
+      requestKey: randomUUID(),
+    })
+    const replay = await cart.merge(buyer.id, merge)
+    expect(replay.revision).toBe('3')
+    expect(replay.items).toHaveLength(2)
+    expect(replay.mergeNotices).toEqual(merged.mergeNotices)
+  })
+  it('rejects stale linked checkout before stock reservation and preserves legacy checkout', async () => {
+    const cart = createCartService(createCartRepository(database.handle))
+    await cart.set(buyer.id, {
+      bookId: '1',
+      quantity: 1,
+      expectedRevision: '0',
+      requestKey: randomUUID(),
+    })
+    await expect(service.createCheckout({ ...input(), cartRevision: '0' }, buyer)).rejects.toThrow(
+      'cart changed',
+    )
+    expect((await store.orderPage(10, 0)).total).toBe(0)
+    expect((await store.book(1))!.stock).toBe(12)
+    await service.createCheckout(input(), buyer)
+    expect((await cart.read(buyer.id)).items).toHaveLength(1)
+  })
+  it('cleans only unchanged purchased versions once through recovery without a browser', async () => {
+    const cart = createCartService(createCartRepository(database.handle))
+    await cart.set(buyer.id, {
+      bookId: '1',
+      quantity: 1,
+      expectedRevision: '0',
+      requestKey: randomUUID(),
+    })
+    await cart.set(buyer.id, {
+      bookId: '2',
+      quantity: 1,
+      expectedRevision: '1',
+      requestKey: randomUUID(),
+    })
+    const before = await cart.read(buyer.id)
+    const quote = await service.quoteCheckout({
+      items: before.items.map((l) => ({ bookId: l.bookId, quantity: l.quantity })),
+      deliveryAddress: address,
+    })
+    const checkout = await service.createCheckout(
+      {
+        ...input(),
+        items: before.items.map((l) => ({ bookId: l.bookId, quantity: l.quantity })),
+        expectedTotalCents: quote.totalCents,
+        cartRevision: before.revision,
+      },
+      buyer,
+    )
+    await cart.set(buyer.id, {
+      bookId: '1',
+      quantity: 2,
+      expectedRevision: '2',
+      requestKey: randomUUID(),
+    })
+    await cart.set(buyer.id, {
+      bookId: '1',
+      quantity: 1,
+      expectedRevision: '3',
+      requestKey: randomUUID(),
+    })
+    const row = (await store.order(Number(checkout.order.id)))!
+    provider.pay(row.stripeSessionId!)
+    const recovered = createPaymentService(
+      createPaymentRepository(database.handle, () => now),
+      { ...options, provider, now: () => now },
+    )
+    await recovered.recover()
+    const after = await cart.read(buyer.id)
+    expect(after.revision).toBe('5')
+    expect(after.items.map((l) => l.bookId)).toEqual(['1'])
+    await cart.set(buyer.id, {
+      bookId: '2',
+      quantity: 1,
+      expectedRevision: '5',
+      requestKey: randomUUID(),
+    })
+    await recovered.handleEvent({
+      id: 'paid-repeated',
+      type: 'checkout.session.completed',
+      resourceId: row.stripeSessionId!,
+    })
+    expect((await cart.read(buyer.id)).items.map((l) => l.bookId)).toEqual(['1', '2'])
+    expect((await store.cartSnapshot(row.id))?.cleanedAt).toBeTruthy()
+  })
   it('matches case differences in accented and non-Latin saved customer names', async () => {
     for (const [customerName, term] of [
       ['ÉLODIE', 'élodie'],

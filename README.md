@@ -1,12 +1,14 @@
 # The Quiet Shelf API
 
+Implemented feature: [Account carts](specs/account-carts/SPEC.md) stores each verified user's bag on the server, keeps a versioned guest bag locally, and preserves old raw arrays only for confirmed import.
+
 Implemented feature: [Auth email verification and recovery](specs/auth-email/SPEC.md) requires verified email for account access, exposes read-only verification status in the Admin user directory, provides password recovery, and sends mail through configured SMTP.
 
 An Express + GraphQL + Drizzle bookstore API with Zod input validation. SQLite is the
 development/test default and PostgreSQL is supported for production. This folder is its
 own Git repository and runs independently from the frontend.
 
-See [SPEC.md](SPEC.md) for the implemented API behavior, [the database support spec](specs/database-support/SPEC.md) for provider operation, [specs/payment-operation-keys/SPEC.md](specs/payment-operation-keys/SPEC.md) for durable payment idempotency and recovery, [specs/authentication/SPEC.md](specs/authentication/SPEC.md) for the account feature contract, [specs/order-workflow/SPEC.md](specs/order-workflow/SPEC.md) for request processing, [specs/demo-login/SPEC.md](specs/demo-login/SPEC.md) for local demo accounts, [specs/staff/SPEC.md](specs/staff/SPEC.md) for roles and permissions, [specs/users/SPEC.md](specs/users/SPEC.md) for user-directory compatibility, [specs/activity/SPEC.md](specs/activity/SPEC.md) for the Admin-only activity contract, and [specs/dashboard/SPEC.md](specs/dashboard/SPEC.md) for workspace reporting.
+See [SPEC.md](SPEC.md) for the implemented API behavior, [specs/account-carts/SPEC.md](specs/account-carts/SPEC.md) for account-cart ownership and migration constraints, [the database support spec](specs/database-support/SPEC.md) for provider operation, [specs/payment-operation-keys/SPEC.md](specs/payment-operation-keys/SPEC.md) for durable payment idempotency and recovery, [specs/authentication/SPEC.md](specs/authentication/SPEC.md) for the account feature contract, [specs/order-workflow/SPEC.md](specs/order-workflow/SPEC.md) for request processing, [specs/demo-login/SPEC.md](specs/demo-login/SPEC.md) for local demo accounts, [specs/staff/SPEC.md](specs/staff/SPEC.md) for roles and permissions, [specs/users/SPEC.md](specs/users/SPEC.md) for user-directory compatibility, [specs/activity/SPEC.md](specs/activity/SPEC.md) for the Admin-only activity contract, and [specs/dashboard/SPEC.md](specs/dashboard/SPEC.md) for workspace reporting.
 
 ## Development workflow
 

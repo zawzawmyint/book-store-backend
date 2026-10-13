@@ -43,6 +43,7 @@ export async function assertPostgreSQLReady(pool: Pool) {
     // Check executable model, not merely a journal left behind after dropped tables.
     // One zero-row query resolves all expected relations without exposing data.
     await pool.query(`SELECT 1 FROM books, orders, order_deliveries, order_items, order_status_events,
+      account_carts, account_cart_items, cart_operations, checkout_cart_snapshots,
       checkout_requests, payment_operations, payment_events, activity_events,
       user_roles, "user", session, account, verification LIMIT 0`)
   } catch {

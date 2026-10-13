@@ -32,7 +32,8 @@ export const orderTypeDefs = `#graphql
  input OrderItemInput { bookId: ID!, quantity: Int! }
  input PlaceOrderInput { items: [OrderItemInput!]! }
  input SetOrderStatusInput { id: ID!, expectedStatus: OrderStatus!, status: OrderStatus!, cancellationReason: String, shipment: ShipmentInput }
- input CreateCheckoutInput { items: [OrderItemInput!]!, requestKey: String!, deliveryAddress: DeliveryAddressInput!, expectedDeliveryFeeCents: Int!, expectedTotalCents: Int! }
+ input CreateCheckoutInput {
+    cartRevision: String items: [OrderItemInput!]!, requestKey: String!, deliveryAddress: DeliveryAddressInput!, expectedDeliveryFeeCents: Int!, expectedTotalCents: Int! }
  type CheckoutResult { order: MyOrder!, checkoutUrl: String }
  type Mutation { placeOrder(input: PlaceOrderInput!): OrderReceipt! @deprecated(reason: "Use createCheckout"), setOrderStatus(input: SetOrderStatusInput!): AdminOrder!, createCheckout(input: CreateCheckoutInput!): CheckoutResult!, resumeCheckout(orderId: ID!): CheckoutResult!, refreshOrderPayment(orderId: ID!): MyOrder!, retryOrderRefund(orderId: ID!): AdminOrder! }
 `

@@ -16,10 +16,31 @@ export type OperationRow = typeof model.paymentOperations.$inferSelect
 export type EventRow = typeof model.paymentEvents.$inferSelect
 export type Role = 'CUSTOMER' | 'STAFF' | 'ADMIN'
 export interface DomainStore {
+  cart(
+    userId: string,
+    create?: boolean,
+  ): Promise<typeof model.accountCarts.$inferSelect | undefined>
+  cartItems(userId: string): Promise<(typeof model.accountCartItems.$inferSelect)[]>
+  setCartRevision(userId: string, revision: string): Promise<void>
+  putCartItem(values: typeof model.accountCartItems.$inferInsert): Promise<void>
+  deleteCartItem(userId: string, bookId: number): Promise<void>
+  cartOperation(
+    userId: string,
+    key: string,
+  ): Promise<typeof model.cartOperations.$inferSelect | undefined>
+  insertCartOperation(values: typeof model.cartOperations.$inferInsert): Promise<void>
+  cartSnapshot(
+    orderId: number,
+  ): Promise<typeof model.checkoutCartSnapshots.$inferSelect | undefined>
+  insertCartSnapshot(
+    values: typeof model.checkoutCartSnapshots.$inferInsert & { orderId: number },
+  ): Promise<void>
+  cleanCartSnapshot(orderId: number, cleanedAt: string): Promise<void>
+
   dashboardWorkspace(): Promise<WorkspaceDashboardData>
   dashboardFinance(range: DashboardRange): Promise<DashboardFinanceData>
   transaction<T>(work: (store: DomainStore) => Promise<T>): Promise<T>
-  book(id: number): Promise<BookRow | undefined>
+  book(id: number, lock?: boolean): Promise<BookRow | undefined>
   catalog(
     search: string,
     limit: number,

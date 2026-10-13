@@ -1,3 +1,4 @@
+import { cartTypeDefs } from './src/modules/cart/cart.schema.ts'
 import type { CodegenConfig } from '@graphql-codegen/cli'
 import { buildSchema } from 'graphql'
 import { bookTypeDefs } from './src/modules/books/book.schema.ts'
@@ -8,7 +9,14 @@ import { dashboardTypeDefs } from './src/modules/dashboard/dashboard.schema.ts'
 
 const config: CodegenConfig = {
   schema: buildSchema(
-    [bookTypeDefs, orderTypeDefs, adminTypeDefs, activityTypeDefs, dashboardTypeDefs].join('\n'),
+    [
+      cartTypeDefs,
+      bookTypeDefs,
+      orderTypeDefs,
+      adminTypeDefs,
+      activityTypeDefs,
+      dashboardTypeDefs,
+    ].join('\n'),
   ),
   generates: {
     'src/graphql/generated/resolvers.ts': {
@@ -16,6 +24,7 @@ const config: CodegenConfig = {
       config: {
         useTypeImports: true,
         mappers: {
+          AccountCart: '../../modules/cart/cart.repository.js#AccountCartResult',
           AdminOrder: '../../modules/orders/order.types.js#WorkspaceOrder',
           WorkspaceDashboard:
             '../../modules/dashboard/dashboard.service.js#WorkspaceDashboardResult',

@@ -13,6 +13,7 @@ import { smokeBuiltApp } from './built-app-smoke.js'
 import { rejects } from 'node:assert/strict'
 import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { verifyPostgreSQLDeliveryGuard } from './delivery-migration-guard.js'
+import { verifyPostgreSQLCartMigration } from './cart-migration-check.js'
 
 const browser = process.argv[2] === 'browser'
 const server = createServer()
@@ -67,6 +68,12 @@ try {
   const guardUrl = new URL(url)
   guardUrl.pathname = `/${guardName}`
   await verifyPostgreSQLDeliveryGuard(guardUrl.toString(), directory)
+  stage = 'cart populated-database additive migration'
+  const cartName = `book_store_cart_${runId.replaceAll('-', '')}`
+  await cluster.createDatabase(cartName)
+  const cartUrl = new URL(url)
+  cartUrl.pathname = `/${cartName}`
+  await verifyPostgreSQLCartMigration(cartUrl.toString(), directory)
   stage = 'schema readiness and migrations'
   await rejects(openDatabase(config), /PostgreSQL schema/)
   await migratePostgreSQL(config)

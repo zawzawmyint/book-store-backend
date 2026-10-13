@@ -1,4 +1,5 @@
 import type { GraphQLResolveInfo } from 'graphql';
+import type { AccountCartResult } from '../../modules/cart/cart.repository.js';
 import type { WorkspaceOrder } from '../../modules/orders/order.types.js';
 import type { WorkspaceDashboardResult, DashboardFinanceResult } from '../../modules/dashboard/dashboard.service.js';
 export type Maybe<T> = T | null;
@@ -12,6 +13,51 @@ export type Scalars = {
   Boolean: { input: boolean; output: boolean; }
   Int: { input: number; output: number; }
   Float: { input: number; output: number; }
+};
+
+export enum CartMergeNoticeReason {
+  Unavailable = 'UNAVAILABLE',
+  QuantityLimit = 'QUANTITY_LIMIT',
+  LineLimit = 'LINE_LIMIT'
+}
+
+export type CartMergeNotice = {
+  __typename?: 'CartMergeNotice';
+  bookId: Scalars['ID']['output'];
+  reason: CartMergeNoticeReason;
+};
+
+export type AccountCartItem = {
+  __typename?: 'AccountCartItem';
+  bookId: Scalars['ID']['output'];
+  quantity: Scalars['Int']['output'];
+  lineVersion: Scalars['String']['output'];
+  title: Scalars['String']['output'];
+  author: Scalars['String']['output'];
+  genre: Scalars['String']['output'];
+  priceCents: Scalars['Int']['output'];
+  stock: Scalars['Int']['output'];
+  available: Scalars['Boolean']['output'];
+};
+
+export type AccountCart = {
+  __typename?: 'AccountCart';
+  revision: Scalars['String']['output'];
+  items: Array<AccountCartItem>;
+  mergeNotices: Array<CartMergeNotice>;
+};
+
+export type SetCartItemInput = {
+  bookId: Scalars['ID']['input'];
+  quantity: Scalars['Int']['input'];
+  expectedRevision: Scalars['String']['input'];
+  requestKey: Scalars['String']['input'];
+};
+
+export type MergeGuestCartInput = {
+  items: Array<OrderItemInput>;
+  expectedRevision: Scalars['String']['input'];
+  requestKey: Scalars['String']['input'];
 };
 
 export type Book = {
@@ -75,6 +121,7 @@ export type Query = {
   book?: Maybe<Book>;
   adminBooks: AdminBooksPage;
   adminBook?: Maybe<AdminBook>;
+  myCart: AccountCart;
   deliveryOptions: DeliveryOptions;
   quoteCheckout: CheckoutQuote;
   adminOrders: AdminOrdersPage;
@@ -412,6 +459,7 @@ export type SetOrderStatusInput = {
 };
 
 export type CreateCheckoutInput = {
+  cartRevision?: InputMaybe<Scalars['String']['input']>;
   items: Array<OrderItemInput>;
   requestKey: Scalars['String']['input'];
   deliveryAddress: DeliveryAddressInput;
@@ -434,6 +482,8 @@ export type Mutation = {
   resumeCheckout: CheckoutResult;
   refreshOrderPayment: MyOrder;
   retryOrderRefund: AdminOrder;
+  setCartItem: AccountCart;
+  mergeGuestCart: AccountCart;
   createBook: AdminBook;
   updateBook: AdminBook;
   adjustBookStock: AdminBook;
@@ -476,6 +526,16 @@ export type MutationRefreshOrderPaymentArgs = {
 
 export type MutationRetryOrderRefundArgs = {
   orderId: Scalars['ID']['input'];
+};
+
+
+export type MutationSetCartItemArgs = {
+  input: SetCartItemInput;
+};
+
+
+export type MutationMergeGuestCartArgs = {
+  input: MergeGuestCartInput;
 };
 
 
@@ -795,14 +855,20 @@ export type DirectiveResolverFn<TResult = Record<PropertyKey, never>, TParent = 
 
 /** Mapping between all available schema types and the resolvers types */
 export type ResolversTypes = {
-  Book: ResolverTypeWrapper<Book>;
+  CartMergeNoticeReason: CartMergeNoticeReason;
+  CartMergeNotice: ResolverTypeWrapper<CartMergeNotice>;
   ID: ResolverTypeWrapper<Scalars['ID']['output']>;
-  String: ResolverTypeWrapper<Scalars['String']['output']>;
+  AccountCartItem: ResolverTypeWrapper<AccountCartItem>;
   Int: ResolverTypeWrapper<Scalars['Int']['output']>;
+  String: ResolverTypeWrapper<Scalars['String']['output']>;
+  Boolean: ResolverTypeWrapper<Scalars['Boolean']['output']>;
+  AccountCart: ResolverTypeWrapper<AccountCartResult>;
+  SetCartItemInput: SetCartItemInput;
+  MergeGuestCartInput: MergeGuestCartInput;
+  Book: ResolverTypeWrapper<Book>;
   BookPage: ResolverTypeWrapper<BookPage>;
   AdminBookFilter: AdminBookFilter;
   AdminBook: ResolverTypeWrapper<AdminBook>;
-  Boolean: ResolverTypeWrapper<Scalars['Boolean']['output']>;
   AdminBooksPage: ResolverTypeWrapper<AdminBooksPage>;
   AdminBookDetailsInput: AdminBookDetailsInput;
   CreateBookInput: CreateBookInput;
@@ -861,13 +927,18 @@ export type ResolversTypes = {
 
 /** Mapping between all available schema types and the resolvers parents */
 export type ResolversParentTypes = {
-  Book: Book;
+  CartMergeNotice: CartMergeNotice;
   ID: Scalars['ID']['output'];
-  String: Scalars['String']['output'];
+  AccountCartItem: AccountCartItem;
   Int: Scalars['Int']['output'];
+  String: Scalars['String']['output'];
+  Boolean: Scalars['Boolean']['output'];
+  AccountCart: AccountCartResult;
+  SetCartItemInput: SetCartItemInput;
+  MergeGuestCartInput: MergeGuestCartInput;
+  Book: Book;
   BookPage: BookPage;
   AdminBook: AdminBook;
-  Boolean: Scalars['Boolean']['output'];
   AdminBooksPage: AdminBooksPage;
   AdminBookDetailsInput: AdminBookDetailsInput;
   CreateBookInput: CreateBookInput;
@@ -912,6 +983,29 @@ export type ResolversParentTypes = {
   DashboardFinance: DashboardFinanceResult;
 };
 
+export type CartMergeNoticeResolvers<ContextType = any, ParentType extends ResolversParentTypes['CartMergeNotice'] = ResolversParentTypes['CartMergeNotice']> = {
+  bookId?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  reason?: Resolver<ResolversTypes['CartMergeNoticeReason'], ParentType, ContextType>;
+};
+
+export type AccountCartItemResolvers<ContextType = any, ParentType extends ResolversParentTypes['AccountCartItem'] = ResolversParentTypes['AccountCartItem']> = {
+  bookId?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  quantity?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  lineVersion?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  title?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  author?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  genre?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  priceCents?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  stock?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  available?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
+};
+
+export type AccountCartResolvers<ContextType = any, ParentType extends ResolversParentTypes['AccountCart'] = ResolversParentTypes['AccountCart']> = {
+  revision?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  items?: Resolver<Array<ResolversTypes['AccountCartItem']>, ParentType, ContextType>;
+  mergeNotices?: Resolver<Array<ResolversTypes['CartMergeNotice']>, ParentType, ContextType>;
+};
+
 export type BookResolvers<ContextType = any, ParentType extends ResolversParentTypes['Book'] = ResolversParentTypes['Book']> = {
   id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
   title?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
@@ -949,6 +1043,7 @@ export type QueryResolvers<ContextType = any, ParentType extends ResolversParent
   book?: Resolver<Maybe<ResolversTypes['Book']>, ParentType, ContextType, RequireFields<QueryBookArgs, 'id'>>;
   adminBooks?: Resolver<ResolversTypes['AdminBooksPage'], ParentType, ContextType, RequireFields<QueryAdminBooksArgs, 'filter' | 'lowStockOnly' | 'limit' | 'offset'>>;
   adminBook?: Resolver<Maybe<ResolversTypes['AdminBook']>, ParentType, ContextType, RequireFields<QueryAdminBookArgs, 'id'>>;
+  myCart?: Resolver<ResolversTypes['AccountCart'], ParentType, ContextType>;
   deliveryOptions?: Resolver<ResolversTypes['DeliveryOptions'], ParentType, ContextType>;
   quoteCheckout?: Resolver<ResolversTypes['CheckoutQuote'], ParentType, ContextType, RequireFields<QueryQuoteCheckoutArgs, 'input'>>;
   adminOrders?: Resolver<ResolversTypes['AdminOrdersPage'], ParentType, ContextType, RequireFields<QueryAdminOrdersArgs, 'limit' | 'offset' | 'status'>>;
@@ -1111,6 +1206,8 @@ export type MutationResolvers<ContextType = any, ParentType extends ResolversPar
   resumeCheckout?: Resolver<ResolversTypes['CheckoutResult'], ParentType, ContextType, RequireFields<MutationResumeCheckoutArgs, 'orderId'>>;
   refreshOrderPayment?: Resolver<ResolversTypes['MyOrder'], ParentType, ContextType, RequireFields<MutationRefreshOrderPaymentArgs, 'orderId'>>;
   retryOrderRefund?: Resolver<ResolversTypes['AdminOrder'], ParentType, ContextType, RequireFields<MutationRetryOrderRefundArgs, 'orderId'>>;
+  setCartItem?: Resolver<ResolversTypes['AccountCart'], ParentType, ContextType, RequireFields<MutationSetCartItemArgs, 'input'>>;
+  mergeGuestCart?: Resolver<ResolversTypes['AccountCart'], ParentType, ContextType, RequireFields<MutationMergeGuestCartArgs, 'input'>>;
   createBook?: Resolver<ResolversTypes['AdminBook'], ParentType, ContextType, RequireFields<MutationCreateBookArgs, 'input'>>;
   updateBook?: Resolver<ResolversTypes['AdminBook'], ParentType, ContextType, RequireFields<MutationUpdateBookArgs, 'id' | 'input'>>;
   adjustBookStock?: Resolver<ResolversTypes['AdminBook'], ParentType, ContextType, RequireFields<MutationAdjustBookStockArgs, 'id' | 'delta'>>;
@@ -1237,6 +1334,9 @@ export type DashboardFinanceResolvers<ContextType = any, ParentType extends Reso
 };
 
 export type Resolvers<ContextType = any> = {
+  CartMergeNotice?: CartMergeNoticeResolvers<ContextType>;
+  AccountCartItem?: AccountCartItemResolvers<ContextType>;
+  AccountCart?: AccountCartResolvers<ContextType>;
   Book?: BookResolvers<ContextType>;
   BookPage?: BookPageResolvers<ContextType>;
   AdminBook?: AdminBookResolvers<ContextType>;

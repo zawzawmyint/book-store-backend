@@ -4,7 +4,12 @@ import type { DeliveryAddress, DeliveryConfig } from '../orders/delivery.validat
 import { randomUUID } from 'node:crypto'
 import { normalizeStore, type DatabaseInput } from '../../database/persistence.js'
 import type { DomainStore, OrderRow, OperationRow } from '../../database/store.types.js'
-import { ConflictError, ValidationError, PaymentUnavailableError } from '../../shared/errors.js'
+import {
+  ConflictError,
+  CartConflictError,
+  ValidationError,
+  PaymentUnavailableError,
+} from '../../shared/errors.js'
 import { createOrderRepository } from '../orders/order.repository.js'
 import { createAdminOrderRepository } from '../orders/admin-order.repository.js'
 import { insertActivity } from '../activity/activity.writer.js'
@@ -82,6 +87,30 @@ export function createPaymentRepository(input: DatabaseInput, now: () => number)
           stripePaymentIntentId: s.paymentIntentId,
           checkoutUrl: null,
         })
+        const snapshot = await tx.cartSnapshot(row.id)
+        if (snapshot && !snapshot.cleanedAt) {
+          const cart = (await tx.cart(snapshot.userId))!
+          const current = await tx.cartItems(snapshot.userId)
+          const submitted = JSON.parse(snapshot.linesJson) as {
+            bookId: number
+            quantity: number
+            lineVersion: string
+          }[]
+          let removed = false
+          for (const line of submitted) {
+            const saved = current.find((item) => item.bookId === line.bookId)
+            if (
+              saved &&
+              saved.quantity === line.quantity &&
+              saved.lineVersion === line.lineVersion
+            ) {
+              await tx.deleteCartItem(snapshot.userId, line.bookId)
+              removed = true
+            }
+          }
+          if (removed) await tx.setCartRevision(snapshot.userId, String(BigInt(cart.revision) + 1n))
+          await tx.cleanCartSnapshot(row.id, new Date(now()).toISOString())
+        }
         if (row.status === 'CANCELLED') await queueRefund(tx, row.id)
       }
     } else if (s.status === 'expired' && row.paymentStatus === 'PENDING') {
@@ -183,6 +212,7 @@ export function createPaymentRepository(input: DatabaseInput, now: () => number)
         deliveryAddress: DeliveryAddress
         expectedDeliveryFeeCents: number
         expectedTotalCents: number
+        cartRevision?: string | null
       },
       customer: OrderCustomer,
       config: DeliveryConfig,
@@ -194,12 +224,25 @@ export function createPaymentRepository(input: DatabaseInput, now: () => number)
             address: input.deliveryAddress,
             expectedDeliveryFeeCents: input.expectedDeliveryFeeCents,
             expectedTotalCents: input.expectedTotalCents,
+            ...(input.cartRevision != null ? { cartRevision: input.cartRevision } : {}),
           })
         const prior = await tx.checkout(customer.id, input.requestKey)
         if (prior) {
           if (prior.linesJson !== linesJson || prior.deliveryJson !== deliveryJson)
             throw new ConflictError('Request key was already used with different books')
           return (await tx.order(prior.orderId))!
+        }
+        let cartLines: Awaited<ReturnType<DomainStore['cartItems']>> | undefined
+        if (input.cartRevision != null) {
+          const cart = await tx.cart(customer.id, true)
+          cartLines = await tx.cartItems(customer.id)
+          if (
+            cart!.revision !== input.cartRevision ||
+            JSON.stringify(
+              cartLines.map((line) => ({ bookId: String(line.bookId), quantity: line.quantity })),
+            ) !== linesJson
+          )
+            throw new CartConflictError()
         }
         if (!config.deliveryEnabled || config.deliveryFeeCents === undefined)
           throw new PaymentUnavailableError()
@@ -228,6 +271,18 @@ export function createPaymentRepository(input: DatabaseInput, now: () => number)
             feeCents: config.deliveryFeeCents,
           }),
           id = Number(saved.id)
+        if (cartLines)
+          await tx.insertCartSnapshot({
+            orderId: id,
+            userId: customer.id,
+            linesJson: JSON.stringify(
+              cartLines.map(({ bookId, quantity, lineVersion }) => ({
+                bookId,
+                quantity,
+                lineVersion,
+              })),
+            ),
+          })
         await tx.updateOrder(id, {
           paymentRequired: true,
           paymentStatus: 'PENDING',

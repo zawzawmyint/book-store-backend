@@ -2,9 +2,11 @@ import { deliveryAddressSchema } from '../orders/delivery.validation.js'
 import { z } from 'zod'
 import { numericIdSchema } from '../../shared/validation.js'
 import { orderInputSchema } from '../orders/order.validation.js'
+import { cartRevisionSchema } from '../cart/cart.validation.js'
 export const checkoutInputSchema = orderInputSchema
   .extend({
     requestKey: z.uuid(),
+    cartRevision: cartRevisionSchema.nullish(),
     deliveryAddress: deliveryAddressSchema,
     expectedDeliveryFeeCents: z.number().int().min(0).max(2147483647),
     expectedTotalCents: z.number().int().min(50).max(2147483647),

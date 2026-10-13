@@ -11,3 +11,9 @@ export class PaymentUnavailableError extends Error {
     super('Payment service unavailable. Please try again shortly.')
   }
 }
+
+export class CartConflictError extends Error {
+  constructor() {
+    super('Your cart changed. Reload it and retry your edit.')
+  }
+}

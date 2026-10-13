@@ -1,9 +1,15 @@
 import { GraphQLError, type GraphQLFormattedError } from 'graphql'
-import { ValidationError, ConflictError, PaymentUnavailableError } from '../shared/errors.js'
+import {
+  ValidationError,
+  CartConflictError,
+  ConflictError,
+  PaymentUnavailableError,
+} from '../shared/errors.js'
 
 const publicCodes = new Set([
   'BAD_USER_INPUT',
   'CONFLICT',
+  'CART_CONFLICT',
   'PAYMENT_UNAVAILABLE',
   'FORBIDDEN',
   'UNAUTHENTICATED',
@@ -27,6 +33,8 @@ export function publicGraphQLError(error: GraphQLFormattedError): GraphQLFormatt
 }
 
 export function rethrowResolverError(error: unknown): never {
+  if (error instanceof CartConflictError)
+    throw new GraphQLError(error.message, { extensions: { code: 'CART_CONFLICT' } })
   if (error instanceof PaymentUnavailableError)
     throw new GraphQLError(error.message, { extensions: { code: 'PAYMENT_UNAVAILABLE' } })
   if (error instanceof ConflictError)

@@ -282,3 +282,50 @@ export const paymentEvents = sqliteTable(
   },
   (table) => [index('payment_events_pending').on(table.processedAt)],
 )
+
+export const accountCarts = sqliteTable('account_carts', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  revision: text('revision').notNull().default('0'),
+})
+export const accountCartItems = sqliteTable(
+  'account_cart_items',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => accountCarts.userId, { onDelete: 'cascade' }),
+    bookId: integer('book_id')
+      .notNull()
+      .references(() => books.id),
+    quantity: integer('quantity').notNull(),
+    lineVersion: text('line_version').notNull(),
+  },
+  (t) => [
+    uniqueIndex('cart_items_owner_book').on(t.userId, t.bookId),
+    check('cart_items_quantity', sql`${t.quantity} BETWEEN 1 AND 10`),
+  ],
+)
+export const cartOperations = sqliteTable(
+  'cart_operations',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => accountCarts.userId, { onDelete: 'cascade' }),
+    requestKey: text('request_key').notNull(),
+    fingerprint: text('fingerprint').notNull(),
+    noticesJson: text('notices_json').notNull(),
+  },
+  (t) => [uniqueIndex('cart_operations_owner_key').on(t.userId, t.requestKey)],
+)
+export const checkoutCartSnapshots = sqliteTable('checkout_cart_snapshots', {
+  orderId: integer('order_id')
+    .primaryKey()
+    .notNull()
+    .references(() => orders.id, { onDelete: 'cascade' }),
+  userId: text('user_id')
+    .notNull()
+    .references(() => accountCarts.userId, { onDelete: 'cascade' }),
+  linesJson: text('lines_json').notNull(),
+  cleanedAt: text('cleaned_at'),
+})

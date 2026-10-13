@@ -15,6 +15,13 @@
       "when": 1791460285258,
       "tag": "0001_cooing_jean_grey",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791868517682,
+      "tag": "0002_majestic_warbird",
+      "breakpoints": true
     }
   ]
 }
