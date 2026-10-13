@@ -1,5 +1,9 @@
 import express from 'express'
 import { isIP } from 'node:net'
+import { randomUUID } from 'node:crypto'
+import { log, withRequestContext } from './shared/logger.js'
+import { createReadinessProbe } from './database/readiness.js'
+import { operationalLoggingPlugin } from './graphql/logging.js'
 import cors from 'cors'
 import { ApolloServer } from '@apollo/server'
 import { expressMiddleware } from '@as-integrations/express5'
@@ -41,6 +45,7 @@ export async function createApp(
     typeDefs,
     resolvers: createResolvers(db, paymentService),
     formatError: publicGraphQLError,
+    plugins: [operationalLoggingPlugin],
   })
   try {
     await server.start()
@@ -51,7 +56,55 @@ export async function createApp(
   try {
     const app = express()
     app.disable('x-powered-by')
+    app.use((req, res, next) => {
+      const requestId = randomUUID()
+      const started = performance.now()
+      const route =
+        req.path === '/health' ||
+        req.path === '/ready' ||
+        req.path === '/graphql' ||
+        req.path === '/api/payments/stripe/webhook'
+          ? req.path
+          : req.path.startsWith('/api/auth/')
+            ? '/api/auth/*'
+            : 'unmatched'
+      res.setHeader('X-Request-ID', requestId)
+      let completed = false
+      const complete = () => {
+        if (completed) return
+        completed = true
+        if (route === '/health' || route === '/ready') return
+        withRequestContext(requestId, () =>
+          log(
+            !res.writableFinished
+              ? 'warn'
+              : res.statusCode >= 500
+                ? 'error'
+                : res.statusCode >= 400
+                  ? 'warn'
+                  : 'info',
+            res.writableFinished ? 'http.completed' : 'http.aborted',
+            {
+              component: 'http',
+              route,
+              method: req.method,
+              statusCode: res.statusCode,
+              durationMs: Math.round(performance.now() - started),
+            },
+          ),
+        )
+      }
+      res.once('finish', complete)
+      res.once('close', complete)
+      withRequestContext(requestId, next)
+    })
     app.get('/health', (_req, res) => res.json({ status: 'ok' }))
+    const readiness = createReadinessProbe(db)
+    app.get('/ready', async (_req, res) => {
+      res.setHeader('Cache-Control', 'no-store')
+      const ready = await readiness()
+      res.status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'unavailable' })
+    })
     app.locals.payments = paymentService
     app.locals.close = async () => {
       await auth.closeMail()
@@ -78,6 +131,10 @@ export async function createApp(
           )
             throw new Error('Invalid event envelope')
         } catch {
+          log('warn', 'payment.webhook_invalid', {
+            component: 'payments',
+            errorCode: 'INVALID_WEBHOOK',
+          })
           res.sendStatus(400)
           return
         }
@@ -85,6 +142,10 @@ export async function createApp(
           await paymentService.handleEvent(event)
           res.sendStatus(200)
         } catch {
+          log('error', 'payment.webhook_failed', {
+            component: 'payments',
+            errorCode: 'PAYMENT_UNAVAILABLE',
+          })
           res.sendStatus(503)
         }
       },
@@ -140,6 +201,40 @@ export async function createApp(
           }
         },
       }),
+    )
+    app.use(
+      (
+        error: unknown,
+        _req: express.Request,
+        res: express.Response,
+        _next: express.NextFunction,
+      ) => {
+        // Body-parser categories are safe; never serialize the error/body itself.
+        const type = error && typeof error === 'object' && 'type' in error ? error.type : undefined
+        const status =
+          type === 'entity.too.large'
+            ? 413
+            : type === 'charset.unsupported' || type === 'encoding.unsupported'
+              ? 415
+              : type === 'entity.parse.failed' ||
+                  type === 'request.aborted' ||
+                  type === 'request.size.invalid'
+                ? 400
+                : 500
+        log(status === 500 ? 'error' : 'warn', 'http.failed', {
+          component: 'http',
+          statusCode: status,
+          errorCode: status === 500 ? 'INTERNAL_SERVER_ERROR' : 'BAD_REQUEST',
+        })
+        if (res.headersSent) {
+          res.destroy()
+          return
+        }
+        res.status(status).json({
+          error:
+            status === 500 ? 'Request unavailable. Please try again shortly.' : 'Invalid request',
+        })
+      },
     )
     return app
   } catch (error) {

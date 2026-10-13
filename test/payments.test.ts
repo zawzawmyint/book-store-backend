@@ -1,6 +1,7 @@
 import { deliveryAddress, deliveryOptions } from './delivery-fixtures.js'
 import { createPaymentRepository } from '../src/modules/payments/payment.repository.js'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { withRequestContext } from '../src/shared/logger.js'
 import type Database from 'better-sqlite3'
 import { createDatabase } from '../src/database/connection.js'
 import { seedBooks } from '../src/database/seed.js'
@@ -52,7 +53,83 @@ beforeEach(() => {
     },
   )
 })
-afterEach(() => db.close())
+afterEach(() => {
+  db.close()
+  vi.restoreAllMocks()
+})
+it('correlates provider failures with the saved order without logging provider secrets', async () => {
+  const lines: string[] = []
+  for (const method of ['log', 'warn', 'error'] as const)
+    vi.spyOn(console, method).mockImplementation((line) => lines.push(String(line)))
+  provider.createSession = async () => {
+    throw new Error('stripe-secret customer-address-secret')
+  }
+  await expect(
+    withRequestContext('00000000-0000-4000-8000-000000000001', () =>
+      service.createCheckout(input, buyer),
+    ),
+  ).rejects.toThrow('unavailable')
+  expect(lines.map((line) => JSON.parse(line))).toContainEqual(
+    expect.objectContaining({
+      event: 'payment.operation_failed',
+      orderId: 1,
+      operationKind: 'CREATE_SESSION',
+      requestId: '00000000-0000-4000-8000-000000000001',
+    }),
+  )
+  expect(lines.join('')).not.toContain('stripe-secret')
+  expect(lines.join('')).not.toContain('customer-address-secret')
+  expect(db.prepare('SELECT state FROM payment_operations').get()).toEqual({ state: 'PENDING' })
+})
+it('reports recovery claim failures before provider calls while preserving pending work', async () => {
+  provider.uncertainCreate = true
+  await expect(service.createCheckout(input, buyer)).rejects.toThrow('unavailable')
+  now += 61000
+  db.exec(
+    "CREATE TRIGGER reject_claim BEFORE UPDATE ON payment_operations BEGIN SELECT RAISE(ABORT, 'claim-secret'); END",
+  )
+  const lines: string[] = []
+  for (const method of ['log', 'warn', 'error'] as const)
+    vi.spyOn(console, method).mockImplementation((line) => lines.push(String(line)))
+  await service.recover()
+  expect(lines.map((line) => JSON.parse(line))).toContainEqual(
+    expect.objectContaining({
+      event: 'payment.operation_recovery_failed',
+      orderId: 1,
+      errorCode: 'RECOVERY_FAILED',
+    }),
+  )
+  expect(lines.join('')).not.toContain('claim-secret')
+  expect(db.prepare('SELECT state FROM payment_operations').get()).toEqual({ state: 'PENDING' })
+})
+it('logs a failed refund provider result even when the provider request itself succeeds', async () => {
+  const checkout = await service.createCheckout(input, buyer)
+  provider.pay([...provider.sessions.keys()][0])
+  await service.refreshOrderPayment(checkout.order.id, buyer)
+  await service.setOrderStatus(
+    {
+      id: checkout.order.id,
+      expectedStatus: 'SUBMITTED',
+      status: 'CANCELLED',
+      cancellationReason: 'No longer needed',
+    },
+    actor,
+  )
+  provider.refundStatus = 'failed'
+  const lines: string[] = []
+  for (const method of ['log', 'warn', 'error'] as const)
+    vi.spyOn(console, method).mockImplementation((line) => lines.push(String(line)))
+  await service.recover()
+  expect((await service.readOrder(checkout.order.id, buyer)).payment.status).toBe('REFUND_FAILED')
+  expect(lines.map((line) => JSON.parse(line))).toContainEqual(
+    expect.objectContaining({
+      event: 'payment.refund_failed',
+      level: 'warn',
+      orderId: 1,
+      errorCode: 'PROVIDER_REFUND_FAILED',
+    }),
+  )
+})
 it('builds return URLs only from configured origin and local order ID', async () => {
   let urls:
     | {

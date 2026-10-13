@@ -4,11 +4,13 @@ Implemented feature: [Account carts](specs/account-carts/SPEC.md) stores each ve
 
 Implemented feature: [Auth email verification and recovery](specs/auth-email/SPEC.md) requires verified email for account access, exposes read-only verification status in the Admin user directory, provides password recovery, and sends mail through configured SMTP.
 
+Implemented feature: [Operational logging and readiness](specs/operational-logging-readiness/SPEC.md) adds structured console events, server-generated request correlation, and database readiness at `GET /ready`.
+
 An Express + GraphQL + Drizzle bookstore API with Zod input validation. SQLite is the
 development/test default and PostgreSQL is supported for production. This folder is its
 own Git repository and runs independently from the frontend.
 
-See [SPEC.md](SPEC.md) for the implemented API behavior, [specs/account-carts/SPEC.md](specs/account-carts/SPEC.md) for account-cart ownership and migration constraints, [the database support spec](specs/database-support/SPEC.md) for provider operation, [specs/payment-operation-keys/SPEC.md](specs/payment-operation-keys/SPEC.md) for durable payment idempotency and recovery, [specs/authentication/SPEC.md](specs/authentication/SPEC.md) for the account feature contract, [specs/order-workflow/SPEC.md](specs/order-workflow/SPEC.md) for request processing, [specs/demo-login/SPEC.md](specs/demo-login/SPEC.md) for local demo accounts, [specs/staff/SPEC.md](specs/staff/SPEC.md) for roles and permissions, [specs/users/SPEC.md](specs/users/SPEC.md) for user-directory compatibility, [specs/activity/SPEC.md](specs/activity/SPEC.md) for the Admin-only activity contract, and [specs/dashboard/SPEC.md](specs/dashboard/SPEC.md) for workspace reporting.
+See [SPEC.md](SPEC.md) for the implemented API behavior, [specs/operational-logging-readiness/SPEC.md](specs/operational-logging-readiness/SPEC.md) for logging and readiness operations, [specs/account-carts/SPEC.md](specs/account-carts/SPEC.md) for account-cart ownership and migration constraints, [the database support spec](specs/database-support/SPEC.md) for provider operation, [specs/payment-operation-keys/SPEC.md](specs/payment-operation-keys/SPEC.md) for durable payment idempotency and recovery, [specs/authentication/SPEC.md](specs/authentication/SPEC.md) for the account feature contract, [specs/order-workflow/SPEC.md](specs/order-workflow/SPEC.md) for request processing, [specs/demo-login/SPEC.md](specs/demo-login/SPEC.md) for local demo accounts, [specs/staff/SPEC.md](specs/staff/SPEC.md) for roles and permissions, [specs/users/SPEC.md](specs/users/SPEC.md) for user-directory compatibility, [specs/activity/SPEC.md](specs/activity/SPEC.md) for the Admin-only activity contract, and [specs/dashboard/SPEC.md](specs/dashboard/SPEC.md) for workspace reporting.
 
 ## Development workflow
 
@@ -29,7 +31,13 @@ bun run dev
 
 The backend's `bunfig.toml` disables dependency install scripts. Its SQLite driver ships native binaries; this avoids an unnecessary local `node-gyp` rebuild on Windows. PostgreSQL parity tests use the pinned embedded PostgreSQL 17.10 package. If Bun reports its platform setup script as blocked after installation, run `bun pm trust @embedded-postgres/windows-x64` on Windows or `bun pm trust @embedded-postgres/linux-x64` on Linux, then reinstall as directed by Bun. PostgreSQL 17.10 was verified on Windows x64.
 
-The API starts at `http://localhost:4000/graphql`; Better Auth serves `/api/auth/*`, and `GET /health` returns a health response. SQLite migrations run on startup and development seeds twelve catalog books once. PostgreSQL never auto-migrates or auto-seeds: apply `bun run db:migrate` first, then run `bun run db:seed` only when you intentionally want the sample catalog. Both catalog and demo seed commands reject production before opening a database. The `data/` directory is ignored by Git.
+The API starts at `http://localhost:4000/graphql`; Better Auth serves `/api/auth/*`; `GET /health` returns the liveness response; and `GET /ready` checks the selected database. Readiness returns `200 { "status": "ready" }` or `503 { "status": "unavailable" }`, with `Cache-Control: no-store`. SQLite migrations run on startup and development seeds twelve catalog books once. PostgreSQL never auto-migrates or auto-seeds: apply `bun run db:migrate` first, then run `bun run db:seed` only when you intentionally want the sample catalog. Both catalog and demo seed commands reject production before opening a database. The `data/` directory is ignored by Git.
+
+## Operational logging and readiness
+
+The server writes one structured JSON event per line to the console. Each HTTP response receives a fresh, server-owned `X-Request-ID`; use it to correlate request and GraphQL outcome events locally. The logger emits only allowlisted context and safe application error categories, never raw exception messages or stacks. The additive error boundary keeps malformed/aborted JSON at 400, oversized JSON at 413, and unsupported charset or encoding at 415, without logging request bodies. Normal `/health` and successful `/ready` polling produce no request-completion log events; readiness failure and recovery transitions do.
+
+There are no log files, log database, telemetry vendor, automatic alerts, or logging environment variables. Configure log collection, retention, alerts, and the hosting readiness target (`/ready`) outside this application. A PostgreSQL readiness query has a two-second client-side timeout; shared in-flight work is retained until the driver settles, so the HTTP deadline does not cancel an underlying query. The established PostgreSQL pool acquisition and general statement limits remain ten and thirty seconds. `payment.operation_processed` records processing rather than durable provider completion; a failed refund result emits the safe `payment.refund_failed` event.
 
 Configure `PORT`, `DB_PROVIDER`, `DATABASE_PATH`, `DATABASE_URL`, `PG_POOL_MAX`,
 `PG_TLS_MODE`, `PG_CA_FILE`, `FRONTEND_ORIGIN`, `BETTER_AUTH_URL`,
@@ -114,7 +122,13 @@ mutation StartCheckout {
     input: {
       items: [{ bookId: "1", quantity: 1 }]
       requestKey: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-      deliveryAddress: { recipientName: "Ada Lovelace", phone: "+1 555 555 0100", addressLine1: "1 Example Street", city: "Example", countryCode: "US" }
+      deliveryAddress: {
+        recipientName: "Ada Lovelace"
+        phone: "+1 555 555 0100"
+        addressLine1: "1 Example Street"
+        city: "Example"
+        countryCode: "US"
+      }
       expectedDeliveryFeeCents: 500
       expectedTotalCents: 2500
     }

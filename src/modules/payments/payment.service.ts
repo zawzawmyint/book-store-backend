@@ -8,6 +8,7 @@ import type { ActivityActor } from '../activity/activity.types.js'
 import { ProviderRejection, type PaymentProvider, type ProviderEvent } from './payment.provider.js'
 import { checkoutInputSchema } from './payment.validation.js'
 import type { PaymentRepository } from './payment.repository.js'
+import { log } from '../../shared/logger.js'
 
 export type PaymentOptions = DeliveryConfig & {
   provider?: PaymentProvider
@@ -79,8 +80,26 @@ export function createPaymentService(repository: PaymentRepository, options: Pay
           op.id,
         )
         await repository.saveRefund(op, r)
+        if (r.status === 'failed')
+          log('warn', 'payment.refund_failed', {
+            component: 'payments',
+            orderId: order.id,
+            operationKind: 'REFUND',
+            errorCode: 'PROVIDER_REFUND_FAILED',
+          })
       }
+      log('info', 'payment.operation_processed', {
+        component: 'payments',
+        orderId: order.id,
+        operationKind: op.kind,
+      })
     } catch (error) {
+      log('warn', 'payment.operation_failed', {
+        component: 'payments',
+        orderId: order.id,
+        operationKind: op.kind,
+        errorCode: error instanceof ProviderRejection ? 'PROVIDER_REJECTED' : 'PAYMENT_UNAVAILABLE',
+      })
       await repository.failOperation(op, error instanceof ProviderRejection)
       throw new PaymentUnavailableError()
     }
@@ -88,6 +107,7 @@ export function createPaymentService(repository: PaymentRepository, options: Pay
   async function reconcile(id: number, expire = false) {
     const api = requireProvider()
     let row = (await repository.get(id))!
+    const previousStatus = row.paymentStatus
     try {
       if (!row.stripeSessionId && row.paymentStatus === 'PENDING') {
         const operation = await repository.checkoutOperation(id)
@@ -114,6 +134,11 @@ export function createPaymentService(repository: PaymentRepository, options: Pay
         await repository.reconcileSession(session)
       }
       row = (await repository.get(id))!
+      if (row.paymentStatus !== previousStatus)
+        log('info', 'payment.state_changed', {
+          component: 'payments',
+          orderId: id,
+        })
       if (row.cancellationIntent && row.paymentStatus === 'PAID') {
         const intent = JSON.parse(row.cancellationIntent) as {
           input: unknown
@@ -125,6 +150,11 @@ export function createPaymentService(repository: PaymentRepository, options: Pay
         )
       }
     } catch (error) {
+      log('warn', 'payment.reconciliation_failed', {
+        component: 'payments',
+        orderId: id,
+        errorCode: 'PAYMENT_UNAVAILABLE',
+      })
       if (error instanceof ValidationError || error instanceof ConflictError) {
         if (error.message === 'Provider resource did not match saved order')
           await repository.recordMismatch(row.stripeSessionId ?? String(id))
@@ -230,14 +260,24 @@ export function createPaymentService(repository: PaymentRepository, options: Pay
     async handleEvent(event: ProviderEvent) {
       await repository.queueEvent(event)
       await processEvent(event)
+      log('info', 'payment.webhook_processed', { component: 'payments' })
     },
     async recover() {
       if (!provider) return
       for (const op of await repository.queuedOperations()) {
         try {
           await runOperation(op.id)
-        } catch {
-          /* durable safe error + backoff */
+        } catch (error) {
+          log(
+            error instanceof PaymentUnavailableError ? 'warn' : 'error',
+            'payment.operation_recovery_failed',
+            {
+              component: 'payments',
+              orderId: op.orderId,
+              operationKind: op.kind,
+              errorCode: 'RECOVERY_FAILED',
+            },
+          )
         }
       }
       let events = await repository.pendingEvents(eventCursor)
@@ -250,7 +290,10 @@ export function createPaymentService(repository: PaymentRepository, options: Pay
         try {
           await processEvent(event)
         } catch {
-          /* retained for the next sweep */
+          log('warn', 'payment.event_recovery_failed', {
+            component: 'payments',
+            errorCode: 'RECOVERY_FAILED',
+          })
         }
       }
       let pending = await repository.pendingOrders(orderCursor)
@@ -262,8 +305,16 @@ export function createPaymentService(repository: PaymentRepository, options: Pay
         orderCursor = order.id
         try {
           await reconcile(order.id)
-        } catch {
-          /* reservation remains until provider confirms */
+        } catch (error) {
+          log(
+            error instanceof PaymentUnavailableError ? 'warn' : 'error',
+            'payment.order_recovery_failed',
+            {
+              component: 'payments',
+              orderId: order.id,
+              errorCode: 'RECOVERY_FAILED',
+            },
+          )
         }
       }
     },

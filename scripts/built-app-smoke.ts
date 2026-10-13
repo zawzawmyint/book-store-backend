@@ -15,7 +15,7 @@ export async function smokeBuiltApp(provider: 'sqlite' | 'postgresql', databaseU
     reservation.close((error) => (error ? reject(error) : accept())),
   )
   const child = spawn(process.execPath, [resolve('dist/server.js')], {
-    stdio: ['ignore', 'ignore', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: {
       ...Object.fromEntries(
         Object.entries(process.env).filter(([key]) => !key.startsWith('SMTP_')),
@@ -41,6 +41,10 @@ export async function smokeBuiltApp(provider: 'sqlite' | 'postgresql', databaseU
   // Child stderr may contain driver context. Retain a small diagnostic buffer and
   // emit only recognized static categories, never the captured text or secrets.
   let stderr = ''
+  let stdout = ''
+  child.stdout?.on('data', (chunk: Buffer) => {
+    if (stdout.length < 8192) stdout += chunk.toString('utf8').slice(0, 8192 - stdout.length)
+  })
   child.stderr?.on('data', (chunk: Buffer) => {
     if (stderr.length < 8192) stderr += chunk.toString('utf8').slice(0, 8192 - stderr.length)
   })
@@ -83,6 +87,22 @@ export async function smokeBuiltApp(provider: 'sqlite' | 'postgresql', databaseU
       await new Promise((accept) => setTimeout(accept, 250))
     }
     if (!ready) startupFailure(`Built ${provider} API readiness timed out`)
+    const startupLogs = stdout
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => JSON.parse(line))
+    if (
+      !startupLogs.some((entry) => entry.event === 'server.started' && entry.environment === 'test')
+    )
+      throw new Error(`Built ${provider} structured startup logging failed`)
+    const readiness = await fetch(`${url}/ready`)
+    if (
+      readiness.status !== 200 ||
+      (await readiness.json()).status !== 'ready' ||
+      !readiness.headers.get('x-request-id') ||
+      readiness.headers.get('cache-control') !== 'no-store'
+    )
+      throw new Error(`Built ${provider} database readiness failed`)
     const result = await (
       await fetch(`${url}/graphql`, {
         method: 'POST',

@@ -62,6 +62,22 @@ describe(`database contract: ${providerName}`, () => {
   let service: ReturnType<typeof createPaymentService>
   let buyer: { id: string; name: string; email: string }
   let now: number
+  it('serves readiness through the real selected database without touching schema or data', async () => {
+    const app = await createApp(database.handle, options)
+    try {
+      const result = await request(app).get('/ready')
+      expect(result.status).toBe(200)
+      expect(result.body).toEqual({ status: 'ready' })
+      expect(result.headers['cache-control']).toBe('no-store')
+      await database.close()
+      const unavailable = await request(app).get('/ready')
+      expect(unavailable.status).toBe(503)
+      expect(unavailable.body).toEqual({ status: 'unavailable' })
+      expect((await request(app).get('/health')).status).toBe(200)
+    } finally {
+      await app.locals.close()
+    }
+  })
   it.skipIf(providerName !== 'postgresql')(
     'projects a cart without waiting for another owner stock write lock',
     async () => {

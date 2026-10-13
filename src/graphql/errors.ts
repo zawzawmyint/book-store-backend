@@ -23,7 +23,6 @@ export function publicGraphQLError(error: GraphQLFormattedError): GraphQLFormatt
   const code =
     typeof error.extensions?.code === 'string' ? error.extensions.code : 'INTERNAL_SERVER_ERROR'
   const known = publicCodes.has(code)
-  if (!known) console.error('GraphQL operation failed')
   return {
     message: known ? error.message : 'Request unavailable. Please try again shortly.',
     locations: error.locations,

@@ -6,6 +6,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { readMigrationFiles } from 'drizzle-orm/migrator'
 import type { AppConfig } from '../../config/env.js'
 import * as schema from './schema.js'
+import { log } from '../../shared/logger.js'
 const migrationsFolder = fileURLToPath(new URL('../../../drizzle/postgresql/', import.meta.url))
 export function postgreSQLPoolConfig(config: AppConfig): PoolConfig {
   if (!config.databaseUrl) throw new Error('DATABASE_URL is required')
@@ -28,7 +29,10 @@ export function createPostgreSQLPool(config: AppConfig) {
   const pool = new Pool(postgreSQLPoolConfig(config))
   // Idle clients are discarded by pg after errors. Never expose connection secrets.
   pool.on('error', () => {
-    console.error('PostgreSQL idle connection unavailable')
+    log('error', 'database.connection_failed', {
+      component: 'database',
+      errorCode: 'DATABASE_UNAVAILABLE',
+    })
   })
   return pool
 }
