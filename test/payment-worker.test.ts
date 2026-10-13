@@ -6,6 +6,34 @@ import { seedBooks } from '../src/database/seed.js'
 import { createPaymentService } from '../src/modules/payments/payment.service.js'
 import { startPaymentWorker } from '../src/modules/payments/payment.worker.js'
 import { FakePaymentProvider } from './fake-payment-provider.js'
+it('logs worker sweep failure without losing the next scheduled recovery or exposing errors', async () => {
+  vi.useFakeTimers()
+  const lines: string[] = []
+  vi.spyOn(console, 'error').mockImplementation((line) => lines.push(String(line)))
+  const db = createDatabase(':memory:')
+  const provider = new FakePaymentProvider()
+  const service = createPaymentService(createPaymentRepository(db, Date.now), {
+    provider,
+    ...deliveryOptions,
+    frontendOrigin: 'http://localhost:5173',
+  })
+  // Closing the real database makes the worker's first sweep fail.
+  db.close()
+  const stop = startPaymentWorker(service)
+  try {
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(lines.map((line) => JSON.parse(line))).toEqual([
+      expect.objectContaining({ event: 'payment.worker_failed', level: 'error' }),
+      expect.objectContaining({ event: 'payment.worker_failed', level: 'error' }),
+    ])
+    expect(lines.join('')).not.toContain('not open')
+  } finally {
+    await stop()
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  }
+})
 it('recovers durable unknown operations every 60 seconds and catches expiry on startup after stop', async () => {
   vi.useFakeTimers()
   vi.setSystemTime(new Date('2026-10-07T00:00:00Z'))

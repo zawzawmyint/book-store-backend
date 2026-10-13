@@ -16,6 +16,8 @@
 
 > **Implemented workspace search:** [Workspace search](specs/workspace-search/SPEC.md) adds Staff/Admin Books and Orders search plus an additive order filter, with verified SQLite/PostgreSQL parity and browser coverage.
 
+> **Implemented operational logging and readiness:** [Operational logging and readiness](specs/operational-logging-readiness/SPEC.md) provides structured console events, generated request IDs, and the database readiness endpoint.
+
 > This document describes implemented behavior. See [the Stripe checkout feature spec](specs/stripe-checkout/SPEC.md) for test-payment details, [the authentication feature spec](specs/authentication/SPEC.md) for the account contract, and [the demo-login feature spec](specs/demo-login/SPEC.md) for optional local demo accounts.
 
 > The implemented role and permission model is defined in [the staff roles specification](specs/staff/SPEC.md), with user-directory compatibility details in [the user directory specification](specs/users/SPEC.md).
@@ -42,6 +44,11 @@ New orders require Stripe hosted Checkout in test mode with a required delivery 
 
 - `POST /graphql` accepts GraphQL operations. Module schemas composed in `src/graphql/schema.ts` are the authoritative field and type contract.
 - `GET /health` returns `{ "status": "ok" }`.
+- `GET /ready` returns `{ "status": "ready" }` with HTTP 200 when the selected
+  database accepts its `SELECT 1` probe, or `{ "status": "unavailable" }` with
+  HTTP 503 otherwise. It is public, read-only, and sends `Cache-Control: no-store`.
+  See [operational logging and readiness](specs/operational-logging-readiness/SPEC.md)
+  for the logging contract and operations guidance.
 - `POST /api/payments/stripe/webhook` verifies Stripe's signed test-mode events. It
   is a provider endpoint, not a browser API, and has no cookie/origin requirement.
 - Better Auth handles email-and-password account requests and cookie sessions under `/api/auth/*`. A signed-in user can update their own display name and change their password on those existing routes. Name updates trim to 1–120 characters. Email, image, role, and user ID stay unchanged. Password changes require the current password and a new password of 8–128 characters, revoke other sessions, and keep the current browser session. Later order requests use the saved name; existing orders keep their stored contact snapshots. See [the account profile spec](specs/profile/SPEC.md).

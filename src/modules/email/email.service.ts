@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer'
+import { log } from '../../shared/logger.js'
 
 export type EmailMessage = { to: string; subject: string; text: string; html: string }
 export type EmailSender = { send(message: EmailMessage): Promise<void>; close?(): void }
@@ -35,7 +36,11 @@ export function createEmailSender(config: SmtpConfig): EmailSender {
 
 export function createMailDispatcher(
   sender?: EmailSender,
-  observeFailure = () => console.error('Auth email delivery failed'),
+  observeFailure = () =>
+    log('error', 'email.delivery_failed', {
+      component: 'email',
+      errorCode: 'EMAIL_DELIVERY_FAILED',
+    }),
 ) {
   const pending = new Set<Promise<unknown>>()
   function track(promise: Promise<unknown>) {
@@ -48,7 +53,9 @@ export function createMailDispatcher(
       track(
         Promise.resolve().then(() => {
           if (!sender) throw new Error('Email sender unavailable')
-          return sender.send(message)
+          return sender
+            .send(message)
+            .then(() => log('info', 'email.delivered', { component: 'email' }))
         }),
       )
     },
