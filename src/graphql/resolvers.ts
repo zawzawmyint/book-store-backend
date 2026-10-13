@@ -1,4 +1,6 @@
 import { normalizeStore } from '../database/persistence.js'
+import { createCartRepository } from '../modules/cart/cart.repository.js'
+import { createCartResolvers } from '../modules/cart/cart.resolvers.js'
 import { readDelivery } from '../modules/orders/delivery.mapping.js'
 import { createCatalogRepository } from '../modules/books/book.repository.js'
 import { createAdminBookRepository } from '../modules/books/admin-book.repository.js'
@@ -24,6 +26,8 @@ export function createResolvers(
   paymentService: PaymentService,
 ): Resolvers<GraphQLContext> {
   const adminRepository = createAdminRepository(db)
+  const cartRepository = createCartRepository(db)
+  const cartResolvers = createCartResolvers(cartRepository)
   const orderRepository = createOrderRepository(db)
   const adminBookRepository = createAdminBookRepository(db)
   const dashboardRepository = createDashboardRepository(db)
@@ -50,6 +54,7 @@ export function createResolvers(
         (await adminOrderRepository.history(order.id)) as AdminOrderStatusEvent[],
     },
     Query: {
+      ...cartResolvers.Query,
       ...dashboardResolvers,
       ...bookResolvers,
       ...orderResolvers.Query,
@@ -59,6 +64,7 @@ export function createResolvers(
       ...activityResolvers,
     },
     Mutation: {
+      ...cartResolvers.Mutation,
       ...orderResolvers.Mutation,
       ...adminBookResolvers.Mutation,
       ...adminResolvers.Mutation,

@@ -12,7 +12,7 @@ import { createOrderService } from './order.service.js'
 import type { PaymentService } from '../payments/payment.service.js'
 import { createPermissionGuard } from '../admin/admin.authorization.js'
 import type { AdminRepository } from '../admin/admin.repository.js'
-import { requireUser } from '../../shared/authentication.js'
+import { requireUser, requireCartUser } from '../../shared/authentication.js'
 
 export function createOrderResolvers(
   repository: OrderRepository,
@@ -89,7 +89,7 @@ export function createOrderResolvers(
         }
       },
       createCheckout: async (_, args, context) => {
-        const user = requireUser(context.user)
+        const user = requireCartUser(context)
         try {
           return (await paymentService.createCheckout(args.input, user)) as CheckoutResult
         } catch (error) {
@@ -97,7 +97,7 @@ export function createOrderResolvers(
         }
       },
       resumeCheckout: async (_, args, context) => {
-        const user = requireUser(context.user)
+        const user = requireCartUser(context)
         try {
           return (await paymentService.resumeCheckout(args.orderId, user)) as CheckoutResult
         } catch (error) {
@@ -105,7 +105,7 @@ export function createOrderResolvers(
         }
       },
       refreshOrderPayment: async (_, args, context) => {
-        const user = requireUser(context.user)
+        const user = requireCartUser(context)
         try {
           return (await paymentService.refreshOrderPayment(args.orderId, user)) as MyOrder
         } catch (error) {

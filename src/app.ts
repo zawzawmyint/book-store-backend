@@ -134,7 +134,10 @@ export async function createApp(
             headers: fromNodeHeaders(req.headers),
             query: { disableCookieCache: true },
           })
-          return { user: session?.user.emailVerified ? session.user : null }
+          return {
+            user: session?.user.emailVerified ? session.user : null,
+            expectedCartAccount: req.get('x-cart-account'),
+          }
         },
       }),
     )

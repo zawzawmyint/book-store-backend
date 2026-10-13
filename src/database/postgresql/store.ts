@@ -9,6 +9,82 @@ export function createPostgreSQLStore(
   scoped = false,
 ): DomainStore {
   return {
+    async cart(userId, create = false) {
+      if (create) await orm.insert(schema.accountCarts).values({ userId }).onConflictDoNothing()
+      return firstRow(
+        await orm
+          .select()
+          .from(schema.accountCarts)
+          .where(eq(schema.accountCarts.userId, userId))
+          .for(scoped ? 'update' : 'share'),
+      )
+    },
+    async cartItems(userId) {
+      return await orm
+        .select()
+        .from(schema.accountCartItems)
+        .where(eq(schema.accountCartItems.userId, userId))
+        .orderBy(schema.accountCartItems.bookId)
+    },
+    async setCartRevision(userId, revision) {
+      await orm
+        .update(schema.accountCarts)
+        .set({ revision })
+        .where(eq(schema.accountCarts.userId, userId))
+    },
+    async putCartItem(values) {
+      await orm
+        .insert(schema.accountCartItems)
+        .values(values)
+        .onConflictDoUpdate({
+          target: [schema.accountCartItems.userId, schema.accountCartItems.bookId],
+          set: { quantity: values.quantity, lineVersion: values.lineVersion },
+        })
+    },
+    async deleteCartItem(userId, bookId) {
+      await orm
+        .delete(schema.accountCartItems)
+        .where(
+          and(
+            eq(schema.accountCartItems.userId, userId),
+            eq(schema.accountCartItems.bookId, bookId),
+          ),
+        )
+    },
+    async cartOperation(userId, key) {
+      return firstRow(
+        await orm
+          .select()
+          .from(schema.cartOperations)
+          .where(
+            and(
+              eq(schema.cartOperations.userId, userId),
+              eq(schema.cartOperations.requestKey, key),
+            ),
+          ),
+      )
+    },
+    async insertCartOperation(values) {
+      await orm.insert(schema.cartOperations).values(values)
+    },
+    async cartSnapshot(orderId) {
+      return firstRow(
+        await orm
+          .select()
+          .from(schema.checkoutCartSnapshots)
+          .where(eq(schema.checkoutCartSnapshots.orderId, orderId)),
+      )
+    },
+    async insertCartSnapshot(values) {
+      await orm.insert(schema.checkoutCartSnapshots).values(values)
+    },
+    async cleanCartSnapshot(orderId, cleanedAt) {
+      await orm
+        .update(schema.checkoutCartSnapshots)
+        .set({ cleanedAt })
+        .where(eq(schema.checkoutCartSnapshots.orderId, orderId))
+    },
+
     dashboardWorkspace: () =>
       orm.transaction(
         async (tx) =>
@@ -29,14 +105,9 @@ export function createPostgreSQLStore(
       ),
     transaction: async (work) =>
       orm.transaction(async (tx) => work(createPostgreSQLStore(tx, true))),
-    async book(id) {
-      return firstRow(
-        await orm
-          .select()
-          .from(schema.books)
-          .where(eq(schema.books.id, id))
-          .for(scoped ? 'update' : 'share'),
-      )
+    async book(id, lock = true) {
+      const query = orm.select().from(schema.books).where(eq(schema.books.id, id))
+      return firstRow(await (lock ? query.for(scoped ? 'update' : 'share') : query))
     },
     async catalog(search, limit, offset) {
       const where = and(

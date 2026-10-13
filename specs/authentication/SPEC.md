@@ -19,7 +19,7 @@ Require a Better Auth session for order requests and expose each customer's own 
 ## Scope
 
 - Better Auth email-and-password sign-up sends verification mail and creates no usable session. Sign-in requires a verified email; sign-out and persistent sessions remain available to verified users. Password recovery sends a reset link and requires a fresh sign-in after completion.
-- Require a valid verified session for `createCheckout`, `myOrders`, and owner-scoped `myOrder`. Leave catalog queries and `/health` public. Deprecated `placeOrder` cannot create an unpaid order.
+- Require a valid verified session for `createCheckout`, `myOrders`, owner-scoped `myOrder`, and the account-cart operations `myCart`, `setCartItem`, and `mergeGuestCart`. Leave catalog queries and `/health` public. Deprecated `placeOrder` cannot create an unpaid order. The [account-carts specification](../account-carts/SPEC.md) defines cart ownership and idempotency.
 - Store order ownership by Better Auth user ID. Do not assign historical guest orders to accounts; the later workflow migration requires fresh or zero-order data as documented in [the order-workflow specification](../order-workflow/SPEC.md).
 - The delivered email flow is specified by [Auth email verification and recovery](../auth-email/SPEC.md). Social login, guest checkout, claiming past orders, and shipping remain deferred. Stripe hosted test payment is delivered by [the checkout specification](../stripe-checkout/SPEC.md). Admin roles, originally outside this account feature, are now delivered by [the admin feature](../admin/SPEC.md).
 

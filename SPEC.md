@@ -1,5 +1,7 @@
 # The Quiet Shelf API specification
 
+> **Implemented account carts:** [Account carts](specs/account-carts/SPEC.md) adds server-owned carts for verified accounts, guest merging, revision-aware checkout, and once-only paid cleanup, with verified SQLite/PostgreSQL migrations and browser coverage.
+
 > **Implemented auth email:** [Verification and recovery](specs/auth-email/SPEC.md) requires verified email for account access, exposes its read-only status in the Admin user directory, and documents SMTP configuration, recovery, and rollout.
 
 > **Implemented engineering work:** [Backend readability and consistency](specs/readability-consistency/SPEC.md) records verified dependency, service-contract, and database-adapter readability refactoring with unchanged API and database behavior.
@@ -44,6 +46,10 @@ New orders require Stripe hosted Checkout in test mode with a required delivery 
   is a provider endpoint, not a browser API, and has no cookie/origin requirement.
 - Better Auth handles email-and-password account requests and cookie sessions under `/api/auth/*`. A signed-in user can update their own display name and change their password on those existing routes. Name updates trim to 1–120 characters. Email, image, role, and user ID stay unchanged. Password changes require the current password and a new password of 8–128 characters, revoke other sessions, and keep the current browser session. Later order requests use the saved name; existing orders keep their stored contact snapshots. See [the account profile spec](specs/profile/SPEC.md).
 - Browser access to `/graphql` and `/api/auth/*` is limited by the configured `FRONTEND_ORIGIN` CORS origin. Authenticated GraphQL POST requests require that origin and JSON content.
+- `myCart`, `setCartItem`, and `mergeGuestCart` require the verified session owner and
+  apply to Customer, Staff, and Admin alike. They never accept a selected owner or
+  trusted catalog data. See [account carts](specs/account-carts/SPEC.md) for limits,
+  idempotency, conflict handling, and paid-order cleanup.
 
 ## Catalog
 
@@ -61,7 +67,7 @@ older feature notes is historical. The current requirements for delivery address
 quote/review, immutable fee-inclusive amounts, payment state, shipment and cancellation
 are authoritative in [the delivery specification](specs/delivery/SPEC.md).
 
-- `deliveryOptions` and `quoteCheckout(input)` require a Better Auth session. They expose enabled country codes, fee and USD currency, and produce a non-reserving server quote for a valid delivery address. `createCheckout(input)` requires the reviewed address, expected fee and expected total, 1 to 20 distinct book lines, and a UUID request key. Each line has a book ID and quantity from 1 to 10. Customer name, email, and user ID come from the server session. `placeOrder`
+- `deliveryOptions` and `quoteCheckout(input)` require a Better Auth session. They expose enabled country codes, fee and USD currency, and produce a non-reserving server quote for a valid delivery address. `createCheckout(input)` requires the reviewed address, expected fee and expected total, 1 to 20 distinct book lines, and a UUID request key. An account-cart caller also sends its accepted optional `cartRevision`; the server rejects a revision or exact-line mismatch before reservation. Each line has a book ID and quantity from 1 to 10. Customer name, email, and user ID come from the server session. `placeOrder`
   remains deprecated for schema compatibility and rejects new placement.
 - Module-local Zod schemas require numeric-string book IDs and integer quantities. Services translate the first input failure into GraphQL `extensions.code: BAD_USER_INPUT`; exact validation wording is not a stable API guarantee. Missing sessions return `UNAUTHENTICATED`. The repository checks book existence and stock and calculates totals from stored prices.
 - In one provider-scoped transaction, the server writes a pending payment-required order and

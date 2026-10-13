@@ -114,6 +114,10 @@ extend type Query {
   request keys. Normalize addresses server-side with matching frontend validation:
   trim strings; blank optional fields become null; uppercase country codes;
   preserve internal address whitespace and Unicode. Reject control characters.
+- A server-owned account cart supplies the optional accepted `cartRevision` with
+  `createCheckout`. The server compares its revision and exact submitted lines before
+  reservation, returning `CART_CONFLICT` on a mismatch. The full ownership, receipt,
+  and paid-cleanup contract is in [account carts](../account-carts/SPEC.md).
 - Required trimmed lengths: recipient 1–120, addressLine1 1–200, city 1–100.
   Optional maxima: addressLine2 200, region 100, postalCode 32. Postal code and
   region are optional globally; do not impose one country's address format.
