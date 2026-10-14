@@ -4,7 +4,7 @@ export function createCatalogRepository(input: DatabaseInput): CatalogRepository
   const store = normalizeStore(input)
   return {
     listGenres: () => store.genres(),
-    listBooks: (search, limit, offset) => store.catalog(search, limit, offset),
+    listBooks: (search, limit, offset, options) => store.catalog(search, limit, offset, options),
     async getBook(id) {
       const row = await store.book(Number(id))
       return row && !row.archived ? row : null

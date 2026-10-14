@@ -77,6 +77,13 @@ export type BookPage = {
   items: Array<Book>;
 };
 
+export enum CatalogSort {
+  Default = 'DEFAULT',
+  TitleAsc = 'TITLE_ASC',
+  PriceAsc = 'PRICE_ASC',
+  PriceDesc = 'PRICE_DESC'
+}
+
 export enum AdminBookFilter {
   Active = 'ACTIVE',
   Archived = 'ARCHIVED',
@@ -143,6 +150,11 @@ export type Query = {
 
 export type QueryBooksArgs = {
   search?: InputMaybe<Scalars['String']['input']>;
+  genre?: InputMaybe<Scalars['String']['input']>;
+  inStockOnly?: InputMaybe<Scalars['Boolean']['input']>;
+  minPriceCents?: InputMaybe<Scalars['Int']['input']>;
+  maxPriceCents?: InputMaybe<Scalars['Int']['input']>;
+  sort?: InputMaybe<CatalogSort>;
   limit?: InputMaybe<Scalars['Int']['input']>;
   offset?: InputMaybe<Scalars['Int']['input']>;
 };
@@ -867,6 +879,7 @@ export type ResolversTypes = {
   MergeGuestCartInput: MergeGuestCartInput;
   Book: ResolverTypeWrapper<Book>;
   BookPage: ResolverTypeWrapper<BookPage>;
+  CatalogSort: CatalogSort;
   AdminBookFilter: AdminBookFilter;
   AdminBook: ResolverTypeWrapper<AdminBook>;
   AdminBooksPage: ResolverTypeWrapper<AdminBooksPage>;
@@ -1038,7 +1051,7 @@ export type AdminBooksPageResolvers<ContextType = any, ParentType extends Resolv
 };
 
 export type QueryResolvers<ContextType = any, ParentType extends ResolversParentTypes['Query'] = ResolversParentTypes['Query']> = {
-  books?: Resolver<ResolversTypes['BookPage'], ParentType, ContextType, RequireFields<QueryBooksArgs, 'limit' | 'offset'>>;
+  books?: Resolver<ResolversTypes['BookPage'], ParentType, ContextType, RequireFields<QueryBooksArgs, 'inStockOnly' | 'sort' | 'limit' | 'offset'>>;
   genres?: Resolver<Array<ResolversTypes['String']>, ParentType, ContextType>;
   book?: Resolver<Maybe<ResolversTypes['Book']>, ParentType, ContextType, RequireFields<QueryBookArgs, 'id'>>;
   adminBooks?: Resolver<ResolversTypes['AdminBooksPage'], ParentType, ContextType, RequireFields<QueryAdminBooksArgs, 'filter' | 'lowStockOnly' | 'limit' | 'offset'>>;

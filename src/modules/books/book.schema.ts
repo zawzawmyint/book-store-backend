@@ -9,6 +9,7 @@ export const bookTypeDefs = `#graphql
     stock: Int!
   }
   type BookPage { total: Int!, items: [Book!]! }
+  enum CatalogSort { DEFAULT TITLE_ASC PRICE_ASC PRICE_DESC }
   enum AdminBookFilter { ACTIVE ARCHIVED ALL }
   type AdminBook { id: ID!, title: String!, author: String!, genre: String!, description: String!, priceCents: Int!, stock: Int!, archived: Boolean! }
   type AdminBooksPage { total: Int!, items: [AdminBook!]! }
@@ -21,7 +22,7 @@ export const bookTypeDefs = `#graphql
     setBookArchived(id: ID!, archived: Boolean!): AdminBook!
   }
   type Query {
-    books(search: String, limit: Int = 12, offset: Int = 0): BookPage!
+    books(search: String, genre: String, inStockOnly: Boolean = false, minPriceCents: Int, maxPriceCents: Int, sort: CatalogSort = DEFAULT, limit: Int = 12, offset: Int = 0): BookPage!
     genres: [String!]!
     book(id: ID!): Book
     adminBooks(search: String, filter: AdminBookFilter = ACTIVE, lowStockOnly: Boolean = false, limit: Int = 20, offset: Int = 0): AdminBooksPage!
