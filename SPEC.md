@@ -18,6 +18,8 @@
 
 > **Implemented operational logging and readiness:** [Operational logging and readiness](specs/operational-logging-readiness/SPEC.md) provides structured console events, generated request IDs, and the database readiness endpoint.
 
+> **Implemented catalog upgrade:** [Catalog filtering and sorting](specs/catalog-upgrade/SPEC.md) adds public exact genre, availability, price, and server-order controls before pagination.
+
 > This document describes implemented behavior. See [the Stripe checkout feature spec](specs/stripe-checkout/SPEC.md) for test-payment details, [the authentication feature spec](specs/authentication/SPEC.md) for the account contract, and [the demo-login feature spec](specs/demo-login/SPEC.md) for optional local demo accounts.
 
 > The implemented role and permission model is defined in [the staff roles specification](specs/staff/SPEC.md), with user-directory compatibility details in [the user directory specification](specs/users/SPEC.md).
@@ -60,9 +62,10 @@ New orders require Stripe hosted Checkout in test mode with a required delivery 
 
 ## Catalog
 
-- `books(search, limit, offset)` returns `{ total, items }`. Defaults are `limit: 12` and `offset: 0`.
-- Search trims the input and matches title, author, or genre as case-insensitive text. SQL wildcard characters in input are treated literally on both supported databases.
-- The service accepts search text up to 100 characters, a whole-number limit from 1 to 24, and a nonnegative whole-number offset.
+- `books(search, genre, inStockOnly, minPriceCents, maxPriceCents, sort, limit, offset)` returns `{ total, items }`. The additive arguments default to legacy behavior: exact `genre` is absent, availability is false, price bounds are open, and sort is ID ascending; limit defaults to 12 and offset to 0.
+- Search trims the input and matches title, author, or genre as case-insensitive text. SQL wildcard characters in input are treated literally on both supported databases. Genre is a case-sensitive exact stored-value match; all supplied predicates combine with AND before both count and selection.
+- Price bounds are inclusive integer cents from 0 through 1,000,000. The service accepts search/genre text up to 100 characters, a whole-number limit from 1 to 24, and a nonnegative whole-number offset. Invalid values use the existing `BAD_USER_INPUT` convention.
+- `DEFAULT` orders ID ascending; `PRICE_ASC` uses price ascending then ID ascending, and `PRICE_DESC` uses price descending then ID ascending. `TITLE_ASC` is deterministic ASCII-only A–Z folding with binary/C ordering and ID ties: SQLite uses `lower(title) COLLATE BINARY`, PostgreSQL uses ASCII `translate(...) COLLATE "C"`. It is not locale or universal-Unicode case ordering.
 - `book(id)` returns one book or `null` when its ID is invalid, missing, or archived. Public lookups accept digit-only IDs, including leading zeroes such as `01`; this is distinct from strict positive safe-integer IDs used by administrative operations.
 - `genres` returns the distinct catalog genres in alphabetical order.
 - Book prices are integer `priceCents` values. The database stores them as `price_cents`.

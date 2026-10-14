@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm'
+import { and, count, desc, eq, gt, gte, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm'
 import * as schema from './../schema.js'
 import type { DomainStore } from '../store.types.js'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
@@ -90,18 +90,34 @@ export function createSQLiteQueries(orm: BetterSQLite3Database): DomainStore {
     async book(id) {
       return firstRow(await orm.select().from(schema.books).where(eq(schema.books.id, id)))
     },
-    async catalog(search, limit, offset) {
+    async catalog(search, limit, offset, options = {}) {
       const where = and(
         eq(schema.books.archived, false),
         textSearch(search, schema.books.title, schema.books.author, schema.books.genre),
+        options.genre ? eq(schema.books.genre, options.genre) : undefined,
+        options.inStockOnly ? gt(schema.books.stock, 0) : undefined,
+        options.minPriceCents != null
+          ? gte(schema.books.priceCents, options.minPriceCents)
+          : undefined,
+        options.maxPriceCents != null
+          ? lte(schema.books.priceCents, options.maxPriceCents)
+          : undefined,
       )
+      const order =
+        options.sort === 'TITLE_ASC'
+          ? sql`lower(${schema.books.title}) COLLATE BINARY`
+          : options.sort === 'PRICE_ASC'
+            ? schema.books.priceCents
+            : options.sort === 'PRICE_DESC'
+              ? desc(schema.books.priceCents)
+              : schema.books.id
       return {
         total: firstRow(await orm.select({ n: count() }).from(schema.books).where(where))!.n,
         items: await orm
           .select()
           .from(schema.books)
           .where(where)
-          .orderBy(schema.books.id)
+          .orderBy(order, schema.books.id)
           .limit(limit)
           .offset(offset),
       }

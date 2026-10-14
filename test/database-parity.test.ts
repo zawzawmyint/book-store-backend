@@ -62,6 +62,137 @@ describe(`database contract: ${providerName}`, () => {
   let service: ReturnType<typeof createPaymentService>
   let buyer: { id: string; name: string; email: string }
   let now: number
+  it('filters and stably sorts the public catalog before pagination', async () => {
+    const rows = []
+    for (const [title, priceCents, stock, genre, archived] of [
+      ['zebra', 300, 2, 'Catalog fixture', false],
+      ['Alpha', 100, 1, 'Catalog fixture', false],
+      ['alpha', 100, 0, 'Catalog fixture', false],
+      ['Éclair', 200, 1, 'Catalog fixture', false],
+      ['éclair', 200, 1, 'Catalog fixture', false],
+      ['Free', 0, 1, 'Catalog fixture', false],
+      ['Alpha archived', 100, 1, 'Catalog fixture', true],
+      ['Alpha extra', 100, 1, 'Catalog fixture extra', false],
+    ] as const)
+      rows.push(
+        await store.createBook({
+          title,
+          priceCents,
+          stock,
+          genre,
+          archived,
+          author: 'Fixture author',
+          description: 'Fixture',
+        }),
+      )
+    const catalog = createCatalogRepository(database.handle)
+    const ids = (indexes: number[]) => indexes.map((index) => rows[index].id)
+    const page = await catalog.listBooks('Alpha', 12, 0, {
+      genre: 'Catalog fixture',
+      inStockOnly: true,
+      minPriceCents: 100,
+      maxPriceCents: 100,
+    })
+    expect(page.total).toBe(1)
+    expect(page.items.map((row) => row.id)).toEqual(ids([1]))
+    for (const [sort, indexes] of [
+      ['DEFAULT', [0, 1, 2, 3, 4, 5]],
+      ['TITLE_ASC', [1, 2, 5, 0, 3, 4]],
+      ['PRICE_ASC', [5, 1, 2, 3, 4, 0]],
+      ['PRICE_DESC', [0, 3, 4, 1, 2, 5]],
+    ] as const) {
+      const first = await catalog.listBooks('', 2, 0, { genre: 'Catalog fixture', sort })
+      const rest = await catalog.listBooks('', 12, 2, { genre: 'Catalog fixture', sort })
+      expect(first.total).toBe(6)
+      expect(rest.total).toBe(6)
+      expect([...first.items, ...rest.items].map((row) => row.id)).toEqual(ids([...indexes]))
+    }
+    for (const [bounds, indexes] of [
+      [{ minPriceCents: 0, maxPriceCents: 0 }, [5]],
+      [{ minPriceCents: 200 }, [0, 3, 4]],
+      [{ maxPriceCents: 100 }, [1, 2, 5]],
+    ] as const)
+      expect(
+        (await catalog.listBooks('', 12, 0, { genre: 'Catalog fixture', ...bounds })).items.map(
+          (row) => row.id,
+        ),
+      ).toEqual(ids([...indexes]))
+    expect(await catalog.listBooks('', 12, 99, { genre: 'Catalog fixture' })).toEqual({
+      total: 6,
+      items: [],
+    })
+    expect((await catalog.listBooks('', 12, 0, { genre: 'catalog fixture' })).total).toBe(0)
+    expect(await catalog.listGenres()).toContain('Catalog fixture extra')
+  })
+
+  it('validates additive catalog arguments through the public GraphQL endpoint', async () => {
+    const app = await createApp(database.handle, options)
+    try {
+      const query = `query($search: String, $genre: String, $stock: Boolean, $min: Int, $max: Int, $sort: CatalogSort, $limit: Int, $offset: Int) { books(search: $search, genre: $genre, inStockOnly: $stock, minPriceCents: $min, maxPriceCents: $max, sort: $sort, limit: $limit, offset: $offset) { total items { id } } }`
+      const send = (variables: Record<string, unknown>) =>
+        request(app).post('/graphql').send({ query, variables })
+      const legacy = await request(app)
+        .post('/graphql')
+        .send({ query: '{ books { total items { id } } }' })
+      const nullable = await send({
+        genre: null,
+        stock: null,
+        min: null,
+        max: null,
+        sort: null,
+        limit: null,
+        offset: null,
+      })
+      expect(nullable.body.errors).toBeUndefined()
+      expect(nullable.body.data).toEqual(legacy.body.data)
+      const empty = await send({ genre: ' nonexistent ', min: 0, max: 1000000 })
+      expect(empty.body.data.books).toEqual({ total: 0, items: [] })
+      const fixture = await store.createBook({
+        title: 'Trimmed catalog title',
+        author: 'Catalog author',
+        genre: 'API fixture',
+        description: 'Fixture',
+        stock: 1,
+        priceCents: 200,
+      })
+      const selected = await send({
+        search: ' Catalog author ',
+        genre: ' API fixture ',
+        stock: true,
+        min: 200,
+        max: 200,
+        sort: 'PRICE_DESC',
+      })
+      expect(selected.body.errors).toBeUndefined()
+      expect(selected.body.data.books).toEqual({ total: 1, items: [{ id: String(fixture.id) }] })
+      await store.updateBook(fixture.id, { stock: 0 })
+      expect((await send({ genre: 'API fixture', stock: true })).body.data.books.total).toBe(0)
+      expect(
+        (await request(app).post('/graphql').send({ query: '{ genres }' })).body.data.genres,
+      ).toContain('API fixture')
+      for (const variables of [
+        { min: -1 },
+        { max: -1 },
+        { min: 1000001 },
+        { max: 1000001 },
+        { min: 200, max: 100 },
+        { genre: 'x'.repeat(101) },
+        { limit: 0 },
+        { limit: 25 },
+        { offset: -1 },
+      ]) {
+        expect((await send(variables)).body.errors[0].extensions.code).toBe('BAD_USER_INPUT')
+      }
+      for (const variables of [
+        { sort: 'price; DROP TABLE books' },
+        { stock: 'true' },
+        { min: 1.5 },
+      ])
+        expect((await send(variables)).body.errors).toBeDefined()
+    } finally {
+      await app.locals.close()
+    }
+  })
   it('serves readiness through the real selected database without touching schema or data', async () => {
     const app = await createApp(database.handle, options)
     try {

@@ -1,6 +1,7 @@
 import type * as model from './schema.js'
 import type { z } from 'zod'
 import type { adminBooksInputSchema } from '../modules/books/book.validation.js'
+import type { CatalogOptions } from '../modules/books/book.types.js'
 import type { adminUsersInputSchema } from '../modules/admin/admin.validation.js'
 import type { activityInputSchema } from '../modules/activity/activity.validation.js'
 import type {
@@ -45,6 +46,7 @@ export interface DomainStore {
     search: string,
     limit: number,
     offset: number,
+    options?: CatalogOptions,
   ): Promise<{ total: number; items: BookRow[] }>
   genres(): Promise<string[]>
   adminBooks(
