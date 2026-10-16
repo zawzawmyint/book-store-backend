@@ -4,6 +4,8 @@
 
 > **Implemented auth email:** [Verification and recovery](specs/auth-email/SPEC.md) requires verified email for account access, exposes its read-only status in the Admin user directory, and documents SMTP configuration, recovery, and rollout.
 
+> **Implemented queued email delivery (cutover pending):** [Production email notifications](specs/email-notifications/SPEC.md) adds an encrypted database ledger, separate auth/order Redis queues, and a worker. It has automated coverage; production provider, DNS, alerting, and staging evidence remain required before production use.
+
 > **Implemented engineering work:** [Backend readability and consistency](specs/readability-consistency/SPEC.md) records verified dependency, service-contract, and database-adapter readability refactoring with unchanged API and database behavior.
 
 > **Implemented infrastructure:** [Database support](specs/database-support/SPEC.md) provides SQLite development/test and PostgreSQL production support with shared application behavior.
@@ -144,3 +146,16 @@ are authoritative in [the delivery specification](specs/delivery/SPEC.md).
 - `bun run test:postgres` provisions disposable PostgreSQL 17.10 and runs shared
   provider-parity, migration, CLI, and compiled-application checks. Browser journeys
   run against SQLite by default and PostgreSQL through `bun run test:postgres:browser`.
+
+## Queued email notifications
+
+The [email notification specification](specs/email-notifications/SPEC.md) is the
+authoritative internal-delivery contract. In queued mode, verification and password
+reset callbacks durably record encrypted work. A paid transition records the
+`ORDER_CONFIRMED` payment receipt; the first committed `SUBMITTED` → `PREPARING`
+transition records `ORDER_ACCEPTED`; and shipped, cancelled, and provider-confirmed
+refunded transitions record their respective notifications in the same database
+transaction. The API does not connect to Redis or SMTP in that mode; a separate worker
+dispatches `auth-emails` and `order-emails` queues. This does not add a public GraphQL
+or HTTP contract. SMTP acceptance is submission evidence only; an ambiguous send is
+recorded as `UNCERTAIN` for operator review.

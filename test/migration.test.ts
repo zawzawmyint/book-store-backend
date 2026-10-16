@@ -7,47 +7,56 @@ import { createDatabase } from '../src/database/connection.js'
 import { migrateDatabase } from '../src/database/migrations.js'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
+import { readMigrationFiles } from 'drizzle-orm/migrator'
+import { fileURLToPath } from 'node:url'
+const migrationCount = readMigrationFiles({
+  migrationsFolder: fileURLToPath(new URL('../drizzle/', import.meta.url)),
+}).length
 
-it('adds account cart tables to populated current SQLite without assigning or altering existing data', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'cart-migration-')),
-    db = new Database(':memory:')
-  try {
-    mkdirSync(join(directory, 'meta'))
-    const journal = JSON.parse(
-      readFileSync(new URL('../drizzle/meta/_journal.json', import.meta.url), 'utf8'),
-    )
-    journal.entries = journal.entries.slice(0, -1)
-    writeFileSync(join(directory, 'meta/_journal.json'), JSON.stringify(journal))
-    for (const entry of journal.entries)
-      copyFileSync(
-        new URL(`../drizzle/${entry.tag}.sql`, import.meta.url),
-        join(directory, `${entry.tag}.sql`),
+it.each([9, 10])(
+  'adds notification/cart tables to populated SQLite at migration %i without altering existing data',
+  (cutoff) => {
+    const directory = mkdtempSync(join(tmpdir(), 'cart-migration-')),
+      db = new Database(':memory:')
+    try {
+      mkdirSync(join(directory, 'meta'))
+      const journal = JSON.parse(
+        readFileSync(new URL('../drizzle/meta/_journal.json', import.meta.url), 'utf8'),
       )
-    db.pragma('foreign_keys=ON')
-    migrate(drizzle(db), { migrationsFolder: directory })
-    db.exec(`INSERT INTO user(id,name,email) VALUES('saved','Saved','saved@example.com');
+      journal.entries = journal.entries.filter((entry: { idx: number }) => entry.idx < cutoff)
+      writeFileSync(join(directory, 'meta/_journal.json'), JSON.stringify(journal))
+      for (const entry of journal.entries)
+        copyFileSync(
+          new URL(`../drizzle/${entry.tag}.sql`, import.meta.url),
+          join(directory, `${entry.tag}.sql`),
+        )
+      db.pragma('foreign_keys=ON')
+      migrate(drizzle(db), { migrationsFolder: directory })
+      db.exec(`INSERT INTO user(id,name,email) VALUES('saved','Saved','saved@example.com');
       INSERT INTO books(id,title,author,genre,description,price_cents,stock) VALUES(42,'Saved','Author','Genre','Book',100,5);
       INSERT INTO orders(id,user_id,customer_name,email,subtotal_cents,delivery_fee_cents,total_cents) VALUES(9,'saved','Saved','saved@example.com',100,500,600);
       INSERT INTO order_items(order_id,book_id,title,quantity,unit_price_cents) VALUES(9,42,'Snapshot',1,100);
       INSERT INTO checkout_requests(user_id,request_key,lines_json,delivery_json,order_id) VALUES('saved','key','[]','{}',9);`)
-    const tables = ['user', 'books', 'orders', 'order_items', 'checkout_requests']
-    const before = tables.map((table) => db.prepare(`SELECT * FROM ${table}`).all())
-    migrateDatabase(db)
-    migrateDatabase(db)
-    expect(tables.map((table) => db.prepare(`SELECT * FROM ${table}`).all())).toEqual(before)
-    for (const table of [
-      'account_carts',
-      'account_cart_items',
-      'cart_operations',
-      'checkout_cart_snapshots',
-    ])
-      expect(db.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toEqual({ n: 0 })
-    expect(db.pragma('foreign_key_check')).toEqual([])
-  } finally {
-    db.close()
-    rmSync(directory, { recursive: true, force: true })
-  }
-})
+      const tables = ['user', 'books', 'orders', 'order_items', 'checkout_requests']
+      const before = tables.map((table) => db.prepare(`SELECT * FROM ${table}`).all())
+      migrateDatabase(db)
+      migrateDatabase(db)
+      expect(tables.map((table) => db.prepare(`SELECT * FROM ${table}`).all())).toEqual(before)
+      for (const table of [
+        'account_carts',
+        'account_cart_items',
+        'cart_operations',
+        'checkout_cart_snapshots',
+        'email_notifications',
+      ])
+        expect(db.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toEqual({ n: 0 })
+      expect(db.pragma('foreign_key_check')).toEqual([])
+    } finally {
+      db.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  },
+)
 
 it('rejects populated pre-delivery orders without altering data or migration history', () => {
   const directory = mkdtempSync(join(tmpdir(), 'stripe-migration-')),
@@ -251,7 +260,7 @@ describe('Drizzle migration adoption', () => {
     const db = createDatabase(':memory:')
     try {
       expect(db.prepare('SELECT COUNT(*) AS count FROM __drizzle_migrations').get()).toEqual({
-        count: 10,
+        count: migrationCount,
       })
       expect(() =>
         db
@@ -340,7 +349,9 @@ it('adopts an empty original legacy order schema and enforces workflow and monet
     db.pragma('foreign_keys=ON')
     migrateDatabase(db)
     migrateDatabase(db)
-    expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({ n: 10 })
+    expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({
+      n: migrationCount,
+    })
     expect(db.prepare('SELECT * FROM order_status_events').all()).toEqual([])
     expect(() =>
       db.exec(

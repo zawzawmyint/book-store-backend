@@ -9,7 +9,8 @@ import { ValidationError, ConflictError } from '../../shared/errors.js'
 import { normalizeStore, type DatabaseInput } from '../../database/persistence.js'
 import type { DomainStore, OrderRow } from '../../database/store.types.js'
 import { orderPayment } from '../payments/payment.types.js'
-export function createAdminOrderRepository(input: DatabaseInput) {
+import type { OrderEmailWriter } from '../email/email-outbox.writer.js'
+export function createAdminOrderRepository(input: DatabaseInput, writeEmail?: OrderEmailWriter) {
   const store = normalizeStore(input)
   async function withLines(tx: DomainStore, rows: OrderRow[], details = false) {
     const lines = await tx.lines(rows.map((r) => r.id))
@@ -166,6 +167,14 @@ export function createAdminOrderRepository(input: DatabaseInput) {
             changes: [{ field: 'ORDER_PAYMENT_STATUS', before: 'PAID', after: 'REFUND_PENDING' }],
           })
         }
+        if (input.status === 'PREPARING') await writeEmail?.(tx, before.id, 'ORDER_ACCEPTED')
+        if (input.status === 'SHIPPED') await writeEmail?.(tx, before.id, 'ORDER_SHIPPED')
+        if (
+          input.status === 'CANCELLED' &&
+          before.paymentRequired &&
+          ['PAID', 'REFUND_PENDING', 'REFUNDED', 'REFUND_FAILED'].includes(before.paymentStatus)
+        )
+          await writeEmail?.(tx, before.id, 'ORDER_CANCELLED')
         return (await get(input.id, tx))!
       })
     },

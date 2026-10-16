@@ -1,4 +1,8 @@
 import express from 'express'
+import type { EmailConfig } from './modules/email/email-config.js'
+import { createEmailCrypto } from './modules/email/email-payload.crypto.js'
+import { createEmailOutboxWriter } from './modules/email/email-outbox.writer.js'
+import { normalizeStore } from './database/persistence.js'
 import { isIP } from 'node:net'
 import { randomUUID } from 'node:crypto'
 import { log, withRequestContext } from './shared/logger.js'
@@ -32,15 +36,33 @@ function clientIp(req: express.Request, trustedProxyIp?: string) {
 
 export async function createApp(
   db: DatabaseHandle | Database.Database,
-  options: AuthOptions,
+  options: AuthOptions & { emailConfig?: EmailConfig },
   paymentOptions: Omit<PaymentOptions, 'frontendOrigin'> = {},
 ) {
-  const paymentRepository = createPaymentRepository(db, paymentOptions.now ?? Date.now)
+  const queuedEmail =
+    options.emailConfig?.mode === 'queued'
+      ? createEmailOutboxWriter(
+          db,
+          createEmailCrypto(options.emailConfig),
+          paymentOptions.now ?? Date.now,
+        )
+      : undefined
+  if (queuedEmail) await normalizeStore(db).dueEmailNotifications(Date.now(), 1)
+  const paymentRepository = createPaymentRepository(
+    db,
+    paymentOptions.now ?? Date.now,
+    options.emailConfig?.orderNotificationsEnabled ? queuedEmail?.writeOrderEmail : undefined,
+  )
   const paymentService = createPaymentService(paymentRepository, {
     ...paymentOptions,
     frontendOrigin: options.frontendOrigin,
   })
-  const auth = createAuth(db, options)
+  const auth = createAuth(
+    db,
+    queuedEmail
+      ? { ...options, emailSender: undefined, enqueueAuthEmail: queuedEmail.enqueueAuthEmail }
+      : options,
+  )
   const server = new ApolloServer<GraphQLContext>({
     typeDefs,
     resolvers: createResolvers(db, paymentService),
@@ -99,7 +121,14 @@ export async function createApp(
       withRequestContext(requestId, next)
     })
     app.get('/health', (_req, res) => res.json({ status: 'ok' }))
-    const readiness = createReadinessProbe(db)
+    const readiness = createReadinessProbe(
+      db,
+      queuedEmail
+        ? async () => {
+            await normalizeStore(db).emailNotification('00000000-0000-0000-0000-000000000000')
+          }
+        : undefined,
+    )
     app.get('/ready', async (_req, res) => {
       res.setHeader('Cache-Control', 'no-store')
       const ready = await readiness()

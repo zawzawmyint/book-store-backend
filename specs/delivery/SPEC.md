@@ -29,7 +29,7 @@ details, customer visibility, attributed history, and pre-shipment cancellation.
 Reuse existing payment recovery, permissions, inventory and full refunds.
 
 Exclude pickup, live payments, courier APIs, automatic delivery confirmation,
-email/SMS/push notifications, saved address books, address edits after reservation,
+SMS/push notifications, saved address books, address edits after reservation,
 partial shipments, shipping rate calculation, tax, returns, post-shipment refunds,
 failed-delivery workflows, tracking edits after shipment, and estimated arrival promises.
 Shipment input must be checked before confirmation; tracking corrections are deferred.
@@ -55,7 +55,8 @@ Shipment input must be checked before confirmation; tracking corrections are def
   and quotes return `PAYMENT_UNAVAILABLE`; existing payment recovery/resume,
   refunds and staff processing remain available. Never fall back to addressless
   placement. Actual countries and fee are business decisions still required.
-- No new runtime dependency, service, queue or HTTP endpoint is necessary.
+- This delivery slice adds no public HTTP endpoint. Its shipped/cancelled transitions
+  now write email outbox records through the separate [email notification contract](../email-notifications/SPEC.md).
 
 ## Checkout contract and validation
 

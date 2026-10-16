@@ -2,7 +2,10 @@ import type Database from 'better-sqlite3'
 import { normalizeDatabaseHandle, type DatabaseHandle } from './runtime.js'
 import { log } from '../shared/logger.js'
 
-export function createReadinessProbe(input: DatabaseHandle | Database.Database) {
+export function createReadinessProbe(
+  input: DatabaseHandle | Database.Database,
+  additionalCheck?: () => Promise<void>,
+) {
   const database = normalizeDatabaseHandle(input)
   let pending: Promise<boolean> | undefined
   let lastResult: boolean | undefined
@@ -19,6 +22,7 @@ export function createReadinessProbe(input: DatabaseHandle | Database.Database) 
             const query = { text: 'SELECT 1', query_timeout: 2000 }
             await database.pool.query(query)
           }
+          await additionalCheck?.()
           return true
         })
         .catch(() => false)
