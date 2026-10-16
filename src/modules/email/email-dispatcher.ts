@@ -9,6 +9,7 @@ export function createEmailDispatcher(
   repo: EmailNotificationRepository,
   queues: Record<EmailQueue, Queue<EmailJobData>>,
   clock = Date.now,
+  availableKeys?: string[],
 ) {
   let running = false
   let lastReconcile = 0
@@ -18,6 +19,7 @@ export function createEmailDispatcher(
     try {
       const now = clock()
       await repo.recover(now)
+      if (availableKeys) await repo.assertKeysAvailable(availableKeys)
       const reconcile = now - lastReconcile >= 30000
       if (reconcile) lastReconcile = now
       // A separate batch for each queue prevents an order backlog starving authentication.

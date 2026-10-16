@@ -5,6 +5,7 @@ import { normalizeStore } from '../src/database/persistence.js'
 import { createEmailCrypto } from '../src/modules/email/email-payload.crypto.js'
 import { createEmailNotificationRepository } from '../src/modules/email/email-notification.repository.js'
 import { randomUUID } from 'node:crypto'
+import { createEmailDispatcher } from '../src/modules/email/email-dispatcher.js'
 
 it('retries only clearly pre-submission transient failures and stops ambiguous sends', () => {
   expect(classifySmtpFailure({ code: 'ECONNECTION', command: 'CONN' })).toBe('RETRY')
@@ -176,4 +177,14 @@ it('preserves missing-key work without consuming its budget and delivers after k
   })(f.id)
   expect((await f.repo.get(f.id))?.status).toBe('SUBMITTED')
   expect(sends).toBe(1)
+})
+
+it('blocks dispatch for a missing key but still expires its stale auth work', async () => {
+  const f = await fixture(true)
+  const tick = (now: number) => createEmailDispatcher(f.repo, {} as never, () => now, ['v2'])()
+  await expect(tick(f.now)).rejects.toThrow('EMAIL_PAYLOAD_KEY_UNAVAILABLE')
+  f.db.prepare('UPDATE email_notifications SET expires_at=? WHERE id=?').run(f.now + 120001, f.id)
+  await tick(f.now + 120002)
+  expect((await f.repo.get(f.id))?.status).toBe('EXPIRED')
+  expect((await f.repo.get(f.id))?.payloadCiphertext).toBeNull()
 })

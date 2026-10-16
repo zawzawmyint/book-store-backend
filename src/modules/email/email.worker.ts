@@ -54,7 +54,12 @@ export async function startEmailRuntime(input: {
   const queueSet = createEmailQueues(config)
   const consumerConnection = emailRedis(config, true)
   const consumer = createEmailConsumer(input)
-  const dispatch = createEmailDispatcher(repository, queueSet.queues)
+  const dispatch = createEmailDispatcher(
+    repository,
+    queueSet.queues,
+    Date.now,
+    Object.keys(config.keys),
+  )
   let lastProgress = 0
   let stopped = false
   let ticking = false
@@ -112,7 +117,6 @@ export async function startEmailRuntime(input: {
     if (stopped || ticking) return
     ticking = true
     try {
-      await repository.assertKeysAvailable(Object.keys(config.keys))
       await dispatch()
       lastProgress = Date.now()
     } catch {
