@@ -25,8 +25,8 @@
     "auth:revoke-unverified": "tsx src/modules/auth-email/session-rollout-cli.ts",
     "email:worker": "tsx src/modules/email/email.worker.ts",
     "email:worker:start": "node dist/modules/email/email.worker.js",
-    "email:inspect": "tsx src/modules/email/email-operator-cli.ts inspect",
-    "email:replay": "tsx src/modules/email/email-operator-cli.ts replay",
+    "email:inspect": "node dist/modules/email/email-operator-cli.js inspect",
+    "email:replay": "node dist/modules/email/email-operator-cli.js replay",
     "test:email": "tsx scripts/test-email.ts"
   },
   "keywords": [],
