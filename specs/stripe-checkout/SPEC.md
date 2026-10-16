@@ -19,7 +19,8 @@ payment, expiry and inventory release, customer/workspace payment visibility, an
 full refunds when Staff/Admin cancels a paid Submitted or Accepted order.
 Exclude delivery/pickup, live payments, guest checkout, customer cancellation,
 partial refunds, discounts, subscriptions, saved cards, automatic tax, delayed
-payment methods, receipt emails, disputes, and multi-currency checkout.
+payment methods, disputes, and multi-currency checkout. Receipt/refund notification
+delivery is defined separately by [production email notifications](../email-notifications/SPEC.md).
 
 USD, matching current cents-based prices, and card payments only are fixed for this
 local test-only phase. The payment window is 30 minutes; the initial local deadline
@@ -135,7 +136,9 @@ Recovery runs on startup and every 60 seconds, with bounded batches, timeouts an
 backoff. Finish/recover session creation within Stripe's idempotency retention window;
 if unresolved beyond 24 hours, flag manual reconciliation and do not recreate the
 payment. Persist operation errors/retry time without raw secrets or payment payloads.
-No external queue or scheduler is required for this local phase.
+The local payment phase itself requires no external queue. The delivered email
+notification subsystem separately records paid/refunded transition notices in its
+outbox and dispatches them through its worker.
 
 ## Payment confirmation and expiry
 

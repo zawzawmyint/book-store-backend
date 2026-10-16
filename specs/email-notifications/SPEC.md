@@ -1,6 +1,6 @@
 # Production email notifications
 
-> **Status:** Proposed. **Date:** 2026-10-16. Documentation only; no queue, worker, migration, or production deployment is implemented by this proposal.
+> **Status:** Proposed. **Date:** 2026-10-16. The application implementation and automated verification are complete (implementation commit `a16e984`). This status remains Proposed until manual staging and production-operations acceptance are recorded. No production deployment has occurred.
 
 ## Goal
 
@@ -26,21 +26,21 @@ payments and production launch of the entire store remain separate work.
 - No GraphQL changes, generated API types, frontend implementation, or frontend
   branch are expected. Existing auth/order browser journeys must still pass.
 
-## Current system and affected code
+## Delivered implementation and affected code
 
-- [auth.ts](../../src/auth.ts) invokes `sendVerificationEmail` and
-  `sendResetPassword`. Both currently call an in-memory `createMailDispatcher`.
+- [auth.ts](../../src/auth.ts) records `sendVerificationEmail` and
+  `sendResetPassword` work through the queued outbox when queued delivery is selected.
   Verification and reset tokens expire after 3,600 seconds.
-- [email.service.ts](../../src/modules/email/email.service.ts) owns Nodemailer,
-  SMTP timeouts, and a process-local pending-promise set; it has no durable queue.
-  Reuse its SMTP transport and the existing `authEmail` template in auth.ts.
+- [email.service.ts](../../src/modules/email/email.service.ts) owns the shared
+  Nodemailer transport; [email.worker.ts](../../src/modules/email/email.worker.ts)
+  owns dispatch, BullMQ consumers, and bounded shutdown.
 - [payment.repository.ts](../../src/modules/payments/payment.repository.ts)
   reconciles provider state inside transactions, including recovery paths.
 - [admin-order.repository.ts](../../src/modules/orders/admin-order.repository.ts)
   commits shipment/cancellation and their history inside transactions.
-- [server.ts](../../src/server.ts) wires SMTP into the API and starts payment
-  recovery. Existing payment recovery stays in place; this proposal adds an email
-  worker rather than moving payment operations to BullMQ.
+- [server.ts](../../src/server.ts) starts payment recovery and passes queued-email
+  configuration to the API. In queued mode it opens neither SMTP nor Redis; existing
+  payment recovery stays in place and only the separate email worker uses BullMQ.
 - Extend [store.types.ts](../../src/database/store.types.ts), both physical
   schemas and store adapters, config, logger, app startup/readiness, and scripts.
 
@@ -134,7 +134,7 @@ a new logical notification, not deduplicated by user ID forever.
 
 ## Durable model and state machine
 
-Proposed new `emailNotifications` logical table in both schemas:
+The delivered `emailNotifications` logical table exists in both schemas:
 
 - `id`: UUID primary key; `dedupeKey`: unique opaque hash; `kind`: enum above;
   `queue`: `AUTH | ORDER`; `userId` and `orderId`: nullable identifiers.
@@ -143,7 +143,7 @@ Proposed new `emailNotifications` logical table in both schemas:
   `templateVersion`: integer; `payloadCiphertext`, `payloadIv`, `payloadTag`,
   `payloadKeyId`: nullable authenticated-encryption fields.
 - `status`: `PENDING | ENQUEUED | SENDING | SUBMITTED | EXPIRED | SKIPPED |
-  FAILED | UNCERTAIN`; `createdAt`, `expiresAt`, `nextAttemptAt`, `enqueuedAt`,
+FAILED | UNCERTAIN`; `createdAt`, `expiresAt`, `nextAttemptAt`, `enqueuedAt`,
   `submittedAt`, `terminalAt`, `leaseUntil`: nullable timestamps as appropriate.
 - `leaseToken`: nullable UUID; `dispatchAttempts`, `sendAttempts`: integers;
   `lastErrorCode` and `providerMessageId`: nullable bounded values, never raw
@@ -174,6 +174,11 @@ Proposed new `emailNotifications` logical table in both schemas:
   retry/recreation after lease checks. Never blindly remove active jobs.
 - Stable job IDs help while jobs exist, but database uniqueness and conditional
   claims remain authoritative after BullMQ removes completed/failed jobs.
+- After a consumer leaves a row `PENDING` or `ENQUEUED` (for example, a ledger
+  retry delay or blocked per-order predecessor), it moves that same BullMQ job to
+  delayed state for the ledger's `nextAttemptAt`, with a one-second minimum, and
+  throws BullMQ's delayed control error. The job therefore does not complete and
+  force an otherwise-avoidable 30-second reconciliation wait for the next attempt.
 - Retain completed Redis jobs for at most 24 hours and failed jobs for at most
   7 days, each also bounded to 10,000 records per queue. Queue cleanup never
   deletes the authoritative database ledger or resets its send budget.
@@ -184,11 +189,12 @@ Proposed new `emailNotifications` logical table in both schemas:
   replica, limiting combined SMTP inflight calls to 4. Before scaling replicas,
   configure a shared provider-approved rate/concurrency budget across both queues;
   per-queue limits alone do not enforce the provider's aggregate account limit.
-- Auth gets up to 4 send attempts, order up to 8, exponential backoff starting at
-  5 seconds, bounded by expiry. Persist attempts before each SMTP invocation.
-  Classify invalid recipient/configuration and permanent SMTP failures as
-  terminal; retry clearly transient failures. BullMQ attempts/backoff must match
-  the ledger policy; discarded jobs must not reset the database retry budget.
+- Auth gets up to 4 send attempts and order up to 8, with ledger-owned exponential
+  backoff starting at 5 seconds and bounded by expiry. Persist attempts before each
+  SMTP invocation. BullMQ jobs deliberately use `attempts: 1`; the dispatcher
+  re-enqueues ledger work, so discarded jobs cannot reset the database retry budget.
+  Classify invalid recipient/configuration and permanent SMTP failures as terminal;
+  retry clearly transient failures.
 - SENDING uses a 60-second lease, longer than the existing bounded SMTP timeouts.
   Re-check lease ownership immediately before SMTP. Dispatcher never reclaims
   SENDING into an automatic new send. Worker loss or an ambiguous network outcome
@@ -208,18 +214,26 @@ Proposed new `emailNotifications` logical table in both schemas:
   `EMAIL_PAYLOAD_ACTIVE_KEY_ID`. Generate fresh IVs; bind notification ID/kind/
   template version as authenticated context. API encrypts, worker decrypts;
   Redis receives only IDs. Keys come from a secret manager/environment, never Git.
-- Rotation keeps old keys until their payloads are purged. Missing keys make
-  affected jobs visibly blocked/failed without logging plaintext or losing rows.
+- Rotation keeps every old key referenced by a nonterminal row until its payload is
+  purged. The worker checks all such key IDs before startup and each dispatch tick;
+  expiry/uncertain recovery runs first, so an expired auth link never holds the
+  worker blocked on a retired key indefinitely.
+  a missing key emits only a redacted `EMAIL_PAYLOAD_KEY_UNAVAILABLE` event, stops
+  progress/readiness, and retains the ciphertext. A key disappearing during a send
+  race returns that row to pending without consuming an SMTP attempt. Restore the
+  key before resuming; never terminal-purge work merely because a key is missing.
 - Purge auth ciphertext immediately on terminal status or deadline, whichever
   comes first; purge order ciphertext 7 days after terminal status. Retain
   redacted terminal metadata/dedupe tombstones for 90 days, then delete in bounded
   batches. Replaying provider events after tombstone deletion must still consult
   actual order transitions, not synthesize historical sends. Backups must follow
   the deployment's token/PII retention policy; row cleanup cannot erase backups.
-- Proposed env: `EMAIL_DELIVERY_MODE=inline|queued` (inline development/test only;
+- Environment: `EMAIL_DELIVERY_MODE=inline|queued` (inline development/test only;
   queued required in production), `EMAIL_ORDER_NOTIFICATIONS_ENABLED=false`
   (explicit rollout opt-in), `REDIS_URL`, `EMAIL_QUEUE_PREFIX`, the encryption
-  keys above, `EMAIL_AUTH_CONCURRENCY=2`, `EMAIL_ORDER_CONCURRENCY=2`.
+  keys above, stable `EMAIL_DEDUPE_KEY`, `EMAIL_AUTH_CONCURRENCY=2`,
+  `EMAIL_ORDER_CONCURRENCY=2`, and `EMAIL_WORKER_HEALTH_PORT=4010`. Production
+  also requires an explicit deployment-unique `EMAIL_QUEUE_PREFIX`.
   Validate bounded positive concurrency and fail startup for malformed enabled
   configuration. Do not silently fall back to inline SMTP in queued mode.
 - API needs DB and encryption keys, not SMTP or Redis connections; worker needs
@@ -237,18 +251,22 @@ Proposed new `emailNotifications` logical table in both schemas:
 - Worker-only probes listen on loopback `EMAIL_WORKER_HEALTH_PORT=4010`, exposing
   `/health` for process liveness and `/ready` for dependency/loop readiness as
   status codes and fixed redacted labels. Refresh loop heartbeats every 10
-  seconds; readiness fails after 30 seconds without progress. Configure the
+  seconds; readiness fails after 30 seconds without progress, a missing payload key,
+  disconnected Redis, or either BullMQ worker paused/not running. Configure the
   deployment's probe within the same container/network namespace; never expose
   this listener publicly. These are new internal worker endpoints, not changes
   to the API's public HTTP/GraphQL contracts.
 
 ## Operations and rollout
 
-- Proposed commands: `bun run email:worker` (development),
+- Delivered commands: `bun run email:worker` (development),
   `bun run email:worker:start` (built worker), `bun run email:inspect -- --id UUID`,
-  `bun run email:replay -- --id UUID --apply` (FAILED only), and
-  `bun run email:replay -- --id UUID --apply --acknowledge-duplicate-risk`
-  (UNCERTAIN only). Without --apply replay is a redacted preview. No arbitrary
+  `bun run email:replay -- --id UUID --apply --acknowledge-duplicate-risk`.
+  Build first with `bun run build` before using the production worker or either
+  operator command, which execute compiled `dist/` files rather than a development
+  TypeScript runner. An invalid operator ID exits nonzero with a fixed redacted code.
+  Without `--apply`, replay is a redacted preview. Applying any eligible replay
+  requires `--acknowledge-duplicate-risk`; no arbitrary
   recipient/link editing; expired auth jobs require the normal resend/reset flow.
   Reject replay of successful, pending, skipped, or expired records. Replay uses
   a new audited delivery attempt linked to the original, with a bounded new budget.
@@ -274,26 +292,30 @@ Proposed new `emailNotifications` logical table in both schemas:
   tables/rows, and repairs queued delivery with compatible code. Do not roll back
   to inline auth while pending auth work can still send; reconcile it first.
 
-## Acceptance criteria
+## Acceptance criteria and outstanding gates
 
-- [ ] Same-transaction order/outbox writes roll back together on both databases.
-- [ ] All listed triggers, replay/no-op paths, late payment after cancellation,
-  immutable snapshots, safe copy/links, and per-order sequencing are verified.
-- [ ] API performs no SMTP/Redis network calls in queued mode; existing auth,
-  authorization, checkout, cart, and order contracts remain intact.
-- [ ] Existing verification and reset links work through real Redis + worker +
-  captured SMTP; expiry, resend, unknown-account behavior, and callback database
-  failures are tested on installed Better Auth and both database providers.
-- [ ] Duplicate callbacks/webhooks/jobs and concurrent consumers produce one
-  normal submission; Redis loss, removed jobs, crashes, and ack races recover
-  without losing durable work or resetting the retry budget.
-- [ ] Expired auth jobs are not sent; uncertain SMTP outcomes stop for review;
-  no exactly-once or inbox-delivery guarantee is claimed.
-- [ ] Queue isolation, bounded retry/permanent failure handling, shutdown,
-  encryption/rotation/purge, redaction, inspection/replay, and monitoring pass.
-- [ ] Additive migration preserves populated data; production readiness/config
-  fail correctly; staging sender/domain and real inbox delivery are verified.
-- [ ] Required backend and browser/parity checks pass before marking Implemented.
+- [x] Same-transaction order/outbox writes roll back together on both databases.
+- [x] All listed triggers, replay/no-op paths, late payment after cancellation,
+      immutable snapshots, safe copy/links, and per-order sequencing are verified.
+- [x] API performs no SMTP/Redis network calls in queued mode; existing auth,
+      authorization, checkout, cart, and order contracts remain intact.
+- [x] Existing verification and reset links work through real Redis + worker +
+      captured SMTP; expiry, resend, unknown-account behavior, and callback database
+      failures are tested on installed Better Auth and both database providers.
+- [x] Duplicate callbacks/webhooks/jobs and concurrent consumers produce one
+      normal submission; Redis loss, removed jobs, crashes, and ack races recover
+      without losing durable work or resetting the retry budget.
+- [x] Expired auth jobs are not sent; uncertain SMTP outcomes stop for review;
+      no exactly-once or inbox-delivery guarantee is claimed.
+- [x] Queue isolation, bounded retry/permanent failure handling, shutdown,
+      encryption/rotation/purge, redaction, inspection/replay, and monitoring pass.
+- [x] Additive migration preserves populated data; production readiness/config fail
+      correctly in automated checks.
+- [ ] Stage sender/domain, real inbox delivery, TLS Redis, secrets, provider
+      throughput, and alert routing before production enablement.
+- [x] Browser verification: PostgreSQL passed 72/72; the original SQLite run had one
+      appearance/guest-cart hard-navigation race, and its focused appearance rerun
+      passed 2/2 without frontend changes.
 
 ## Validation and unresolved deployment inputs
 

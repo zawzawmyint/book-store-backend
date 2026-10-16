@@ -1,6 +1,6 @@
 # 🧭 Auth email verification and recovery — API
 
-> **Goal:** Require verified email for account access and provide password recovery through Better Auth and a reusable SMTP sender.
+> **Goal:** Require verified email for account access and provide password recovery through Better Auth and the shared email delivery path.
 
 **Status:** Implemented
 
@@ -25,7 +25,7 @@ Sign-up requires verification before access, and self-service recovery is availa
 
 **Out of scope**
 
-- Redis, queues, order notifications, social sign-in, OTP codes, MFA, email-address changes, or a general notification framework.
+- Social sign-in, OTP codes, MFA, email-address changes, or a public notification-management framework. Redis queues and order notifications are now defined by [production email notifications](../email-notifications/SPEC.md).
 - Live payments, order ownership changes, new GraphQL operations, or replacing existing authorization checks.
 - Automatically marking existing real accounts verified, deleting customer data, or copying credentials from another project.
 
@@ -50,7 +50,7 @@ Sign-up requires verification before access, and self-service recovery is availa
 
 **Dependencies**
 
-- Add Nodemailer and appropriate types in the backend only. No frontend SMTP secrets or Redis server are needed.
+- Add Nodemailer, BullMQ, and Redis client dependencies in the backend only. No frontend SMTP or Redis secrets are needed.
 - Development/test implementation must work with an injected captured-mail sender before real credentials are available.
 
 ---
@@ -58,9 +58,9 @@ Sign-up requires verification before access, and self-service recovery is availa
 ## 🧩 Delivered behavior
 
 - **Sender boundary:** `src/modules/email/email.service.ts` owns a reusable transporter, bounded connection/send timeouts, shutdown cleanup, and delivery. `email.content.ts` separates email content from transport. Its narrow contract is `send({ to, subject, text, html }): Promise<void>`; auth callbacks consume it and tests inject a collector.
-- **Configuration:** [env.ts](../../src/config/env.ts), [app.ts](../../src/app.ts), and [server.ts](../../src/server.ts) support `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, and optional `SMTP_REPLY_TO`. They require paired credentials and a valid host/port/from; 587 uses STARTTLS and 465 uses implicit TLS. Production fails startup with incomplete mail configuration and rejects Ethereal; tests use injection.
+- **Configuration:** [env.ts](../../src/config/env.ts), [app.ts](../../src/app.ts), and [server.ts](../../src/server.ts) support `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, and optional `SMTP_REPLY_TO`. They require paired credentials and a valid host/port/from; 587 uses STARTTLS and 465 uses implicit TLS. The production email worker fails with incomplete SMTP configuration and rejects Ethereal; a queued API does not need SMTP/Redis connectivity. Tests use injection.
 - **Local setup:** document Ethereal's `smtp.ethereal.email:587` and the test-inbox workflow. Do not create an Ethereal account automatically, log verification URLs/tokens, or copy the Strapi project's credentials. SMTP acceptance is not proof of inbox delivery.
-- **Better Auth callbacks:** configure `sendVerificationEmail` and `sendResetPassword` in [auth.ts](../../src/auth.ts). Use the URLs Better Auth supplies and HTML-escape interpolated content. Dispatch sends without exposing account existence through SMTP-dependent response timing, using the framework's supported background-task mechanism and caught failures. Track in-flight work for bounded shutdown; do not leave rejected promises unhandled. This initial sender has no durable queue: a process crash may lose a send, and explicit resend/recovery request is the recovery path.
+- **Better Auth callbacks:** configure `sendVerificationEmail` and `sendResetPassword` in [auth.ts](../../src/auth.ts). In queued mode they await durable outbox recording only; the worker later sends the supplied URL. This is not atomic with Better Auth's token/user write: a crash before the callback records the row requires the normal resend/reset recovery path. Generic reset/resend responses and the 500 ms reset floor remain unchanged for known and unknown accounts.
 - **Public HTTP contract:** reuse Better Auth under `/api/auth`: POST `/sign-up/email`, `/sign-in/email`, `/send-verification-email`, `/request-password-reset`, `/reset-password`; GET `/verify-email` and `/reset-password/:token`. Frontend uses Better Auth client methods. No custom GraphQL mail mutations or duplicate auth endpoints.
 - **Privacy and rate limits:** signup for an existing email and reset/resend responses remain neutral for unknown/known identities. Use existing server limiter infrastructure, with explicit rules: verification resend at most **1 request per 60 seconds per client IP**, reset requests at most **3 per 300 seconds per client IP**; preserve stricter existing defaults for other routes. UI cooldown is supplementary. Existing in-memory limits are process-local and reset on restart; shared limits are a later deployment concern. Do not claim an email-specific distributed cooldown.
 - **Callback destinations:** restrict mail callbacks to fixed frontend result routes and the configured trusted origin. Sanitize any carried `returnTo` separately; never accept an arbitrary redirect destination from the caller. Reset callback handles token/error query parameters without logging them.

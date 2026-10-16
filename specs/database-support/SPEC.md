@@ -27,7 +27,8 @@ catalog/order/payment/Activity/account parity, operational commands and dual-pro
 
 Exclude copying/synchronizing data between engines, switching an active process
 without restart, read replicas, sharding, distributed caching, a new ORM, hosting
-provisioning, email delivery and live-payment activation. Selecting a different
+provisioning, and live-payment activation. Email-ledger parity is defined by
+[production email notifications](../email-notifications/SPEC.md). Selecting a different
 database uses that database's data; it does not migrate users/orders automatically.
 
 Use Drizzle with `better-sqlite3` for SQLite and `pg` with

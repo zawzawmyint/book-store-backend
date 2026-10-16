@@ -10,7 +10,8 @@ Replace process-local auth email sending with durable background work and add
 customer order notifications. Preserve existing auth/payment/order contracts and
 make retries, outages, expiry, and operational recovery reviewable.
 
-**Status:** Proposed; documentation only. **Branch:** `feat/production-email-notifications`
+**Status:** Proposed; implementation delivered and automated evidence recorded below,
+with staging/production acceptance outstanding. **Branch:** `feat/production-email-notifications`
 in the backend repository. **Spec:** [Production email notifications](../../../specs/email-notifications/SPEC.md).
 
 This plan covers implementation after review. It does not enable live payments
@@ -131,8 +132,8 @@ Auth callback failure behavior must be integration-tested rather than inferred.
    return types and null/no-claim outcomes in that shared type contract before
    callers. Add query methods for predecessor lookup, reconciliation, and cleanup.
    Writer interface: `writeOrderEmail(tx: DomainStore, input: OrderEmailInput):
-   Promise<string | null>` and `enqueueAuthEmail(input: AuthEmailInput):
-   Promise<string>`; inputs use the shared discriminated payload types.
+Promise<string | null>` and `enqueueAuthEmail(input: AuthEmailInput):
+Promise<string>`; inputs use the shared discriminated payload types.
 
    First add failing integration tests for populated migration preservation,
    transaction rollback, duplicate insert, concurrent claim, stale-token update,
@@ -244,20 +245,20 @@ Auth callback failure behavior must be integration-tested rather than inferred.
 
 **Functional**
 
-- [ ] Verification/reset and all four order messages use their specified queues.
-- [ ] Auth links, order totals/snapshots, permission boundaries, and customer
-  flows remain correct; duplicate events do not create normal duplicate sends.
-- [ ] Database/outbox atomicity, dispatcher reconciliation, retry budgets,
-  expiry, sequencing, inspection, and controlled replay match the spec.
+- [x] Verification/reset and all four order messages use their specified queues.
+- [x] Auth links, order totals/snapshots, permission boundaries, and customer
+      flows remain correct; duplicate events do not create normal duplicate sends.
+- [x] Database/outbox atomicity, dispatcher reconciliation, retry budgets,
+      expiry, sequencing, inspection, and controlled replay match the spec.
 
 **Non-functional** (performance, security, accessibility, reliability)
 
-- [ ] API waits only for durable database recording; SMTP and Redis stay off its
-  queued-mode request path. Redis outage does not lose committed notifications.
-- [ ] Encryption/redaction/retention, bounded concurrency, shutdown/recovery,
-  health signals, and production Redis requirements are verified.
-- [ ] Email text alternatives and readable HTML work; ambiguous sends are visible
-  and no unsupported exactly-once or inbox-delivery guarantee is made.
+- [x] API waits only for durable database recording; SMTP and Redis stay off its
+      queued-mode request path. Redis outage does not lose committed notifications.
+- [x] Encryption/redaction/retention, bounded concurrency, shutdown/recovery,
+      health signals, and production Redis requirements are verified.
+- [x] Email text alternatives and readable HTML work; ambiguous sends are visible
+      and no unsupported exactly-once or inbox-delivery guarantee is made.
 
 ---
 
@@ -277,6 +278,18 @@ Auth callback failure behavior must be integration-tested rather than inferred.
   stale leases/Redis loss (steps 1–2), late payment after cancellation (step 4),
   SMTP acceptance before worker death (steps 2/5), and key rotation/expiry cleanup
   (steps 1/5). Each has a named behavior case above.
+- Evidence recorded after implementation: the backend suite passed with 294 tests
+  and one skip; lint and build passed. `bun run test:email` passed against Redis
+  8.2.10 and captured SMTP with 14 assertions and seven messages: verification,
+  single-use reset, Redis restart, API-outage persistence, missing-job recovery,
+  duplicate/restart handling, worker health, and the authenticated GraphQL path for
+  payment confirmation, staff shipment, cancellation, and provider-confirmed refund.
+  PostgreSQL browser coverage passed 72/72. The original SQLite browser run reported
+  one appearance/guest-cart hard-navigation race (71/72); its focused appearance
+  rerun passed 2/2 with no frontend change. The final backend PostgreSQL rerun passed
+  39/39 contracts, including key availability, email parity, populated-migration
+  preservation, and built SQLite/PostgreSQL smoke checks. The compiled operator
+  invalid-ID smoke check exited 1 with only its fixed redacted error code.
 
 **Rollback / mitigation**
 
@@ -302,6 +315,8 @@ Auth callback failure behavior must be integration-tested rather than inferred.
 
 **Open questions** _(blockers for implementation)_
 
-- None for isolated implementation with test services. Deployment owner must
+- The isolated implementation is delivered. The deployment owner must
   provide production Redis/SMTP services, account limits, sender/DNS access,
-  secrets, HTTPS origins, and monitoring routing before production cutover.
+  secrets, HTTPS origins, and monitoring routing before production cutover. Validate
+  staging inbox delivery, SPF/DKIM/DMARC, TLS Redis, real alert routing, and provider
+  throughput before changing this plan/spec status to Implemented.

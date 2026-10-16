@@ -4,6 +4,8 @@
 
 > **Implemented auth email:** [Verification and recovery](specs/auth-email/SPEC.md) requires verified email for account access, exposes its read-only status in the Admin user directory, and documents SMTP configuration, recovery, and rollout.
 
+> **Implemented queued email delivery (cutover pending):** [Production email notifications](specs/email-notifications/SPEC.md) adds an encrypted database ledger, separate auth/order Redis queues, and a worker. It has automated coverage; production provider, DNS, alerting, and staging evidence remain required before production use.
+
 > **Implemented engineering work:** [Backend readability and consistency](specs/readability-consistency/SPEC.md) records verified dependency, service-contract, and database-adapter readability refactoring with unchanged API and database behavior.
 
 > **Implemented infrastructure:** [Database support](specs/database-support/SPEC.md) provides SQLite development/test and PostgreSQL production support with shared application behavior.
@@ -145,10 +147,13 @@ are authoritative in [the delivery specification](specs/delivery/SPEC.md).
   provider-parity, migration, CLI, and compiled-application checks. Browser journeys
   run against SQLite by default and PostgreSQL through `bun run test:postgres:browser`.
 
-## Proposed production email notifications
+## Queued email notifications
 
-The [proposed email notification spec](specs/email-notifications/SPEC.md) describes
-database outbox persistence, separate BullMQ auth/order queues in Redis, a separate
-email worker, and reuse of verification/password-reset mail. It supersedes earlier
-queue deferrals only after implementation and verification; no runtime behavior or
-production readiness is changed by this documentation proposal.
+The [email notification specification](specs/email-notifications/SPEC.md) is the
+authoritative internal-delivery contract. In queued mode, verification and password
+reset callbacks durably record encrypted work, while paid, shipped, cancelled, and
+provider-confirmed refunded order transitions record their notifications inside the
+same database transaction. The API does not connect to Redis or SMTP in that mode; a
+separate worker dispatches `auth-emails` and `order-emails` queues. This does not add
+a public GraphQL or HTTP contract. SMTP acceptance is submission evidence only; an
+ambiguous send is recorded as `UNCERTAIN` for operator review.

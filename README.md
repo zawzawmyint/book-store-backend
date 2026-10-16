@@ -2,7 +2,9 @@
 
 Implemented feature: [Account carts](specs/account-carts/SPEC.md) stores each verified user's bag on the server, keeps a versioned guest bag locally, and preserves old raw arrays only for confirmed import.
 
-Implemented feature: [Auth email verification and recovery](specs/auth-email/SPEC.md) requires verified email for account access, exposes read-only verification status in the Admin user directory, provides password recovery, and sends mail through configured SMTP.
+Implemented feature: [Production email notifications](specs/email-notifications/SPEC.md) records encrypted auth and order email work in the database, dispatches it through separate Redis/BullMQ queues, and sends it from an independent worker. Production cutover remains gated on staging and provider operations.
+
+Implemented feature: [Auth email verification and recovery](specs/auth-email/SPEC.md) requires verified email for account access, exposes read-only verification status in the Admin user directory, and provides password recovery through the shared email delivery path.
 
 Implemented feature: [Operational logging and readiness](specs/operational-logging-readiness/SPEC.md) adds structured console events, server-generated request correlation, and database readiness at `GET /ready`.
 
@@ -49,15 +51,62 @@ Set `BETTER_AUTH_URL` to the public storefront origin that proxies `/api/auth`
 (localhost:5173 in development). The secret must be random and at least 32 characters;
 do not use the schema generator's test secret in a running server.
 
-Production requires complete SMTP configuration: `SMTP_HOST`, `SMTP_PORT`,
+The production email worker requires complete SMTP configuration: `SMTP_HOST`, `SMTP_PORT`,
 `SMTP_SECURE`, `SMTP_USERNAME`, `SMTP_PASSWORD`, and `SMTP_FROM`; `SMTP_REPLY_TO`
 is optional. Use port 587 with `SMTP_SECURE=false` (STARTTLS) or 465 with
 `SMTP_SECURE=true` (TLS). `SMTP_FROM` becomes the address in the **The Quiet Shelf**
 display sender and must be authorized by the provider. Ethereal is accepted only
 outside production. Configure the provider credentials, sender/domain verification,
-and HTTPS frontend/auth origins yourself; never commit them. SMTP delivery is
-best-effort (there is no durable queue), so users recover from a failed delivery by
-requesting another verification or reset email.
+and HTTPS frontend/auth origins yourself; never commit them. SMTP acceptance is not
+proof of inbox delivery. In queued mode, the API
+records encrypted notification work in its database and does not connect to SMTP or
+Redis. A separate worker owns Redis/BullMQ and SMTP delivery; users can still request
+another verification or reset email when a link has expired or delivery is unavailable.
+
+## Production email worker
+
+Queued mode uses the database as the authoritative notification ledger and one Redis
+deployment for two BullMQ queues: `auth-emails` for verification/password-reset mail,
+and `order-emails` for confirmation, shipment, cancellation, and refund notices. The
+worker dispatches up to 50 due records per queue each second. BullMQ jobs use one
+attempt; the database ledger, rather than BullMQ retry, controls auth (four) and order
+(eight) SMTP-attempt budgets and retry timing. A 30-second reconciliation recreates a
+missing Redis job for unfinished work.
+
+Set `EMAIL_DELIVERY_MODE=queued`, an encrypted-payload key mapping in
+`EMAIL_PAYLOAD_KEYS`, its `EMAIL_PAYLOAD_ACTIVE_KEY_ID`, and a stable 32-byte-base64
+`EMAIL_DEDUPE_KEY`. Production also requires `REDIS_URL` with authenticated `rediss:`
+TLS and an explicit deployment-unique `EMAIL_QUEUE_PREFIX`; do not rely on a default
+prefix. Set `EMAIL_ORDER_NOTIFICATIONS_ENABLED=true` to create order records. The API
+can run without SMTP or Redis access in queued mode. The worker additionally requires
+Redis and complete SMTP configuration.
+
+Apply migrations, build once, then start the compiled API and worker in separate
+production processes:
+
+```powershell
+bun run db:migrate
+bun run build
+bun run start
+bun run email:worker:start
+```
+
+During development, use `bun run email:worker` for the TypeScript worker. The
+compiled `email:inspect` and `email:replay` commands also require `bun run build`
+after a source change.
+
+The worker listens only on loopback at `EMAIL_WORKER_HEALTH_PORT` (default `4010`).
+`/health` is live while the process is running; `/ready` additionally requires both
+BullMQ consumers running and unpaused, live Redis connections, and recent dispatcher
+progress. It does not expose the listener publicly. `compose.email.yaml` binds Redis
+to localhost and is for local development/test only; use a separate TLS Redis service
+in production.
+
+Use `bun run email:inspect -- --id <notification-uuid>` to inspect redacted status.
+`bun run email:replay -- --id <notification-uuid>` previews a replay; add both
+`--acknowledge-duplicate-risk` and `--apply` to create it. Authentication payloads are
+purged after terminal/expiry states, so they cannot be replayed; use the normal resend
+or reset flow. Treat `UNCERTAIN` as operator review, not an automatic resend.
 
 Delivery checkout is disabled until all three delivery variables are explicitly set:
 `DELIVERY_ENABLED=true`, a comma-separated uppercase ISO country allowlist in
@@ -245,6 +294,7 @@ The SQLite wrapper verifies the original `user_version = 1` schema and foreign k
 ```powershell
 bun run test
 bun run test:postgres
+bun run test:email
 bun run lint
 bun run build
 ```
@@ -252,7 +302,12 @@ bun run build
 After changing a module GraphQL schema, run `bun run codegen` here to refresh the committed resolver types. If a frontend operation uses the new schema, start the API and run `bun run codegen` in the frontend repository too.
 
 `bun run test` uses in-memory SQLite. `bun run test:postgres` provisions a disposable
-local PostgreSQL 17.10 instance and runs the shared parity suite. New orders use Stripe hosted Checkout
+local PostgreSQL 17.10 instance and runs the shared parity suite. `bun run test:email`
+uses a loopback captured SMTP server and requires isolated loopback Redis. Start the
+local Redis service with `docker compose -f compose.email.yaml up -d`, set
+`EMAIL_TEST_REDIS_URL=redis://127.0.0.1:6379`, or set `EMAIL_TEST_REDIS_BINARY` to
+an approved Redis executable. It deliberately fails when neither test setting is
+provided, and rejects non-loopback URLs. New orders use Stripe hosted Checkout
 in test mode with a required delivery address and reviewed fee-inclusive total. Email verification and self-service password
 recovery are implemented through Better Auth and configured SMTP. Captured-mail tests
 prove the flow, but live Ethereal/Brevo inbox delivery has not been exercised. An admin can
@@ -260,10 +315,11 @@ still set another account's password. Before a live
 launch, specify and implement live-payment, fulfillment, customer communication,
 monitoring, and deployment controls.
 
-## Proposed production email notifications
+## Email notification delivery status
 
 [Production email notifications](specs/email-notifications/SPEC.md) and its
 [implementation plan](docs/superpowers/plans/2026-10-16-production-email-notifications.md)
-propose a durable outbox, Redis/BullMQ auth and order queues, and a separate email
-worker reusing verification and password-reset mail. This is documentation only;
-current runtime delivery remains unchanged.
+describe the delivered outbox/worker implementation and its remaining production
+cutover gates. The repository has not been deployed to production: validate the SMTP
+provider and sending domain (SPF, DKIM, and DMARC), inbox appearance, TLS Redis,
+secrets, provider throughput, and real alert routing in staging before enabling it.
