@@ -15,8 +15,31 @@ export type BookRow = typeof model.books.$inferSelect
 export type OrderRow = typeof model.orders.$inferSelect
 export type OperationRow = typeof model.paymentOperations.$inferSelect
 export type EventRow = typeof model.paymentEvents.$inferSelect
+export type NotificationRow = typeof model.emailNotifications.$inferSelect
+export type NotificationDraft = typeof model.emailNotifications.$inferInsert
 export type Role = 'CUSTOMER' | 'STAFF' | 'ADMIN'
 export interface DomainStore {
+  insertEmailNotification(values: NotificationDraft): Promise<void>
+  emailNotification(id: string): Promise<NotificationRow | undefined>
+  emailByDedupe(key: string): Promise<NotificationRow | undefined>
+  emailOrderSequence(orderId: number): Promise<number>
+  dueEmailNotifications(
+    now: number,
+    limit: number,
+    queue?: 'AUTH' | 'ORDER',
+  ): Promise<NotificationRow[]>
+  claimEmailDispatch(id: string, now: number, token: string): Promise<NotificationRow | undefined>
+  claimEmailSend(id: string, now: number, token: string): Promise<NotificationRow | undefined>
+  updateEmailNotification(
+    id: string,
+    values: Partial<NotificationRow>,
+    token: string,
+  ): Promise<boolean>
+  recoverEmailNotifications(now: number): Promise<NotificationRow[]>
+  cleanupEmailNotifications(now: number): Promise<void>
+  emailResetValid(token: string, userId: string, now: number): Promise<boolean>
+  emailResetExpiry(token: string): Promise<number | undefined>
+  emailPayloadKeyIds(): Promise<string[]>
   cart(
     userId: string,
     create?: boolean,

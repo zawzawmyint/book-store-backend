@@ -12,6 +12,12 @@ type LogContext = {
   errorCode?: string
   orderId?: number
   operationKind?: 'CREATE_SESSION' | 'REFUND'
+  notificationId?: string
+  emailQueue?: 'AUTH' | 'ORDER'
+  emailStatus?: string
+  pendingAgeMs?: number
+  heartbeatAgeMs?: number
+  sendAttempts?: number
 }
 const requests = new AsyncLocalStorage<{ requestId: string }>()
 export function withRequestContext<T>(requestId: string, action: () => T): T {
@@ -21,6 +27,9 @@ export function withRequestContext<T>(requestId: string, action: () => T): T {
 // Only application-owned categories and bounded context are serialized. In
 // particular, exception objects/messages, payloads and headers are never accepted.
 const stringRules: Record<string, RegExp> = {
+  notificationId: /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  emailQueue: /^(AUTH|ORDER)$/,
+  emailStatus: /^(PENDING|ENQUEUED|SENDING|SUBMITTED|EXPIRED|SKIPPED|FAILED|UNCERTAIN)$/,
   requestId: /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
   component: /^(http|graphql|database|payments|email|server)$/,
   route:
@@ -46,7 +55,14 @@ export function log(level: Level, event: string, context: LogContext = {}) {
       const value = fields[key as keyof typeof fields]
       if (typeof value === 'string' && rule.test(value)) record[key] = value
     }
-    for (const key of ['statusCode', 'durationMs', 'orderId'] as const) {
+    for (const key of [
+      'statusCode',
+      'durationMs',
+      'orderId',
+      'pendingAgeMs',
+      'heartbeatAgeMs',
+      'sendAttempts',
+    ] as const) {
       const value = fields[key]
       if (typeof value === 'number' && Number.isFinite(value) && value >= 0) record[key] = value
     }

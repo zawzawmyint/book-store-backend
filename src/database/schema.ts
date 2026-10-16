@@ -4,6 +4,75 @@ import { user } from './auth-schema.js'
 
 export { user, session, account, verification } from './auth-schema.js'
 
+export const emailNotifications = sqliteTable(
+  'email_notifications',
+  {
+    id: text('id').primaryKey(),
+    dedupeKey: text('dedupe_key').notNull(),
+    kind: text('kind', {
+      enum: [
+        'VERIFY_EMAIL',
+        'RESET_PASSWORD',
+        'ORDER_CONFIRMED',
+        'ORDER_SHIPPED',
+        'ORDER_CANCELLED',
+        'ORDER_REFUNDED',
+      ],
+    }).notNull(),
+    queue: text('queue', { enum: ['AUTH', 'ORDER'] }).notNull(),
+    userId: text('user_id'),
+    orderId: integer('order_id'),
+    replayOfId: text('replay_of_id'),
+    sequence: integer('sequence'),
+    templateVersion: integer('template_version').notNull().default(1),
+    payloadCiphertext: text('payload_ciphertext'),
+    payloadIv: text('payload_iv'),
+    payloadTag: text('payload_tag'),
+    payloadKeyId: text('payload_key_id'),
+    status: text('status', {
+      enum: [
+        'PENDING',
+        'ENQUEUED',
+        'SENDING',
+        'SUBMITTED',
+        'EXPIRED',
+        'SKIPPED',
+        'FAILED',
+        'UNCERTAIN',
+      ],
+    })
+      .notNull()
+      .default('PENDING'),
+    createdAt: integer('created_at').notNull(),
+    expiresAt: integer('expires_at'),
+    nextAttemptAt: integer('next_attempt_at').notNull(),
+    enqueuedAt: integer('enqueued_at'),
+    submittedAt: integer('submitted_at'),
+    terminalAt: integer('terminal_at'),
+    leaseUntil: integer('lease_until'),
+    leaseToken: text('lease_token'),
+    dispatchAttempts: integer('dispatch_attempts').notNull().default(0),
+    sendAttempts: integer('send_attempts').notNull().default(0),
+    lastErrorCode: text('last_error_code'),
+    providerMessageId: text('provider_message_id'),
+  },
+  (t) => [
+    uniqueIndex('email_notifications_dedupe').on(t.dedupeKey),
+    uniqueIndex('email_notifications_order_sequence').on(t.orderId, t.sequence),
+    index('email_notifications_due').on(t.status, t.nextAttemptAt, t.leaseUntil),
+    index('email_notifications_retention').on(t.terminalAt),
+    check('email_notifications_queue', sql`${t.queue} IN ('AUTH','ORDER')`),
+    check(
+      'email_notifications_status',
+      sql`${t.status} IN ('PENDING','ENQUEUED','SENDING','SUBMITTED','EXPIRED','SKIPPED','FAILED','UNCERTAIN')`,
+    ),
+    check(
+      'email_notifications_attempts',
+      sql`${t.sendAttempts} >= 0 AND ${t.dispatchAttempts} >= 0`,
+    ),
+  ],
+)
+
 export const activityEvents = sqliteTable(
   'activity_events',
   {

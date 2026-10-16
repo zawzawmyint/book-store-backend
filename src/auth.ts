@@ -8,6 +8,7 @@ import * as authSchema from './database/auth-schema.js'
 import * as postgresAuthSchema from './database/postgresql/auth-schema.js'
 import { normalizeDatabaseHandle, type DatabaseHandle } from './database/runtime.js'
 import { serializedSQLiteOrm } from './database/persistence.js'
+import { log } from './shared/logger.js'
 
 export type AuthOptions = {
   authBaseURL: string
@@ -15,6 +16,13 @@ export type AuthOptions = {
   frontendOrigin: string
   trustedProxyIp?: string
   emailSender?: EmailSender
+  enqueueAuthEmail?: (input: {
+    kind: 'VERIFY_EMAIL' | 'RESET_PASSWORD'
+    userId: string
+    to: string
+    url: string
+    token: string
+  }) => Promise<unknown>
 }
 
 export function createAuth(db: DatabaseHandle | Database.Database, options: AuthOptions) {
@@ -32,6 +40,30 @@ export function createAuth(db: DatabaseHandle | Database.Database, options: Auth
   }
 
   const mail = createMailDispatcher(options.emailSender)
+  const resetRequestStarts = new WeakMap<Request, number>()
+  const sendAuthEmail = async (
+    kind: 'VERIFY_EMAIL' | 'RESET_PASSWORD',
+    user: { id: string; email: string },
+    url: string,
+    token: string,
+  ) => {
+    if (!options.enqueueAuthEmail) {
+      mail.send(authEmail(user.email, url, kind === 'VERIFY_EMAIL' ? 'verify' : 'reset'))
+      return
+    }
+    try {
+      // Better Auth owns issuance. Await durable recording, but these writes do
+      // not share its token/user transaction. A failed insert needs resend/reset.
+      await options.enqueueAuthEmail({ kind, userId: user.id, to: user.email, url, token })
+    } catch {
+      // Preserve the same public response for existing and unknown accounts.
+      // Never expose database errors, supplied tokens, links or recipients.
+      log('error', 'email.auth_record_failed', {
+        component: 'email',
+        errorCode: 'EMAIL_AUTH_RECORD_FAILED',
+      })
+    }
+  }
   const auth = betterAuth({
     database: drizzleAdapter(orm, {
       provider: database.provider === 'sqlite' ? 'sqlite' : 'pg',
@@ -43,10 +75,12 @@ export function createAuth(db: DatabaseHandle | Database.Database, options: Auth
     logger: { disabled: true },
     advanced: {
       ipAddress: { ipAddressHeaders: ['x-bookstore-client-ip'] },
-      backgroundTasks: { handler: mail.track },
+      ...(options.enqueueAuthEmail ? {} : { backgroundTasks: { handler: mail.track } }),
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
+        if (options.enqueueAuthEmail && ctx.path === '/request-password-reset' && ctx.request)
+          resetRequestStarts.set(ctx.request, performance.now())
         if (
           [
             '/update-user',
@@ -111,6 +145,16 @@ export function createAuth(db: DatabaseHandle | Database.Database, options: Auth
           ctx.query.callbackURL = reset
         }
       }),
+      after: createAuthMiddleware(async (ctx) => {
+        if (options.enqueueAuthEmail && ctx.path === '/request-password-reset' && ctx.request) {
+          const started = resetRequestStarts.get(ctx.request)
+          if (started !== undefined) {
+            resetRequestStarts.delete(ctx.request)
+            const remaining = 500 - (performance.now() - started)
+            if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining))
+          }
+        }
+      }),
     },
     rateLimit: {
       enabled: true,
@@ -168,8 +212,8 @@ export function createAuth(db: DatabaseHandle | Database.Database, options: Auth
         const context = await auth.$context
         await context.internalAdapter.deleteUserSessions(user.id)
       },
-      sendVerificationEmail: async ({ user, url }) => {
-        mail.send(authEmail(user.email, url, 'verify'))
+      sendVerificationEmail: async ({ user, url, token }) => {
+        await sendAuthEmail('VERIFY_EMAIL', user, url, token)
       },
     },
     emailAndPassword: {
@@ -178,8 +222,8 @@ export function createAuth(db: DatabaseHandle | Database.Database, options: Auth
       requireEmailVerification: true,
       resetPasswordTokenExpiresIn: 3600,
       revokeSessionsOnPasswordReset: true,
-      sendResetPassword: async ({ user, url }) => {
-        mail.send(authEmail(user.email, url, 'reset'))
+      sendResetPassword: async ({ user, url, token }) => {
+        await sendAuthEmail('RESET_PASSWORD', user, url, token)
       },
     },
   })

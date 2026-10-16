@@ -7,10 +7,12 @@ import { createStripePaymentProvider } from './modules/payments/stripe.provider.
 import { startPaymentWorker } from './modules/payments/payment.worker.js'
 import { createEmailSender } from './modules/email/email.service.js'
 import { log } from './shared/logger.js'
+import { loadEmailConfig } from './modules/email/email-config.js'
 
 let startupErrorCode = 'CONFIGURATION_INVALID'
 async function start() {
-  const config = loadConfig()
+  const emailConfig = loadEmailConfig()
+  const config = loadConfig({ ...process.env, EMAIL_DELIVERY_MODE: emailConfig.mode })
   startupErrorCode = 'DATABASE_STARTUP_FAILED'
   const database = await openDatabase(config)
   let closeApp: (() => Promise<void>) | undefined
@@ -25,8 +27,11 @@ async function start() {
         authBaseURL: config.authBaseURL,
         authSecret: config.authSecret,
         trustedProxyIp: config.trustedProxyIp,
+        emailConfig,
         emailSender:
-          config.nodeEnv !== 'test' && config.smtp ? createEmailSender(config.smtp) : undefined,
+          emailConfig.mode === 'inline' && config.nodeEnv !== 'test' && config.smtp
+            ? createEmailSender(config.smtp)
+            : undefined,
       },
       {
         deliveryEnabled: config.deliveryEnabled,

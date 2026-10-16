@@ -4,11 +4,13 @@ import type { DomainStore } from '../store.types.js'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { textSearch, stockAdjustment, orderSearch } from '../query.helpers.js'
 import { createDashboardQueries } from '../dashboard.queries.js'
+import { createEmailQueries } from '../email.queries.js'
 export function createPostgreSQLStore(
   orm: NodePgDatabase<typeof schema>,
   scoped = false,
 ): DomainStore {
   return {
+    ...createEmailQueries(async (query) => (await orm.execute(query)).rows, true),
     async cart(userId, create = false) {
       if (create) await orm.insert(schema.accountCarts).values({ userId }).onConflictDoNothing()
       return firstRow(

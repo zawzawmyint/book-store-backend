@@ -23,7 +23,10 @@ export type AppConfig = {
   stripeWebhookSecret?: string
 }
 
-export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
+export function loadConfig(
+  env: Record<string, string | undefined> = process.env,
+  role: 'api' | 'worker' = 'api',
+): AppConfig {
   const port = Number(env.PORT ?? 4000)
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error('PORT must be an integer from 1 to 65535')
@@ -186,7 +189,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       replyTo: env.SMTP_REPLY_TO,
     }
   }
-  if (nodeEnv === 'production' && !smtp)
+  if (
+    nodeEnv === 'production' &&
+    !smtp &&
+    (role === 'worker' || env.EMAIL_DELIVERY_MODE !== 'queued')
+  )
     throw new Error('Production requires complete SMTP configuration')
   return {
     smtp,

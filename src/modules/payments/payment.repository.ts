@@ -16,7 +16,12 @@ import { insertActivity } from '../activity/activity.writer.js'
 import { systemActor, type ActivityActor } from '../activity/activity.types.js'
 import type { ProviderEvent, ProviderRefund, ProviderSession } from './payment.provider.js'
 import type { OrderCustomer, OrderItemInput } from '../orders/order.types.js'
-export function createPaymentRepository(input: DatabaseInput, now: () => number) {
+import type { OrderEmailWriter } from '../email/email-outbox.writer.js'
+export function createPaymentRepository(
+  input: DatabaseInput,
+  now: () => number,
+  writeEmail?: OrderEmailWriter,
+) {
   const store = normalizeStore(input)
   async function paymentChange(
     tx: DomainStore,
@@ -34,6 +39,8 @@ export function createPaymentRepository(input: DatabaseInput, now: () => number)
         targetName: `Order request #${id}`,
         changes: [{ field: 'ORDER_PAYMENT_STATUS', before: before.paymentStatus, after: status }],
       })
+    if (before.paymentStatus !== status && status === 'REFUNDED')
+      await writeEmail?.(tx, id, 'ORDER_REFUNDED')
   }
   async function queueRefund(tx: DomainStore, id: number) {
     await tx.order(id)
@@ -111,10 +118,13 @@ export function createPaymentRepository(input: DatabaseInput, now: () => number)
           if (removed) await tx.setCartRevision(snapshot.userId, String(BigInt(cart.revision) + 1n))
           await tx.cleanCartSnapshot(row.id, new Date(now()).toISOString())
         }
-        if (row.status === 'CANCELLED') await queueRefund(tx, row.id)
+        if (row.status === 'CANCELLED') {
+          await queueRefund(tx, row.id)
+          await writeEmail?.(tx, row.id, 'ORDER_CANCELLED')
+        } else await writeEmail?.(tx, row.id, 'ORDER_CONFIRMED')
       }
     } else if (s.status === 'expired' && row.paymentStatus === 'PENDING') {
-      const adminOrderRepository = createAdminOrderRepository(tx)
+      const adminOrderRepository = createAdminOrderRepository(tx, writeEmail)
       const intent = row.cancellationIntent
         ? (JSON.parse(row.cancellationIntent) as {
             input: Parameters<typeof adminOrderRepository.setStatus>[0]
@@ -181,7 +191,7 @@ export function createPaymentRepository(input: DatabaseInput, now: () => number)
     operation: (id: string) => store.operation(id),
     checkoutOperation: (id: number) => store.checkoutOperation(id),
     customerOrders: createOrderRepository(store),
-    workflow: createAdminOrderRepository(store),
+    workflow: createAdminOrderRepository(store, writeEmail),
     lines: (id: number) => store.lines([id]),
     async quote(items: OrderItemInput[], address: DeliveryAddress, config: DeliveryConfig) {
       if (!config.deliveryEnabled || config.deliveryFeeCents === undefined)
@@ -349,7 +359,7 @@ export function createPaymentRepository(input: DatabaseInput, now: () => number)
         if (!(await owned(tx, op))) return
         if (definitive) {
           if (op.kind === 'CREATE_SESSION') {
-            await createAdminOrderRepository(tx).setStatus(
+            await createAdminOrderRepository(tx, writeEmail).setStatus(
               {
                 id: String(op.orderId),
                 expectedStatus: 'SUBMITTED',

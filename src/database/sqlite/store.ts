@@ -4,12 +4,14 @@ import type { DomainStore } from '../store.types.js'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { textSearch, stockAdjustment, orderSearch } from '../query.helpers.js'
 import { createDashboardQueries } from '../dashboard.queries.js'
+import { createEmailQueries } from '../email.queries.js'
 export function createSQLiteQueries(orm: BetterSQLite3Database): DomainStore {
   const dashboard = createDashboardQueries(
     async <T>(query: import('drizzle-orm').SQL) => orm.all(query) as T[],
     'sqlite',
   )
   return {
+    ...createEmailQueries(async (query) => orm.all(query) as Record<string, unknown>[]),
     async cart(userId, create = false) {
       if (create) await orm.insert(schema.accountCarts).values({ userId }).onConflictDoNothing()
       return firstRow(

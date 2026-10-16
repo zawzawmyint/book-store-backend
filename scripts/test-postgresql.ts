@@ -14,6 +14,10 @@ import { rejects } from 'node:assert/strict'
 import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { verifyPostgreSQLDeliveryGuard } from './delivery-migration-guard.js'
 import { verifyPostgreSQLCartMigration } from './cart-migration-check.js'
+import {
+  verifyPostgreSQLEmailMigration,
+  verifyPostgreSQLEmailParity,
+} from './email-parity-check.js'
 
 const browser = process.argv[2] === 'browser'
 const server = createServer()
@@ -74,6 +78,19 @@ try {
   const cartUrl = new URL(url)
   cartUrl.pathname = `/${cartName}`
   await verifyPostgreSQLCartMigration(cartUrl.toString(), directory)
+  stage = 'email populated-database additive migration'
+  const emailName = `book_store_email_${runId.replaceAll('-', '')}`
+  await cluster.createDatabase(emailName)
+  const emailUrl = new URL(url)
+  emailUrl.pathname = `/${emailName}`
+  await verifyPostgreSQLEmailMigration(emailUrl.toString(), directory)
+  stage = 'email PostgreSQL transaction and auth parity'
+  const emailDatabase = await openDatabase({ ...config, databaseUrl: emailUrl.toString() })
+  try {
+    await verifyPostgreSQLEmailParity(emailDatabase.handle)
+  } finally {
+    await emailDatabase.close()
+  }
   stage = 'schema readiness and migrations'
   await rejects(openDatabase(config), /PostgreSQL schema/)
   await migratePostgreSQL(config)
