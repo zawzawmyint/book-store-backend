@@ -259,3 +259,11 @@ prove the flow, but live Ethereal/Brevo inbox delivery has not been exercised. A
 still set another account's password. Before a live
 launch, specify and implement live-payment, fulfillment, customer communication,
 monitoring, and deployment controls.
+
+## Proposed production email notifications
+
+[Production email notifications](specs/email-notifications/SPEC.md) and its
+[implementation plan](docs/superpowers/plans/2026-10-16-production-email-notifications.md)
+propose a durable outbox, Redis/BullMQ auth and order queues, and a separate email
+worker reusing verification and password-reset mail. This is documentation only;
+current runtime delivery remains unchanged.

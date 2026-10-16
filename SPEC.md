@@ -144,3 +144,11 @@ are authoritative in [the delivery specification](specs/delivery/SPEC.md).
 - `bun run test:postgres` provisions disposable PostgreSQL 17.10 and runs shared
   provider-parity, migration, CLI, and compiled-application checks. Browser journeys
   run against SQLite by default and PostgreSQL through `bun run test:postgres:browser`.
+
+## Proposed production email notifications
+
+The [proposed email notification spec](specs/email-notifications/SPEC.md) describes
+database outbox persistence, separate BullMQ auth/order queues in Redis, a separate
+email worker, and reuse of verification/password-reset mail. It supersedes earlier
+queue deferrals only after implementation and verification; no runtime behavior or
+production readiness is changed by this documentation proposal.
