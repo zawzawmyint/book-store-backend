@@ -4,6 +4,45 @@
 
 ## Goal
 
+### Delivered: bookstore email presentation
+
+- Verification, password reset, payment receipt, acceptance, shipment, cancellation,
+  and refund HTML messages share an email-compatible The Quiet Shelf layout: inline
+  styles, presentation tables, a 600px maximum content width, the storefront
+  cream/forest palette, serif headings, system-font body copy, hidden preheaders,
+  prominent action buttons, and a consistent service-email footer.
+- Authentication mail preserves the exact URL supplied by Better Auth, its one-hour
+  expiry and security guidance, plain-text alternative, and existing subject. Its HTML
+  includes a copyable fallback URL for clients where the button does not work.
+- Order mail shows a stage-specific explanation, item quantity, unit price and line
+  amount, subtotal, delivery and total, delivery address when recorded, and a readable
+  UTC event time. Shipment uses tracking as its primary action when available and
+  retains a View your order link; test-payment and refund-status language remains
+  truthful.
+- No API, queue, permission, persistence, migration, dependency, configuration, or
+  trigger change is part of this presentation delivery. All seven kinds render HTML
+  and plain text; untrusted values remain escaped, and account/tracking links retain
+  their existing validation.
+
+### Delivered: distinguish payment receipt and order acceptance
+
+- Payment success sends **Payment received — awaiting order acceptance**. Keep the
+  persisted `ORDER_CONFIRMED` kind as the payment-receipt event so existing encrypted
+  payloads, dedupe keys, retries, and operator records remain compatible.
+- `ORDER_ACCEPTED` is recorded on the first committed `SUBMITTED` → `PREPARING` transition,
+  with **Order accepted — preparing your books** content in HTML and plain text.
+  Record it in the existing transaction and `ORDER` queue; repeated confirmation
+  must not send twice. Failed outbox insertion must roll back preparation/history.
+- Preserve staff/admin authorization, verified-payment requirements, payment/order
+  states, API shapes, configuration, cancellation/refund rules, and legacy-order
+  suppression. No historical acceptance backfill. Both schemas use text kinds, so
+  adding the TypeScript enum value requires no physical database migration.
+- Payment records only the receipt; successful preparation records one acceptance;
+  unpaid/rejected preparation records none; rollback remains atomic; and templates
+  distinguish both stages. SQLite, PostgreSQL, and real Redis/SMTP verification pass.
+- Deploy updated workers before enabling the API's new producer, so consumers know
+  `ORDER_ACCEPTED`. Preserve payload encryption keys and stored kinds on rollback.
+
 Deliver authentication and order emails through a durable database outbox, BullMQ,
 and Redis, while preserving current authentication, order, payment, and storefront
 contracts. Production quality applies to this email subsystem; live Stripe
@@ -13,7 +52,7 @@ payments and production launch of the entire store remain separate work.
 
 - Reuse Better Auth verification/password-reset URLs, existing token validation,
   verification enforcement, session revocation, rate limits, and auth templates.
-- Add branded HTML and plain-text order confirmation, shipment, cancellation,
+- Add branded HTML and plain-text payment-receipt, acceptance, shipment, cancellation,
   and successful full-refund messages. No marketing, newsletters, attachments,
   delivery confirmation email, or public notification-management UI.
 - Use one Redis deployment with separate `auth-emails` and `order-emails` queues.
@@ -104,9 +143,15 @@ a new logical notification, not deduplicated by user ID forever.
 
 **Order queue:**
 
-- `ORDER_CONFIRMED`: first actual transition into PAID for a payment-required,
-  non-cancelled order, including payment reconciliation. Checkout creation,
-  browser return alone, and legacy unpaid orders do not trigger it.
+- `ORDER_CONFIRMED`: the payment-receipt event, sent on the first actual transition
+  into PAID for a payment-required, non-cancelled order, including payment
+  reconciliation. Its customer text is **Payment received — awaiting order
+  acceptance**. Checkout creation, browser return alone, and legacy unpaid orders do
+  not trigger it.
+- `ORDER_ACCEPTED`: first committed `SUBMITTED` → `PREPARING` transition. Its
+  customer text is **Order accepted — preparing your books**. A repeated preparation
+  request is a no-op and does not create a second notification. An unpaid or rejected
+  preparation creates none.
 - `ORDER_SHIPPED`: first committed transition to SHIPPED. Include only recorded
   optional carrier/tracking data; no delivery guarantee or invented ETA.
 - `ORDER_CANCELLED`: first committed cancellation of an order that was paid or
@@ -265,7 +310,10 @@ FAILED | UNCERTAIN`; `createdAt`, `expiresAt`, `nextAttemptAt`, `enqueuedAt`,
   Build first with `bun run build` before using the production worker or either
   operator command, which execute compiled `dist/` files rather than a development
   TypeScript runner. An invalid operator ID exits nonzero with a fixed redacted code.
-  Without `--apply`, replay is a redacted preview. Applying any eligible replay
+- `bun run email:worker` runs `tsx` without watch mode, so manually restart it after
+  changing email source. `bun run dev` watches the API process, but restart any
+  separately running backend process to reload inline-auth email changes.
+- Without `--apply`, replay is a redacted preview. Applying any eligible replay
   requires `--acknowledge-duplicate-risk`; no arbitrary
   recipient/link editing; expired auth jobs require the normal resend/reset flow.
   Reject replay of successful, pending, skipped, or expired records. Replay uses
@@ -283,14 +331,18 @@ FAILED | UNCERTAIN`; `createdAt`, `expiresAt`, `nextAttemptAt`, `enqueuedAt`,
   age >5 minutes, any UNCERTAIN result, or worker heartbeat age >30 seconds.
   Document the metric/log sink and actual alert routing before production cutover.
 - Back up DB; apply both reviewed provider migrations through existing commands;
-  provision Redis; deploy compatible API/worker with order notifications off;
+  provision Redis; deploy and verify workers that support `ORDER_ACCEPTED`, then
+  stop or drain every older worker before enabling the API producer with
+  `EMAIL_ORDER_NOTIFICATIONS_ENABLED=true`;
   exercise verification/reset via queue; enable order notifications only after
   captured SMTP and staging inbox evidence. No historical email backfill.
 - During rollout, stop/drain old inline API processes before enabling queued auth;
   do not run both send paths for one request. Redis outages retain DB work.
-  Rollback stops/drains the new worker and disables new order production, retains
-  tables/rows, and repairs queued delivery with compatible code. Do not roll back
-  to inline auth while pending auth work can still send; reconcile it first.
+  Rollback disables new order production through `EMAIL_ORDER_NOTIFICATIONS_ENABLED`
+  and retains compatible workers until every pending `ORDER_ACCEPTED` record drains.
+  It retains tables/rows and does not treat a full worker downgrade as safe while that
+  new kind remains. Do not roll back to inline auth while pending auth work can still
+  send; reconcile it first.
 
 ## Acceptance criteria and outstanding gates
 
@@ -311,11 +363,25 @@ FAILED | UNCERTAIN`; `createdAt`, `expiresAt`, `nextAttemptAt`, `enqueuedAt`,
       encryption/rotation/purge, redaction, inspection/replay, and monitoring pass.
 - [x] Additive migration preserves populated data; production readiness/config fail
       correctly in automated checks.
+- [x] Payment receipt and acceptance are distinct: payment retains the persisted
+      `ORDER_CONFIRMED` kind, while the first successful preparation writes exactly
+      one `ORDER_ACCEPTED` record in the same transaction.
+- [x] The renderer rejects an unsupported persisted notification kind before SMTP;
+      workers must be upgraded before the API can produce a new kind.
 - [ ] Stage sender/domain, real inbox delivery, TLS Redis, secrets, provider
       throughput, and alert routing before production enablement.
 - [x] Browser verification: PostgreSQL passed 72/72; the original SQLite run had one
       appearance/guest-cart hard-navigation race, and its focused appearance rerun
       passed 2/2 without frontend changes.
+
+Current change verification (2026-10-16): six focused tests were first observed
+failing for the missing presentation behavior and then passed; the focused set passed
+32 tests. The full suite passed 303 tests with 1 skipped across 53 files, and lint and
+build passed. A real loopback Redis and captured-SMTP check sent 8 messages across 13
+assertions, including one acceptance email despite repeated preparation; its harness
+normalizes quoted-printable soft line breaks before assertions. Synthetic desktop
+previews covered all seven messages; 375px reset and shipment previews had no
+horizontal overflow. These checks did not test Gmail, Outlook, or a native mail client.
 
 ## Validation and unresolved deployment inputs
 

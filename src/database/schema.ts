@@ -14,6 +14,7 @@ export const emailNotifications = sqliteTable(
         'VERIFY_EMAIL',
         'RESET_PASSWORD',
         'ORDER_CONFIRMED',
+        'ORDER_ACCEPTED',
         'ORDER_SHIPPED',
         'ORDER_CANCELLED',
         'ORDER_REFUNDED',

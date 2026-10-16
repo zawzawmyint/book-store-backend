@@ -87,7 +87,9 @@ const smtp = createServer((socket) => {
       if (data) {
         if (line === '.') {
           data = false
-          messages.push(message)
+          // Nodemailer wraps quoted-printable MIME lines; assert content across
+          // those transport soft breaks rather than depending on line length.
+          messages.push(message.replace(/=\r\n/g, ''))
           message = ''
           socket.write('250 accepted\r\n')
         } else message += line.replace(/^\.\./, '.') + '\r\n'
@@ -325,8 +327,14 @@ try {
     )
   }
   const shippedOrder = await paidOrder()
-  await until(async () => messages.length >= 3, 'order confirmation from payment API')
+  await until(async () => messages.length >= 3, 'payment receipt from payment API')
+  assert(messages[2].includes('Payment received'))
+  assert(messages[2].includes('awaiting order acceptance'))
   await setStatus({ id: shippedOrder, expectedStatus: 'SUBMITTED', status: 'PREPARING' })
+  await setStatus({ id: shippedOrder, expectedStatus: 'SUBMITTED', status: 'PREPARING' })
+  await until(async () => messages.length >= 4, 'acceptance from staff preparation API')
+  assert(messages[3].includes('Order accepted'))
+  assert(messages[3].includes('preparing your books'))
   await setStatus({
     id: shippedOrder,
     expectedStatus: 'PREPARING',
@@ -337,7 +345,7 @@ try {
       trackingUrl: 'https://carrier.example/T1',
     },
   })
-  await until(async () => messages.length >= 4, 'shipment from staff API')
+  await until(async () => messages.length >= 5, 'shipment from staff API')
   const cancelledOrder = await paidOrder()
   await setStatus({
     id: cancelledOrder,
@@ -346,10 +354,10 @@ try {
     cancellationReason: 'Acceptance cancellation',
   })
   await app.locals.payments.recover()
-  await until(async () => messages.length >= 7, 'confirmation cancellation and confirmed refund')
-  assert.equal(messages.length, 7)
+  await until(async () => messages.length >= 8, 'payment receipt cancellation and confirmed refund')
+  assert.equal(messages.length, 8)
   assert(messages[2].includes('The Great Gatsby'))
-  assert(messages[3].includes('Acceptance Carrier'))
+  assert(messages[4].includes('Acceptance Carrier'))
   assert(
     messages.some((message) =>
       message.includes('Cancellation does not confirm a completed refund'),
@@ -372,6 +380,7 @@ try {
         'duplicate job',
         'auth/order queues',
         'authenticated payment-to-email',
+        'staff acceptance email without duplicates',
         'shipment cancellation and refund emails',
         'health',
       ],

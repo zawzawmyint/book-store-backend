@@ -58,6 +58,12 @@ Sign-up requires verification before access, and self-service recovery is availa
 ## 🧩 Delivered behavior
 
 - **Sender boundary:** `src/modules/email/email.service.ts` owns a reusable transporter, bounded connection/send timeouts, shutdown cleanup, and delivery. `email.content.ts` separates email content from transport. Its narrow contract is `send({ to, subject, text, html }): Promise<void>`; auth callbacks consume it and tests inject a collector.
+- **Message presentation:** verification and reset HTML use the shared email-compatible
+  The Quiet Shelf layout (inline styles, presentation tables, 600px maximum width,
+  storefront cream/forest colors, serif headings, hidden preheader, button, and
+  service footer). They keep the exact callback URL supplied by Better Auth, the
+  one-hour expiry/security language, existing subject, and plain-text alternative;
+  the HTML also exposes a copyable fallback URL.
 - **Configuration:** [env.ts](../../src/config/env.ts), [app.ts](../../src/app.ts), and [server.ts](../../src/server.ts) support `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, and optional `SMTP_REPLY_TO`. They require paired credentials and a valid host/port/from; 587 uses STARTTLS and 465 uses implicit TLS. The production email worker fails with incomplete SMTP configuration and rejects Ethereal; a queued API does not need SMTP/Redis connectivity. Tests use injection.
 - **Local setup:** document Ethereal's `smtp.ethereal.email:587` and the test-inbox workflow. Do not create an Ethereal account automatically, log verification URLs/tokens, or copy the Strapi project's credentials. SMTP acceptance is not proof of inbox delivery.
 - **Better Auth callbacks:** configure `sendVerificationEmail` and `sendResetPassword` in [auth.ts](../../src/auth.ts). In queued mode they await durable outbox recording only; the worker later sends the supplied URL. This is not atomic with Better Auth's token/user write: a crash before the callback records the row requires the normal resend/reset recovery path. Generic reset/resend responses and the 500 ms reset floor remain unchanged for known and unknown accounts.

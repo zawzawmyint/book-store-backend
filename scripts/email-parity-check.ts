@@ -11,6 +11,8 @@ import { createAuth } from '../src/auth.js'
 import { createEmailCrypto } from '../src/modules/email/email-payload.crypto.js'
 import { createEmailOutboxWriter } from '../src/modules/email/email-outbox.writer.js'
 import { createEmailNotificationRepository } from '../src/modules/email/email-notification.repository.js'
+import { createAdminOrderRepository } from '../src/modules/orders/admin-order.repository.js'
+import { deliveryAddress } from '../test/delivery-fixtures.js'
 
 export async function verifyPostgreSQLEmailMigration(url: string, directory: string) {
   const source = resolve('drizzle/postgresql')
@@ -139,6 +141,28 @@ export async function verifyPostgreSQLEmailParity(database: DatabaseHandle) {
     strictEqual((await repository.get(id))?.status, 'UNCERTAIN')
     strictEqual(typeof (await repository.get(id))?.terminalAt, 'number')
     strictEqual(await repository.claimSend(id, now + 60002, randomUUID()), undefined)
+
+    const adminOrders = createAdminOrderRepository(database, writer.writeOrderEmail)
+    await store.insertDelivery({ orderId: order.id, ...deliveryAddress })
+    const preparation = {
+      id: String(order.id),
+      expectedStatus: 'SUBMITTED' as const,
+      status: 'PREPARING' as const,
+    }
+    const actor = {
+      source: 'GRAPHQL' as const,
+      userId,
+      name: 'Email parity',
+      role: 'ADMIN' as const,
+    }
+    await adminOrders.setStatus(preparation, actor)
+    await adminOrders.setStatus(preparation, actor)
+    const acceptance = (await store.dueEmailNotifications(now + 60002, 50)).filter(
+      (row) => row.orderId === order.id && row.kind === 'ORDER_ACCEPTED',
+    )
+    strictEqual(acceptance.length, 1)
+    strictEqual(acceptance[0].sequence, 2)
+    strictEqual(crypto.open(acceptance[0]).order?.totalCents, 100)
 
     const authOptions = {
       authBaseURL: 'http://localhost:4000',

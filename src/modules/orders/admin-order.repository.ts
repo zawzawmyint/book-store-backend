@@ -167,6 +167,7 @@ export function createAdminOrderRepository(input: DatabaseInput, writeEmail?: Or
             changes: [{ field: 'ORDER_PAYMENT_STATUS', before: 'PAID', after: 'REFUND_PENDING' }],
           })
         }
+        if (input.status === 'PREPARING') await writeEmail?.(tx, before.id, 'ORDER_ACCEPTED')
         if (input.status === 'SHIPPED') await writeEmail?.(tx, before.id, 'ORDER_SHIPPED')
         if (
           input.status === 'CANCELLED' &&

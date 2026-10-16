@@ -47,14 +47,18 @@ const kinds = () =>
     db.prepare('SELECT kind FROM email_notifications ORDER BY sequence').all() as { kind: string }[]
   ).map((r) => r.kind)
 
-it('records confirmation and shipment exactly once with immutable event snapshots', async () => {
+it('records payment receipt, acceptance and shipment once at their committed transitions', async () => {
   const placed = await checkout()
   const id = placed.order.id
   expect(kinds()).toEqual([])
   provider.pay([...provider.sessions.keys()][0])
   await service.refreshOrderPayment(id, buyer)
   await service.refreshOrderPayment(id, buyer)
+  expect(kinds()).toEqual(['ORDER_CONFIRMED'])
+  expect((await normalizeStore(db).order(Number(id)))?.status).toBe('SUBMITTED')
   await service.setOrderStatus({ id, expectedStatus: 'SUBMITTED', status: 'PREPARING' }, actor)
+  await service.setOrderStatus({ id, expectedStatus: 'SUBMITTED', status: 'PREPARING' }, actor)
+  expect(kinds()).toEqual(['ORDER_CONFIRMED', 'ORDER_ACCEPTED'])
   const shipment = {
     carrier: 'Carrier',
     trackingNumber: 'T1',
@@ -68,7 +72,7 @@ it('records confirmation and shipment exactly once with immutable event snapshot
     { id, expectedStatus: 'SHIPPED', status: 'SHIPPED', shipment },
     actor,
   )
-  expect(kinds()).toEqual(['ORDER_CONFIRMED', 'ORDER_SHIPPED'])
+  expect(kinds()).toEqual(['ORDER_CONFIRMED', 'ORDER_ACCEPTED', 'ORDER_SHIPPED'])
   const rows = await normalizeStore(db).dueEmailNotifications(Date.now(), 50)
   expect(crypto.open(rows.find((r) => r.kind === 'ORDER_CONFIRMED')!).order?.totalCents).toBe(2199)
   expect(crypto.open(rows.find((r) => r.kind === 'ORDER_SHIPPED')!).order?.trackingNumber).toBe(
@@ -81,6 +85,27 @@ it('records confirmation and shipment exactly once with immutable event snapshot
       randomUUID(),
     ),
   ).toBeUndefined()
+})
+
+it('does not record acceptance for unpaid preparation and rolls back a failed acceptance insert', async () => {
+  const placed = await checkout()
+  const input = {
+    id: placed.order.id,
+    expectedStatus: 'SUBMITTED' as const,
+    status: 'PREPARING' as const,
+  }
+  await expect(service.setOrderStatus(input, actor)).rejects.toThrow()
+  expect(kinds()).toEqual([])
+  provider.pay([...provider.sessions.keys()][0])
+  await service.refreshOrderPayment(input.id, buyer)
+  const historyBefore = await normalizeStore(db).history(Number(input.id))
+  db.exec(
+    "CREATE TRIGGER fail_acceptance BEFORE INSERT ON email_notifications WHEN NEW.kind='ORDER_ACCEPTED' BEGIN SELECT RAISE(ABORT,'outbox unavailable'); END",
+  )
+  await expect(service.setOrderStatus(input, actor)).rejects.toThrow('outbox unavailable')
+  expect((await normalizeStore(db).order(Number(input.id)))?.status).toBe('SUBMITTED')
+  expect(await normalizeStore(db).history(Number(input.id))).toEqual(historyBefore)
+  expect(kinds()).toEqual(['ORDER_CONFIRMED'])
 })
 
 it('records cancellation separately from a confirmed refund and suppresses unpaid expiry', async () => {

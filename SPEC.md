@@ -151,9 +151,11 @@ are authoritative in [the delivery specification](specs/delivery/SPEC.md).
 
 The [email notification specification](specs/email-notifications/SPEC.md) is the
 authoritative internal-delivery contract. In queued mode, verification and password
-reset callbacks durably record encrypted work, while paid, shipped, cancelled, and
-provider-confirmed refunded order transitions record their notifications inside the
-same database transaction. The API does not connect to Redis or SMTP in that mode; a
-separate worker dispatches `auth-emails` and `order-emails` queues. This does not add
-a public GraphQL or HTTP contract. SMTP acceptance is submission evidence only; an
-ambiguous send is recorded as `UNCERTAIN` for operator review.
+reset callbacks durably record encrypted work. A paid transition records the
+`ORDER_CONFIRMED` payment receipt; the first committed `SUBMITTED` → `PREPARING`
+transition records `ORDER_ACCEPTED`; and shipped, cancelled, and provider-confirmed
+refunded transitions record their respective notifications in the same database
+transaction. The API does not connect to Redis or SMTP in that mode; a separate worker
+dispatches `auth-emails` and `order-emails` queues. This does not add a public GraphQL
+or HTTP contract. SMTP acceptance is submission evidence only; an ambiguous send is
+recorded as `UNCERTAIN` for operator review.

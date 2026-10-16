@@ -2,7 +2,7 @@
 
 Implemented feature: [Account carts](specs/account-carts/SPEC.md) stores each verified user's bag on the server, keeps a versioned guest bag locally, and preserves old raw arrays only for confirmed import.
 
-Implemented feature: [Production email notifications](specs/email-notifications/SPEC.md) records encrypted auth and order email work in the database, dispatches it through separate Redis/BullMQ queues, and sends it from an independent worker. Production cutover remains gated on staging and provider operations.
+Implemented feature: [Production email notifications](specs/email-notifications/SPEC.md) records encrypted auth and order email work in the database, dispatches it through separate Redis/BullMQ queues, and sends it from an independent worker. Paid orders receive a payment receipt; the first staff or admin preparation transition sends a separate acceptance message. Production cutover remains gated on staging and provider operations.
 
 Implemented feature: [Auth email verification and recovery](specs/auth-email/SPEC.md) requires verified email for account access, exposes read-only verification status in the Admin user directory, and provides password recovery through the shared email delivery path.
 
@@ -67,8 +67,8 @@ another verification or reset email when a link has expired or delivery is unava
 
 Queued mode uses the database as the authoritative notification ledger and one Redis
 deployment for two BullMQ queues: `auth-emails` for verification/password-reset mail,
-and `order-emails` for confirmation, shipment, cancellation, and refund notices. The
-worker dispatches up to 50 due records per queue each second. BullMQ jobs use one
+and `order-emails` for payment receipts, order acceptance, shipment, cancellation, and
+refund notices. The worker dispatches up to 50 due records per queue each second. BullMQ jobs use one
 attempt; the database ledger, rather than BullMQ retry, controls auth (four) and order
 (eight) SMTP-attempt budgets and retry timing. A 30-second reconciliation recreates a
 missing Redis job for unfinished work.
@@ -81,6 +81,12 @@ prefix. Set `EMAIL_ORDER_NOTIFICATIONS_ENABLED=true` to create order records. Th
 can run without SMTP or Redis access in queued mode. The worker additionally requires
 Redis and complete SMTP configuration.
 
+For a worker that introduces a new persisted notification kind, deploy and verify the
+compatible workers first, stop or drain every older worker, then enable the producer
+with `EMAIL_ORDER_NOTIFICATIONS_ENABLED=true`. To roll back, set that flag to `false`
+and keep compatible workers running until the new-kind records drain; an older worker
+cannot safely process those records.
+
 Apply migrations, build once, then start the compiled API and worker in separate
 production processes:
 
@@ -91,9 +97,11 @@ bun run start
 bun run email:worker:start
 ```
 
-During development, use `bun run email:worker` for the TypeScript worker. The
-compiled `email:inspect` and `email:replay` commands also require `bun run build`
-after a source change.
+During development, use `bun run email:worker` for the TypeScript worker. It does not
+watch source files, so restart it manually after an email-source change. `bun run dev`
+watches the API, but restart any separately running backend process to reload
+inline-auth email changes. The compiled `email:inspect` and `email:replay` commands
+also require `bun run build` after a source change.
 
 The worker listens only on loopback at `EMAIL_WORKER_HEALTH_PORT` (default `4010`).
 `/health` is live while the process is running; `/ready` additionally requires both
