@@ -109,3 +109,7 @@ Provide accountability for Staff/Admin catalog changes and Admin/operator accoun
 **Open decisions**
 
 - None. Admin-only visibility and no automatic retention cleanup are explicit delivered scope limits.
+
+## Cover activity addition (verification pending)
+
+Cover replacement and removal reuse `BOOK_UPDATED` with changed field `COVER`. The before/after values are nullable managed storage keys, never public URLs or filesystem paths. The REST handler records source `HTTP` and the actual Staff/Admin actor. The cover write, revision update, and event insertion share the database operation; an actor-user lock prevents a concurrent demotion from allowing a stale authorized cover event.

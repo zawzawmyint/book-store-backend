@@ -310,3 +310,9 @@ fallback. Database support does not by itself make the application production-re
 The automated portable-test baseline is PostgreSQL 17.10 through the pinned
 `embedded-postgres` package. Production hosting, PostgreSQL server maintenance, and
 credentials remain deployment choices; this feature creates no external database.
+
+## Cover metadata migration and storage (verification pending)
+
+The additive cover migrations add nullable `cover_key`, `cover_width`, and `cover_height`, plus non-null `cover_revision` defaulting to zero, to both providers. Existing books remain valid without a cover. Apply both generated migration sets before running an application version that writes covers, and preserve the upload root with the database backup. A compatible rollback may leave the columns and media in place; do not remove them as part of application rollback.
+
+Cover reference updates, revision comparison, Activity insertion, and actor authorization are coordinated by the provider transaction. The concurrent role-demotion regression confirms an actor cannot commit a cover write after permission is removed. The local media file itself is outside the database transaction, so a failed write leaves the old reference intact and best-effort cleanup handles a newly abandoned object.

@@ -1,3 +1,4 @@
+import { createCoverRepository } from '../src/modules/covers/cover.repository.js'
 import { revokeUnverifiedSessions } from '../src/modules/auth-email/session-rollout.js'
 import { createCartRepository } from '../src/modules/cart/cart.repository.js'
 import { createCartService } from '../src/modules/cart/cart.service.js'
@@ -61,7 +62,85 @@ describe(`database contract: ${providerName}`, () => {
   let provider: FakePaymentProvider
   let service: ReturnType<typeof createPaymentService>
   let buyer: { id: string; name: string; email: string }
+  it('atomically conditions cover revisions and audits changes on either database', async () => {
+    await store.setRole(buyer.id, 'STAFF')
+    const repository = createCoverRepository(store)
+    const actor = {
+      source: 'HTTP' as const,
+      userId: buyer.id,
+      name: buyer.name,
+      role: 'STAFF' as const,
+    }
+    const metadata = {
+      key: 'covers/11111111-1111-4111-8111-111111111111.webp',
+      width: 800,
+      height: 1200,
+    }
+    const results = await Promise.allSettled([
+      repository.save(1, 0, metadata, actor),
+      repository.save(1, 0, metadata, actor),
+    ])
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    expect((await store.book(1))?.coverRevision).toBe(1)
+    await expect(repository.save(1, 0, null, actor)).rejects.toMatchObject({
+      code: 'COVER_CONFLICT',
+    })
+    await repository.save(1, 1, null, actor)
+    expect(await store.book(1)).toMatchObject({ coverKey: null, coverRevision: 2 })
+    const page = await store.activity(activityInputSchema.parse({ limit: 50, offset: 0 }))
+    expect(page.items.filter((row) => row.source === 'HTTP')).toHaveLength(2)
+  })
   let now: number
+  it.skipIf(providerName !== 'postgresql')(
+    'serializes cover permission checks with an in-flight role revocation',
+    async () => {
+      await store.setRole(buyer.id, 'STAFF')
+      let release!: () => void
+      let locked!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const ready = new Promise<void>((resolve) => {
+        locked = resolve
+      })
+      const demotion = store.transaction(async (tx) => {
+        await tx.user(buyer.id)
+        locked()
+        await gate
+        await tx.setRole(buyer.id, 'CUSTOMER')
+      })
+      await ready
+      const saving = createCoverRepository(store)
+        .save(
+          1,
+          0,
+          { key: 'covers/11111111-1111-4111-8111-111111111111.webp', width: 800, height: 1200 },
+          { source: 'HTTP', userId: buyer.id, name: buyer.name, role: 'STAFF' },
+        )
+        .then(
+          () => 'saved',
+          (error) => error,
+        )
+      try {
+        expect(
+          await Promise.race([
+            saving,
+            new Promise((resolve) => setTimeout(() => resolve('waiting-for-role-lock'), 250)),
+          ]),
+        ).toBe('waiting-for-role-lock')
+      } finally {
+        release()
+        await demotion
+      }
+      expect(await saving).toMatchObject({ code: 'FORBIDDEN' })
+      expect((await store.book(1))?.coverRevision).toBe(0)
+      expect(
+        (await store.activity(activityInputSchema.parse({ limit: 50, offset: 0 }))).items.filter(
+          (row) => row.source === 'HTTP',
+        ),
+      ).toHaveLength(0)
+    },
+  )
   it('filters and stably sorts the public catalog before pagination', async () => {
     const rows = []
     for (const [title, priceCents, stock, genre, archived] of [

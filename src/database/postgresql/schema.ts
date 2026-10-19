@@ -93,7 +93,7 @@ export const activityEvents = pgTable(
     actorType: text('actor_type', { enum: ['USER', 'SYSTEM'] })
       .notNull()
       .default('USER'),
-    source: text('source', { enum: ['GRAPHQL', 'OPERATOR', 'SYSTEM'] }).notNull(),
+    source: text('source', { enum: ['GRAPHQL', 'HTTP', 'OPERATOR', 'SYSTEM'] }).notNull(),
     action: text('action', {
       enum: [
         'BOOK_CREATED',
@@ -142,11 +142,20 @@ export const books = pgTable(
     author: text('author').notNull(),
     genre: text('genre').notNull(),
     description: text('description').notNull(),
+    coverKey: text('cover_key'),
+    coverWidth: integer('cover_width'),
+    coverHeight: integer('cover_height'),
+    coverRevision: integer('cover_revision').notNull().default(0),
     priceCents: integer('price_cents').notNull(),
     stock: integer('stock').notNull(),
     archived: boolean('archived').notNull().default(false),
   },
   (table) => [
+    check('books_cover_revision', sql`${table.coverRevision} >= 0`),
+    check(
+      'books_cover_metadata',
+      sql`(${table.coverKey} IS NULL AND ${table.coverWidth} IS NULL AND ${table.coverHeight} IS NULL) OR (${table.coverKey} IS NOT NULL AND ${table.coverWidth} IS NOT NULL AND ${table.coverHeight} IS NOT NULL AND ${table.coverWidth} > 0 AND ${table.coverHeight} > 0)`,
+    ),
     check('books_price_nonnegative', sql`${table.priceCents} >= 0`),
     check('books_stock_nonnegative', sql`${table.stock} >= 0`),
   ],

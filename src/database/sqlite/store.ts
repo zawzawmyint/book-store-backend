@@ -92,6 +92,22 @@ export function createSQLiteQueries(orm: BetterSQLite3Database): DomainStore {
     async book(id) {
       return firstRow(await orm.select().from(schema.books).where(eq(schema.books.id, id)))
     },
+    async booksByIds(ids) {
+      if (!ids.length) return []
+      return await orm.select().from(schema.books).where(inArray(schema.books.id, ids))
+    },
+    async allCoverBooks() {
+      return await orm.select().from(schema.books)
+    },
+    async setBookCover(id, revision, values) {
+      return firstRow(
+        await orm
+          .update(schema.books)
+          .set({ ...values, coverRevision: revision + 1 })
+          .where(and(eq(schema.books.id, id), eq(schema.books.coverRevision, revision)))
+          .returning(),
+      )
+    },
     async catalog(search, limit, offset, options = {}) {
       const where = and(
         eq(schema.books.archived, false),

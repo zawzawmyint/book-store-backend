@@ -1,8 +1,8 @@
 export const activityTypeDefs = `#graphql
   enum ActivityAction { BOOK_CREATED BOOK_UPDATED BOOK_STOCK_ADJUSTED BOOK_ARCHIVED BOOK_RESTORED USER_ROLE_CHANGED USER_PASSWORD_RESET ORDER_STATUS_CHANGED ORDER_PAYMENT_CHANGED }
-  enum ActivityField { TITLE AUTHOR GENRE DESCRIPTION PRICE_CENTS STOCK ARCHIVED ROLE ORDER_STATUS ORDER_PAYMENT_STATUS }
+  enum ActivityField { COVER TITLE AUTHOR GENRE DESCRIPTION PRICE_CENTS STOCK ARCHIVED ROLE ORDER_STATUS ORDER_PAYMENT_STATUS }
   enum ActivityTargetType { BOOK USER ORDER }
-  enum ActivitySource { GRAPHQL OPERATOR SYSTEM }
+  enum ActivitySource { GRAPHQL HTTP OPERATOR SYSTEM }
   type ActivityChange { field: ActivityField!, before: String, after: String }
   type ActivityEvent { id: ID!, actorUserId: ID, actorName: String!, actorRole: UserRole, actorType: ActorType!, source: ActivitySource!, action: ActivityAction!, targetType: ActivityTargetType!, targetId: ID!, targetName: String!, changes: [ActivityChange!]!, stockDelta: Int, createdAt: String! }
   type ActivityPage { total: Int!, items: [ActivityEvent!]! }

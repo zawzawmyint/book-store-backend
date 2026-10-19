@@ -1,5 +1,8 @@
 export const bookTypeDefs = `#graphql
+  type BookCover { url: String!, width: Int!, height: Int! }
+  type BookCoverLookup { id: ID!, cover: BookCover }
   type Book {
+    cover: BookCover
     id: ID!
     title: String!
     author: String!
@@ -11,7 +14,7 @@ export const bookTypeDefs = `#graphql
   type BookPage { total: Int!, items: [Book!]! }
   enum CatalogSort { DEFAULT TITLE_ASC PRICE_ASC PRICE_DESC }
   enum AdminBookFilter { ACTIVE ARCHIVED ALL }
-  type AdminBook { id: ID!, title: String!, author: String!, genre: String!, description: String!, priceCents: Int!, stock: Int!, archived: Boolean! }
+  type AdminBook { cover: BookCover, coverRevision: Int!, id: ID!, title: String!, author: String!, genre: String!, description: String!, priceCents: Int!, stock: Int!, archived: Boolean! }
   type AdminBooksPage { total: Int!, items: [AdminBook!]! }
   input AdminBookDetailsInput { title: String!, author: String!, genre: String!, description: String!, priceCents: Int! }
   input CreateBookInput { details: AdminBookDetailsInput!, stock: Int! }
@@ -22,6 +25,7 @@ export const bookTypeDefs = `#graphql
     setBookArchived(id: ID!, archived: Boolean!): AdminBook!
   }
   type Query {
+    bookCovers(ids: [ID!]!): [BookCoverLookup!]!
     books(search: String, genre: String, inStockOnly: Boolean = false, minPriceCents: Int, maxPriceCents: Int, sort: CatalogSort = DEFAULT, limit: Int = 12, offset: Int = 0): BookPage!
     genres: [String!]!
     book(id: ID!): Book

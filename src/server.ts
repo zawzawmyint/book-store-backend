@@ -1,3 +1,4 @@
+import { loadCoverConfig } from './config/env.js'
 import 'dotenv/config'
 import { createApp } from './app.js'
 import { loadConfig } from './config/env.js'
@@ -23,6 +24,7 @@ async function start() {
     const app = await createApp(
       database.handle,
       {
+        covers: loadCoverConfig(),
         frontendOrigin: config.frontendOrigin,
         authBaseURL: config.authBaseURL,
         authSecret: config.authSecret,

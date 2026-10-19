@@ -1,3 +1,6 @@
+import { createLocalCoverStorage } from './modules/covers/local-cover.storage.js'
+import { mountCoverRoutes } from './modules/covers/cover.routes.js'
+import type { CoverStorage } from './modules/covers/cover.storage.js'
 import express from 'express'
 import type { EmailConfig } from './modules/email/email-config.js'
 import { createEmailCrypto } from './modules/email/email-payload.crypto.js'
@@ -36,9 +39,17 @@ function clientIp(req: express.Request, trustedProxyIp?: string) {
 
 export async function createApp(
   db: DatabaseHandle | Database.Database,
-  options: AuthOptions & { emailConfig?: EmailConfig },
+  options: AuthOptions & {
+    emailConfig?: EmailConfig
+    covers?: { directory: string; publicBaseUrl: string; storage?: CoverStorage }
+  },
   paymentOptions: Omit<PaymentOptions, 'frontendOrigin'> = {},
 ) {
+  const coverStorage =
+    options.covers?.storage ??
+    (options.covers
+      ? await createLocalCoverStorage(options.covers.directory, options.covers.publicBaseUrl)
+      : undefined)
   const queuedEmail =
     options.emailConfig?.mode === 'queued'
       ? createEmailOutboxWriter(
@@ -65,7 +76,7 @@ export async function createApp(
   )
   const server = new ApolloServer<GraphQLContext>({
     typeDefs,
-    resolvers: createResolvers(db, paymentService),
+    resolvers: createResolvers(db, paymentService, coverStorage),
     formatError: publicGraphQLError,
     plugins: [operationalLoggingPlugin],
   })
@@ -205,6 +216,15 @@ export async function createApp(
       },
       toNodeHandler(auth),
     )
+    if (coverStorage)
+      mountCoverRoutes(
+        app,
+        db,
+        auth,
+        options.frontendOrigin,
+        coverStorage,
+        'mediaDirectory' in coverStorage ? String(coverStorage.mediaDirectory) : undefined,
+      )
     app.use(
       '/graphql',
       cors({ origin: options.frontendOrigin, credentials: true }),

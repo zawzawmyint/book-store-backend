@@ -24,6 +24,9 @@ const config: CodegenConfig = {
       config: {
         useTypeImports: true,
         mappers: {
+          Book: '../../database/store.types.js#BookRow',
+          AdminBook: '../../database/store.types.js#BookRow',
+          BookCoverLookup: '../../database/store.types.js#BookRow',
           AccountCart: '../../modules/cart/cart.repository.js#AccountCartResult',
           AdminOrder: '../../modules/orders/order.types.js#WorkspaceOrder',
           WorkspaceDashboard:

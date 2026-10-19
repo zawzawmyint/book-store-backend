@@ -12,6 +12,7 @@ export const activityActions = [
   'ORDER_PAYMENT_CHANGED',
 ] as const
 export const activityFields = [
+  'COVER',
   'TITLE',
   'AUTHOR',
   'GENRE',
@@ -32,7 +33,12 @@ export const activityChangeSchema = z
   .strict()
 export type ActivityChange = z.infer<typeof activityChangeSchema>
 export type ActivityActor =
-  | { source: 'GRAPHQL'; userId: string; name: string; role: 'CUSTOMER' | 'STAFF' | 'ADMIN' }
+  | {
+      source: 'GRAPHQL' | 'HTTP'
+      userId: string
+      name: string
+      role: 'CUSTOMER' | 'STAFF' | 'ADMIN'
+    }
   | { source: 'OPERATOR'; userId: null; name: 'Operator command'; role: null }
   | { source: 'SYSTEM'; userId: null; name: 'Payment system'; role: null }
 export const systemActor: ActivityActor = {

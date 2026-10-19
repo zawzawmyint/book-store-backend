@@ -1,0 +1,20 @@
+{
+  "tool": "built-in ImageGen",
+  "sharedDirection": "Finished original illustrated literary book front cover; portrait 2:3, flat edge-to-edge artwork; prominent exact serif title across upper half and exact smaller author at bottom; generous margins, readable typography, elegant original design with paper texture; no mockup, spine, publisher logos, or extra text. Titles and authors are taken verbatim from manifest.json.",
+  "subjects": {
+    "the-great-gatsby": "Midnight navy, muted teal and gold Art Deco mansion and slender fountain at night, glowing windows, a single green light across dark water and radiating geometric lines. Original literary illustration, no eyes motif.",
+    "the-secret-garden": "Ivory, forest green, sage, dusty rose and butter yellow. Old green wooden garden door framed by climbing roses, fern fronds, ivy, small birds and antique brass key. Botanical storybook gouache.",
+    "jane-eyre": "Distant Victorian manor on windswept moors under a dramatic sky, plum purple, slate and pale parchment; expressive linocut and watercolor literary illustration.",
+    "little-women": "Warmly lit Victorian parlor table with books, sewing, four cups of tea and a snowy window; warm rust, ochre, sage and cream; hand-painted gouache.",
+    "the-time-machine": "Copper and deep turquoise; intricate brass time machine dial surrounded by spiraling clockwork and a distant futuristic skyline; retro science fiction engraving.",
+    "the-picture-of-dorian-gray": "Emerald green, black and aged gold; ornate empty gilded portrait frame with a single pale rose and dark painterly shadow; Gothic still life, no human faces.",
+    "a-room-with-a-view": "Sun-washed terracotta, turquoise and warm cream; open Italian window framing Florence rooftops and the Duomo, cypress trees and linen curtain; Mediterranean gouache.",
+    "dracula": "Dark crimson, charcoal black, moonlit ivory; jagged Gothic castle above a Carpathian mountain forest, dramatic red moon and stylized bats; atmospheric woodcut.",
+    "the-call-of-the-wild": "Icy turquoise, dark spruce and pale amber; husky-like sled dog in profile on a rocky ridge, snowy Yukon wilderness and aurora beyond; painterly vintage adventure illustration.",
+    "anne-of-green-gables": "Original flat literary cover, charming gouache painting of a white farmhouse with green gables beneath flowering apple trees, winding country lane, Prince Edward Island pastoral landscape; fresh green, warm coral and cream; no people."
+  },
+  "vectorAlternatives": {
+    "pride-and-prejudice": "Original editable SVG floral manor illustration with rose, sage and cream palette and deterministic Georgia typography. Native tool output rejected twice; no further retries.",
+    "the-wonderful-wizard-of-oz": "Original editable SVG emerald city and winding golden road illustration, with emerald, cream and gold palette and deterministic Georgia typography. Native tool output rejected twice; no further retries."
+  }
+}

@@ -11,7 +11,7 @@ export async function verifyPostgreSQLCartMigration(url: string, directory: stri
     source = resolve('drizzle/postgresql')
   await mkdir(join(folder, 'meta'), { recursive: true })
   const journal = JSON.parse(await readFile(join(source, 'meta/_journal.json'), 'utf8'))
-  const entries = journal.entries.slice(0, -1)
+  const entries = journal.entries.filter((entry: { idx: number }) => entry.idx < 2)
   for (const entry of entries)
     await copyFile(join(source, `${entry.tag}.sql`), join(folder, `${entry.tag}.sql`))
   await writeFile(join(folder, 'meta/_journal.json'), JSON.stringify({ ...journal, entries }))
@@ -25,6 +25,13 @@ export async function verifyPostgreSQLCartMigration(url: string, directory: stri
       INSERT INTO checkout_requests(user_id,request_key,lines_json,delivery_json,order_id) VALUES('saved','key','[]','{}',9);`)
     const tables = ['user', 'books', 'orders', 'order_items', 'checkout_requests']
     const before = await Promise.all(tables.map((table) => pool.query(`SELECT * FROM "${table}"`)))
+    before[1].rows = before[1].rows.map((row) => ({
+      ...row,
+      cover_key: null,
+      cover_width: null,
+      cover_height: null,
+      cover_revision: 0,
+    }))
     await migrate(drizzle(pool), { migrationsFolder: source })
     await migrate(drizzle(pool), { migrationsFolder: source })
     for (let i = 0; i < tables.length; i++)

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1200" viewBox="0 0 800 1200">
+<defs><linearGradient id="sky" x2="0" y2="1"><stop stop-color="#043f40"/><stop offset="1" stop-color="#2a7e67"/></linearGradient><linearGradient id="road" x2="0" y2="1"><stop stop-color="#ead58c"/><stop offset="1" stop-color="#daa63d"/></linearGradient><pattern id="stars" width="127" height="163" patternUnits="userSpaceOnUse"><path d="m25 24 2 7 7 2-7 2-2 7-2-7-7-2 7-2z" fill="#e8d897" opacity=".55"/><circle cx="90" cy="120" r="2" fill="#d5cf9e" opacity=".6"/></pattern></defs>
+<path d="M0 0H800V1200H0z" fill="url(#sky)"/><path d="M0 0H800V1200H0z" fill="url(#stars)"/>
+<rect x="32" y="32" width="736" height="1136" fill="none" stroke="#d9bc70" stroke-width="3"/><rect x="45" y="45" width="710" height="1110" fill="none" stroke="#d9bc70"/>
+<g fill="#f0df9f" text-anchor="middle" font-family="Georgia,serif"><text x="400" y="149" font-size="35" letter-spacing="7">THE WONDERFUL</text><text x="400" y="245" font-size="107" letter-spacing="2">WIZARD</text><text x="400" y="337" font-size="100" letter-spacing="2">OF OZ</text></g>
+<path d="M210 378H590M315 395H485" stroke="#ddc681"/>
+<circle cx="400" cy="630" r="182" fill="#a8c78e" opacity=".2"/><circle cx="400" cy="630" r="155" fill="#a8c78e" opacity=".13"/>
+<g fill="#74b895" stroke="#c4e5bb" stroke-width="2"><path d="M260 730V600l27-42 27 42v130zM318 730V555l29-48 29 48v175zM379 730V512l24-58 24 58v218zM432 730V564l28-52 28 52v166zM495 730V612l24-44 24 44v118z"/></g>
+<g fill="#d1e8bc"><path d="M281 615h10v60h-10zM342 575h10v80h-10zM398 535h10v100h-10zM455 584h10v80h-10zM515 630h10v50h-10z"/></g>
+<path d="M48 832Q200 704 400 740Q600 704 752 832V1064H48z" fill="#54886a"/><path d="M48 930Q220 794 400 843Q570 772 752 910V1070H48z" fill="#236a53"/>
+<path d="M393 735C365 793 565 778 551 840C537 903 238 902 224 985C215 1045 381 1066 473 1090H637C522 1039 351 1021 365 984C393 928 647 920 652 842C653 752 433 784 407 735z" fill="url(#road)"/>
+<g stroke="#b18334" fill="none" stroke-width="2" opacity=".75"><path d="m365 783 94 7M442 808l101 5M506 843l142 4M461 881l139 18M320 929l97 27M225 987l141 4M276 1033l154-7M384 1067l157-22"/></g>
+<g fill="#cf775b"><circle cx="130" cy="920" r="12"/><circle cx="171" cy="979" r="15"/><circle cx="93" cy="1030" r="11"/><circle cx="702" cy="963" r="13"/><circle cx="673" cy="1020" r="15"/><circle cx="144" cy="865" r="9"/></g>
+<path d="M185 1110H615" stroke="#d9bc70"/><text x="400" y="1140" fill="#f0df9f" text-anchor="middle" font-family="Georgia,serif" font-size="29" letter-spacing="5">L. FRANK BAUM</text>
+</svg>

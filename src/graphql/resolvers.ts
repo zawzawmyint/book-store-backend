@@ -1,3 +1,5 @@
+import { coverView, type CoverStorage } from '../modules/covers/cover.storage.js'
+import { GraphQLError } from 'graphql'
 import { normalizeStore } from '../database/persistence.js'
 import { createCartRepository } from '../modules/cart/cart.repository.js'
 import { createCartResolvers } from '../modules/cart/cart.resolvers.js'
@@ -24,9 +26,10 @@ import { createDashboardResolvers } from '../modules/dashboard/dashboard.resolve
 export function createResolvers(
   db: DatabaseInput,
   paymentService: PaymentService,
+  coverStorage?: CoverStorage,
 ): Resolvers<GraphQLContext> {
   const adminRepository = createAdminRepository(db)
-  const cartRepository = createCartRepository(db)
+  const cartRepository = createCartRepository(db, coverStorage)
   const cartResolvers = createCartResolvers(cartRepository)
   const orderRepository = createOrderRepository(db)
   const adminBookRepository = createAdminBookRepository(db)
@@ -43,6 +46,9 @@ export function createResolvers(
   const adminOrderResolvers = createAdminOrderResolvers(adminOrderRepository, adminRepository)
   const activityResolvers = createActivityResolvers(activityRepository, adminRepository)
   return {
+    Book: { cover: (row) => coverView(row, coverStorage) },
+    AdminBook: { cover: (row) => coverView(row, coverStorage) },
+    BookCoverLookup: { cover: (row) => coverView(row, coverStorage) },
     OrderHistoryEntry: {
       delivery: async (order) =>
         order.delivery ?? readDelivery(normalizeStore(db), Number(order.id)),
@@ -54,6 +60,18 @@ export function createResolvers(
         (await adminOrderRepository.history(order.id)) as AdminOrderStatusEvent[],
     },
     Query: {
+      bookCovers: async (_, { ids }) => {
+        if (
+          ids.length > 50 ||
+          ids.some((id) => !/^[1-9]\d*$/.test(id) || !Number.isSafeInteger(Number(id)))
+        )
+          throw new GraphQLError('Provide at most 50 valid book IDs.', {
+            extensions: { code: 'BAD_USER_INPUT' },
+          })
+        return (await normalizeStore(db).booksByIds([...new Set(ids.map(Number))])).filter(
+          (row) => !row.archived,
+        )
+      },
       ...cartResolvers.Query,
       ...dashboardResolvers,
       ...bookResolvers,
