@@ -1,3 +1,4 @@
+import { coverView, type CoverStorage } from '../covers/cover.storage.js'
 import { randomUUID } from 'node:crypto'
 import { normalizeStore, type DatabaseInput } from '../../database/persistence.js'
 import type { DomainStore } from '../../database/store.types.js'
@@ -11,7 +12,7 @@ export type MergeNotice = {
 }
 type SetInput = z.infer<typeof setCartItemSchema>
 type MergeInput = z.infer<typeof mergeGuestCartSchema>
-export function createCartRepository(input: DatabaseInput) {
+export function createCartRepository(input: DatabaseInput, coverStorage?: CoverStorage) {
   const store = normalizeStore(input)
   async function project(tx: DomainStore, owner: string, mergeNotices: MergeNotice[] = []) {
     const cart = await tx.cart(owner)
@@ -22,6 +23,7 @@ export function createCartRepository(input: DatabaseInput) {
       // committed metadata, without blocking unrelated stock/checkout writers.
       const book = (await tx.book(line.bookId, false))!
       items.push({
+        cover: coverView(book, coverStorage),
         bookId: String(line.bookId),
         quantity: line.quantity,
         lineVersion: line.lineVersion,

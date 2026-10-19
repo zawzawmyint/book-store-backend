@@ -39,6 +39,13 @@ it.each([9, 10])(
       INSERT INTO checkout_requests(user_id,request_key,lines_json,delivery_json,order_id) VALUES('saved','key','[]','{}',9);`)
       const tables = ['user', 'books', 'orders', 'order_items', 'checkout_requests']
       const before = tables.map((table) => db.prepare(`SELECT * FROM ${table}`).all())
+      before[1] = before[1].map((row) => ({
+        ...(row as object),
+        cover_key: null,
+        cover_width: null,
+        cover_height: null,
+        cover_revision: 0,
+      }))
       migrateDatabase(db)
       migrateDatabase(db)
       expect(tables.map((table) => db.prepare(`SELECT * FROM ${table}`).all())).toEqual(before)

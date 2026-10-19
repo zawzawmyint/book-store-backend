@@ -1,5 +1,7 @@
 # The Quiet Shelf API specification
 
+> **Implemented book cover uploads:** [Book covers](specs/book-cover-uploads/SPEC.md) documents local media storage, staff uploads, immutable public cover URLs, offline seed artwork, and future replaceable-storage cutover. See the [implementation plan](docs/superpowers/plans/2026-10-16-book-cover-uploads.md).
+
 > **Implemented account carts:** [Account carts](specs/account-carts/SPEC.md) adds server-owned carts for verified accounts, guest merging, revision-aware checkout, and once-only paid cleanup, with verified SQLite/PostgreSQL migrations and browser coverage.
 
 > **Implemented auth email:** [Verification and recovery](specs/auth-email/SPEC.md) requires verified email for account access, exposes its read-only status in the Admin user directory, and documents SMTP configuration, recovery, and rollout.

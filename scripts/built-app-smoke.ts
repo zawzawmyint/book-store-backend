@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
 import { resolve } from 'node:path'
@@ -14,12 +17,16 @@ export async function smokeBuiltApp(provider: 'sqlite' | 'postgresql', databaseU
   await new Promise<void>((accept, reject) =>
     reservation.close((error) => (error ? reject(error) : accept())),
   )
+  const coverDirectory = await mkdtemp(join(tmpdir(), 'cover-built-smoke-'))
   const child = spawn(process.execPath, [resolve('dist/server.js')], {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {
       ...Object.fromEntries(
         Object.entries(process.env).filter(([key]) => !key.startsWith('SMTP_')),
       ),
+      COVER_STORAGE_DRIVER: 'local',
+      COVER_UPLOAD_DIR: coverDirectory,
+      COVER_PUBLIC_BASE_URL: `http://127.0.0.1:${port}/media/`,
       NODE_ENV: 'test',
       DB_PROVIDER: provider,
       PORT: String(port),
@@ -116,5 +123,6 @@ export async function smokeBuiltApp(provider: 'sqlite' | 'postgresql', databaseU
   } finally {
     if (child.exitCode === null) child.kill('SIGTERM')
     await exited
+    await rm(coverDirectory, { recursive: true, force: true })
   }
 }

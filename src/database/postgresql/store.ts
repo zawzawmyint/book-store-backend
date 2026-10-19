@@ -111,6 +111,22 @@ export function createPostgreSQLStore(
       const query = orm.select().from(schema.books).where(eq(schema.books.id, id))
       return firstRow(await (lock ? query.for(scoped ? 'update' : 'share') : query))
     },
+    async booksByIds(ids) {
+      if (!ids.length) return []
+      return await orm.select().from(schema.books).where(inArray(schema.books.id, ids))
+    },
+    async allCoverBooks() {
+      return await orm.select().from(schema.books)
+    },
+    async setBookCover(id, revision, values) {
+      return firstRow(
+        await orm
+          .update(schema.books)
+          .set({ ...values, coverRevision: revision + 1 })
+          .where(and(eq(schema.books.id, id), eq(schema.books.coverRevision, revision)))
+          .returning(),
+      )
+    },
     async catalog(search, limit, offset, options = {}) {
       const where = and(
         eq(schema.books.archived, false),

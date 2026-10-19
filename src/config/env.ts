@@ -1,4 +1,5 @@
 import { isIP } from 'node:net'
+export { loadCoverConfig } from '../modules/covers/cover.config.js'
 import type { SmtpConfig } from '../modules/email/email.service.js'
 
 export type AppConfig = {

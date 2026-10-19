@@ -1,0 +1,122 @@
+[
+  {
+    "slug": "the-great-gatsby",
+    "title": "The Great Gatsby",
+    "author": "F. Scott Fitzgerald",
+    "filename": "the-great-gatsby.webp",
+    "provenance": {
+      "kind": "generated",
+      "notes": "Original built-in ImageGen demo interpretation: navy and gold Art Deco mansion. Not a publisher edition reproduction. Title and author visually verified. Finished portrait cover created with built-in ImageGen, title and author visually checked, exported to 800 × 1200 WebP. No downloaded external assets."
+    }
+  },
+  {
+    "slug": "pride-and-prejudice",
+    "title": "Pride and Prejudice",
+    "author": "Jane Austen",
+    "filename": "pride-and-prejudice.webp",
+    "provenance": {
+      "kind": "original",
+      "notes": "Original deterministic vector illustration and typography authored for this demo. Editable SVG source bundled beside WebP. Native image output unavailable after two tool rejections; no downloaded external assets or publisher-edition reproduction."
+    }
+  },
+  {
+    "slug": "the-secret-garden",
+    "title": "The Secret Garden",
+    "author": "Frances Hodgson Burnett",
+    "filename": "the-secret-garden.webp",
+    "provenance": {
+      "kind": "generated",
+      "notes": "Original built-in ImageGen demo interpretation: ivory and green botanical garden doorway. Not a publisher edition reproduction. Title and author visually verified. Finished portrait cover created with built-in ImageGen, title and author visually checked, exported to 800 × 1200 WebP. No downloaded external assets."
+    }
+  },
+  {
+    "slug": "jane-eyre",
+    "title": "Jane Eyre",
+    "author": "Charlotte Brontë",
+    "filename": "jane-eyre.webp",
+    "provenance": {
+      "kind": "generated",
+      "notes": "Original built-in ImageGen demo interpretation. Not a publisher edition reproduction. Finished portrait cover created with built-in ImageGen, title and author visually checked, exported to 800 × 1200 WebP. No downloaded external assets."
+    }
+  },
+  {
+    "slug": "little-women",
+    "title": "Little Women",
+    "author": "Louisa May Alcott",
+    "filename": "little-women.webp",
+    "provenance": {
+      "kind": "generated",
+      "notes": "Original built-in ImageGen demo interpretation. Not a publisher edition reproduction. Finished portrait cover created with built-in ImageGen, title and author visually checked, exported to 800 × 1200 WebP. No downloaded external assets."
+    }
+  },
+  {
+    "slug": "the-time-machine",
+    "title": "The Time Machine",
+    "author": "H. G. Wells",
+    "filename": "the-time-machine.webp",
+    "provenance": {
+      "kind": "generated",
+      "notes": "Original built-in ImageGen demo interpretation. Not a publisher edition reproduction. Finished portrait cover created with built-in ImageGen, title and author visually checked, exported to 800 × 1200 WebP. No downloaded external assets."
+    }
+  },
+  {
+    "slug": "the-picture-of-dorian-gray",
+    "title": "The Picture of Dorian Gray",
+    "author": "Oscar Wilde",
+    "filename": "the-picture-of-dorian-gray.webp",
+    "provenance": {
+      "kind": "generated",
+      "notes": "Original built-in ImageGen demo interpretation. Not a publisher edition reproduction. Finished portrait cover created with built-in ImageGen, title and author visually checked, exported to 800 × 1200 WebP. No downloaded external assets."
+    }
+  },
+  {
+    "slug": "a-room-with-a-view",
+    "title": "A Room with a View",
+    "author": "E. M. Forster",
+    "filename": "a-room-with-a-view.webp",
+    "provenance": {
+      "kind": "generated",
+      "notes": "Original built-in ImageGen demo interpretation. Not a publisher edition reproduction. Finished portrait cover created with built-in ImageGen, title and author visually checked, exported to 800 × 1200 WebP. No downloaded external assets."
+    }
+  },
+  {
+    "slug": "the-wonderful-wizard-of-oz",
+    "title": "The Wonderful Wizard of Oz",
+    "author": "L. Frank Baum",
+    "filename": "the-wonderful-wizard-of-oz.webp",
+    "provenance": {
+      "kind": "original",
+      "notes": "Original deterministic vector illustration and typography authored for this demo. Editable SVG source bundled beside WebP. Native image output unavailable after two tool rejections; no downloaded external assets or publisher-edition reproduction."
+    }
+  },
+  {
+    "slug": "dracula",
+    "title": "Dracula",
+    "author": "Bram Stoker",
+    "filename": "dracula.webp",
+    "provenance": {
+      "kind": "generated",
+      "notes": "Original built-in ImageGen demo interpretation. Not a publisher edition reproduction. Finished portrait cover created with built-in ImageGen, title and author visually checked, exported to 800 × 1200 WebP. No downloaded external assets."
+    }
+  },
+  {
+    "slug": "the-call-of-the-wild",
+    "title": "The Call of the Wild",
+    "author": "Jack London",
+    "filename": "the-call-of-the-wild.webp",
+    "provenance": {
+      "kind": "generated",
+      "notes": "Original built-in ImageGen demo interpretation. Not a publisher edition reproduction. Finished portrait cover created with built-in ImageGen, title and author visually checked, exported to 800 × 1200 WebP. No downloaded external assets."
+    }
+  },
+  {
+    "slug": "anne-of-green-gables",
+    "title": "Anne of Green Gables",
+    "author": "L. M. Montgomery",
+    "filename": "anne-of-green-gables.webp",
+    "provenance": {
+      "kind": "generated",
+      "notes": "Original built-in ImageGen demo interpretation. Not a publisher edition reproduction. Finished portrait cover created with built-in ImageGen, title and author visually checked, exported to 800 × 1200 WebP. No downloaded external assets."
+    }
+  }
+]

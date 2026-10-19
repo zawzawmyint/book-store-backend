@@ -1,12 +1,5 @@
-export type Book = {
-  id: number
-  title: string
-  author: string
-  genre: string
-  description: string
-  priceCents: number
-  stock: number
-}
+import type { BookRow } from '../../database/store.types.js'
+export type Book = BookRow
 
 export type BookPage = { total: number; items: Book[] }
 export type CatalogOptions = {

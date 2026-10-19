@@ -27,7 +27,9 @@
     "email:worker:start": "node dist/modules/email/email.worker.js",
     "email:inspect": "node dist/modules/email/email-operator-cli.js inspect",
     "email:replay": "node dist/modules/email/email-operator-cli.js replay",
-    "test:email": "tsx scripts/test-email.ts"
+    "test:email": "tsx scripts/test-email.ts",
+    "seed:covers": "tsx src/modules/covers/cover-seed-cli.ts",
+    "covers:cleanup": "tsx src/modules/covers/cover-cleanup-cli.ts"
   },
   "keywords": [],
   "author": "",
@@ -48,6 +50,7 @@
     "ioredis": "6.0.0",
     "nodemailer": "^10.1.0",
     "pg": "^8.23.1",
+    "sharp": "^0.35.5",
     "stripe": "^23.0.0",
     "zod": "^4.6.5"
   },

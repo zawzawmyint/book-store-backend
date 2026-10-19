@@ -1,4 +1,5 @@
 import type { GraphQLResolveInfo } from 'graphql';
+import type { BookRow } from '../../database/store.types.js';
 import type { AccountCartResult } from '../../modules/cart/cart.repository.js';
 import type { WorkspaceOrder } from '../../modules/orders/order.types.js';
 import type { WorkspaceDashboardResult, DashboardFinanceResult } from '../../modules/dashboard/dashboard.service.js';
@@ -29,6 +30,7 @@ export type CartMergeNotice = {
 
 export type AccountCartItem = {
   __typename?: 'AccountCartItem';
+  cover?: Maybe<BookCover>;
   bookId: Scalars['ID']['output'];
   quantity: Scalars['Int']['output'];
   lineVersion: Scalars['String']['output'];
@@ -60,8 +62,22 @@ export type MergeGuestCartInput = {
   requestKey: Scalars['String']['input'];
 };
 
+export type BookCover = {
+  __typename?: 'BookCover';
+  url: Scalars['String']['output'];
+  width: Scalars['Int']['output'];
+  height: Scalars['Int']['output'];
+};
+
+export type BookCoverLookup = {
+  __typename?: 'BookCoverLookup';
+  id: Scalars['ID']['output'];
+  cover?: Maybe<BookCover>;
+};
+
 export type Book = {
   __typename?: 'Book';
+  cover?: Maybe<BookCover>;
   id: Scalars['ID']['output'];
   title: Scalars['String']['output'];
   author: Scalars['String']['output'];
@@ -92,6 +108,8 @@ export enum AdminBookFilter {
 
 export type AdminBook = {
   __typename?: 'AdminBook';
+  cover?: Maybe<BookCover>;
+  coverRevision: Scalars['Int']['output'];
   id: Scalars['ID']['output'];
   title: Scalars['String']['output'];
   author: Scalars['String']['output'];
@@ -123,6 +141,7 @@ export type CreateBookInput = {
 
 export type Query = {
   __typename?: 'Query';
+  bookCovers: Array<BookCoverLookup>;
   books: BookPage;
   genres: Array<Scalars['String']['output']>;
   book?: Maybe<Book>;
@@ -145,6 +164,11 @@ export type Query = {
   adminActivity: ActivityPage;
   workspaceDashboard: WorkspaceDashboard;
   adminDashboardFinance: DashboardFinance;
+};
+
+
+export type QueryBookCoversArgs = {
+  ids: Array<Scalars['ID']['input']>;
 };
 
 
@@ -674,6 +698,7 @@ export enum ActivityAction {
 }
 
 export enum ActivityField {
+  Cover = 'COVER',
   Title = 'TITLE',
   Author = 'AUTHOR',
   Genre = 'GENRE',
@@ -694,6 +719,7 @@ export enum ActivityTargetType {
 
 export enum ActivitySource {
   Graphql = 'GRAPHQL',
+  Http = 'HTTP',
   Operator = 'OPERATOR',
   System = 'SYSTEM'
 }
@@ -877,12 +903,14 @@ export type ResolversTypes = {
   AccountCart: ResolverTypeWrapper<AccountCartResult>;
   SetCartItemInput: SetCartItemInput;
   MergeGuestCartInput: MergeGuestCartInput;
-  Book: ResolverTypeWrapper<Book>;
-  BookPage: ResolverTypeWrapper<BookPage>;
+  BookCover: ResolverTypeWrapper<BookCover>;
+  BookCoverLookup: ResolverTypeWrapper<BookRow>;
+  Book: ResolverTypeWrapper<BookRow>;
+  BookPage: ResolverTypeWrapper<Omit<BookPage, 'items'> & { items: Array<ResolversTypes['Book']> }>;
   CatalogSort: CatalogSort;
   AdminBookFilter: AdminBookFilter;
-  AdminBook: ResolverTypeWrapper<AdminBook>;
-  AdminBooksPage: ResolverTypeWrapper<AdminBooksPage>;
+  AdminBook: ResolverTypeWrapper<BookRow>;
+  AdminBooksPage: ResolverTypeWrapper<Omit<AdminBooksPage, 'items'> & { items: Array<ResolversTypes['AdminBook']> }>;
   AdminBookDetailsInput: AdminBookDetailsInput;
   CreateBookInput: CreateBookInput;
   Query: ResolverTypeWrapper<Record<PropertyKey, never>>;
@@ -949,10 +977,12 @@ export type ResolversParentTypes = {
   AccountCart: AccountCartResult;
   SetCartItemInput: SetCartItemInput;
   MergeGuestCartInput: MergeGuestCartInput;
-  Book: Book;
-  BookPage: BookPage;
-  AdminBook: AdminBook;
-  AdminBooksPage: AdminBooksPage;
+  BookCover: BookCover;
+  BookCoverLookup: BookRow;
+  Book: BookRow;
+  BookPage: Omit<BookPage, 'items'> & { items: Array<ResolversParentTypes['Book']> };
+  AdminBook: BookRow;
+  AdminBooksPage: Omit<AdminBooksPage, 'items'> & { items: Array<ResolversParentTypes['AdminBook']> };
   AdminBookDetailsInput: AdminBookDetailsInput;
   CreateBookInput: CreateBookInput;
   Query: Record<PropertyKey, never>;
@@ -1002,6 +1032,7 @@ export type CartMergeNoticeResolvers<ContextType = any, ParentType extends Resol
 };
 
 export type AccountCartItemResolvers<ContextType = any, ParentType extends ResolversParentTypes['AccountCartItem'] = ResolversParentTypes['AccountCartItem']> = {
+  cover?: Resolver<Maybe<ResolversTypes['BookCover']>, ParentType, ContextType>;
   bookId?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
   quantity?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   lineVersion?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
@@ -1019,7 +1050,19 @@ export type AccountCartResolvers<ContextType = any, ParentType extends Resolvers
   mergeNotices?: Resolver<Array<ResolversTypes['CartMergeNotice']>, ParentType, ContextType>;
 };
 
+export type BookCoverResolvers<ContextType = any, ParentType extends ResolversParentTypes['BookCover'] = ResolversParentTypes['BookCover']> = {
+  url?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  width?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  height?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+};
+
+export type BookCoverLookupResolvers<ContextType = any, ParentType extends ResolversParentTypes['BookCoverLookup'] = ResolversParentTypes['BookCoverLookup']> = {
+  id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  cover?: Resolver<Maybe<ResolversTypes['BookCover']>, ParentType, ContextType>;
+};
+
 export type BookResolvers<ContextType = any, ParentType extends ResolversParentTypes['Book'] = ResolversParentTypes['Book']> = {
+  cover?: Resolver<Maybe<ResolversTypes['BookCover']>, ParentType, ContextType>;
   id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
   title?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   author?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
@@ -1035,6 +1078,8 @@ export type BookPageResolvers<ContextType = any, ParentType extends ResolversPar
 };
 
 export type AdminBookResolvers<ContextType = any, ParentType extends ResolversParentTypes['AdminBook'] = ResolversParentTypes['AdminBook']> = {
+  cover?: Resolver<Maybe<ResolversTypes['BookCover']>, ParentType, ContextType>;
+  coverRevision?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
   title?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   author?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
@@ -1051,6 +1096,7 @@ export type AdminBooksPageResolvers<ContextType = any, ParentType extends Resolv
 };
 
 export type QueryResolvers<ContextType = any, ParentType extends ResolversParentTypes['Query'] = ResolversParentTypes['Query']> = {
+  bookCovers?: Resolver<Array<ResolversTypes['BookCoverLookup']>, ParentType, ContextType, RequireFields<QueryBookCoversArgs, 'ids'>>;
   books?: Resolver<ResolversTypes['BookPage'], ParentType, ContextType, RequireFields<QueryBooksArgs, 'inStockOnly' | 'sort' | 'limit' | 'offset'>>;
   genres?: Resolver<Array<ResolversTypes['String']>, ParentType, ContextType>;
   book?: Resolver<Maybe<ResolversTypes['Book']>, ParentType, ContextType, RequireFields<QueryBookArgs, 'id'>>;
@@ -1350,6 +1396,8 @@ export type Resolvers<ContextType = any> = {
   CartMergeNotice?: CartMergeNoticeResolvers<ContextType>;
   AccountCartItem?: AccountCartItemResolvers<ContextType>;
   AccountCart?: AccountCartResolvers<ContextType>;
+  BookCover?: BookCoverResolvers<ContextType>;
+  BookCoverLookup?: BookCoverLookupResolvers<ContextType>;
   Book?: BookResolvers<ContextType>;
   BookPage?: BookPageResolvers<ContextType>;
   AdminBook?: AdminBookResolvers<ContextType>;

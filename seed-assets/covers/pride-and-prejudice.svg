@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1200" viewBox="0 0 800 1200">
+<defs>
+ <linearGradient id="paper" x2="0" y2="1"><stop stop-color="#f5e8d9"/><stop offset="1" stop-color="#dec1b4"/></linearGradient>
+ <pattern id="floret" width="110" height="110" patternUnits="userSpaceOnUse"><path d="M55 110 Q15 62 55 5 Q95 62 55 110" fill="none" stroke="#8f5366" stroke-width="1.5" opacity=".16"/><circle cx="55" cy="48" r="9" fill="#8f5366" opacity=".1"/></pattern>
+ <g id="leaf"><path d="M0 0 Q-24-55 5-82 Q42-34 0 0" fill="#758b79"/><path d="M0 0 5-69" stroke="#49644f" fill="none"/></g>
+ <g id="rose"><path d="M-34 8C-65-25-23-60 0-37C25-63 60-29 37 0C63 32 23 62 0 38C-31 59-59 31-34 8" fill="#ae6376"/><path d="M-24 0Q0-42 24 0Q0 34-24 0M-12 0Q0-18 12 0Q0 17-12 0" fill="none" stroke="#e8b6bb" stroke-width="3"/></g>
+</defs>
+<path fill="url(#paper)" d="M0 0H800V1200H0z"/><path fill="url(#floret)" d="M0 0H800V1200H0z"/>
+<rect x="37" y="37" width="726" height="1126" rx="140" fill="none" stroke="#835866" stroke-width="3"/><rect x="50" y="50" width="700" height="1100" rx="130" fill="none" stroke="#835866"/>
+<g fill="none" stroke="#6a826b" stroke-width="5"><path d="M115 1045Q42 700 160 196"/><path d="M685 1045Q758 700 640 196"/></g>
+<g><use href="#leaf" transform="translate(102 800) rotate(-35)"/><use href="#leaf" transform="translate(107 710) rotate(35)"/><use href="#leaf" transform="translate(115 610) rotate(-35)"/><use href="#leaf" transform="translate(127 500) rotate(35)"/><use href="#leaf" transform="translate(141 390) rotate(-30)"/><use href="#leaf" transform="translate(698 800) rotate(35)"/><use href="#leaf" transform="translate(693 710) rotate(-35)"/><use href="#leaf" transform="translate(685 610) rotate(35)"/><use href="#leaf" transform="translate(673 500) rotate(-35)"/><use href="#leaf" transform="translate(659 390) rotate(30)"/>
+<use href="#rose" transform="translate(163 220)"/><use href="#rose" transform="translate(637 220)"/><use href="#rose" transform="translate(95 560) scale(.8)"/><use href="#rose" transform="translate(705 560) scale(.8)"/><use href="#rose" transform="translate(115 900)"/><use href="#rose" transform="translate(685 900)"/></g>
+<g text-anchor="middle" fill="#643e52" font-family="Georgia,serif"><text x="400" y="270" font-size="96" letter-spacing="4">PRIDE</text><text x="400" y="330" font-size="40" font-style="italic">and</text><text x="400" y="410" font-size="74" letter-spacing="1">PREJUDICE</text></g>
+<path d="M205 465H595M310 483H490" stroke="#a77577" fill="none"/>
+<g fill="#8e9d8b"><path d="M170 850Q370 750 630 850V940H170z"/><path d="M190 913Q400 820 610 910V965H190z" fill="#6c816c"/></g>
+<g fill="#d8ba9d" stroke="#785e58" stroke-width="2"><path d="M255 745H545V860H255z"/><path d="m235 745 165-95 165 95z" fill="#765964"/><path d="M374 680H426V860H374z"/><path d="m363 680 37-24 37 24z" fill="#765964"/></g>
+<g fill="#5b5963"><path d="M280 771h23v35h-23zM327 771h23v35h-23zM450 771h23v35h-23zM497 771h23v35h-23zM280 825h23v35h-23zM327 825h23v35h-23zM450 825h23v35h-23zM497 825h23v35h-23zM389 815h22v45h-22z"/></g>
+<path d="M390 862Q355 928 423 1000" fill="none" stroke="#ead5b7" stroke-width="28"/>
+<g text-anchor="middle" fill="#643e52" font-family="Georgia,serif"><text x="400" y="1080" font-size="33" letter-spacing="5">JANE AUSTEN</text></g>
+</svg>

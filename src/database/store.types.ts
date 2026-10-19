@@ -71,6 +71,13 @@ export interface DomainStore {
     offset: number,
     options?: CatalogOptions,
   ): Promise<{ total: number; items: BookRow[] }>
+  booksByIds(ids: number[]): Promise<BookRow[]>
+  allCoverBooks(): Promise<BookRow[]>
+  setBookCover(
+    id: number,
+    revision: number,
+    values: Pick<BookRow, 'coverKey' | 'coverWidth' | 'coverHeight'>,
+  ): Promise<BookRow | undefined>
   genres(): Promise<string[]>
   adminBooks(
     input: z.infer<typeof adminBooksInputSchema>,

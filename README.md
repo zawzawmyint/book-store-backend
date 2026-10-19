@@ -8,6 +8,8 @@ Implemented feature: [Auth email verification and recovery](specs/auth-email/SPE
 
 Implemented feature: [Operational logging and readiness](specs/operational-logging-readiness/SPEC.md) adds structured console events, server-generated request correlation, and database readiness at `GET /ready`.
 
+Implemented feature: [Book cover uploads](specs/book-cover-uploads/SPEC.md) provides local immutable media, Staff/Admin cover management, and offline demo-cover seeding.
+
 An Express + GraphQL + Drizzle bookstore API with Zod input validation. SQLite is the
 development/test default and PostgreSQL is supported for production. This folder is its
 own Git repository and runs independently from the frontend.
@@ -122,6 +124,12 @@ Delivery checkout is disabled until all three delivery variables are explicitly 
 `US` and `500` cents (USD 5); it is not a production coverage or rate decision.
 
 Auth request bodies are capped at 64 KiB. Sign-up and account updates trim names and enforce 1–120 characters. Rate limiting uses the direct socket address by default and ignores caller-supplied forwarding headers. Behind a reverse proxy, set `AUTH_TRUSTED_PROXY_IP` to its peer IP only when that proxy **overwrites** `X-Real-IP` and direct access to the API is blocked. Without this setting, customers behind the proxy share one rate-limit bucket.
+
+## Book covers
+
+The API serves normalized immutable WebP covers at `/media/covers/:filename`; Staff and Admin change a saved book’s cover through the credentialed REST endpoints described in the [cover specification](specs/book-cover-uploads/SPEC.md). `COVER_STORAGE_DRIVER` currently accepts `local` only. `COVER_UPLOAD_DIR` defaults to `./data/uploads`; outside production `COVER_PUBLIC_BASE_URL` defaults to `http://localhost:${PORT}/media/`, while production requires an explicit HTTPS media base. Provision that upload root as persistent writable storage, set proxy body limits above 5 MiB plus HTTP overhead, and back it up with the corresponding database snapshot.
+
+After intentional catalog seeding, `bun run seed:covers` imports the committed offline demo manifest; it is disabled in production and does not run at server startup. To inspect old unreferenced managed objects, stop API and seed writers and run `bun run covers:cleanup --writers-stopped`. Add `--apply` only for the same maintenance window. A later S3 migration must stop writers, copy keys, verify counts/checksums and database references, switch configuration, restart, and retain the local files for rollback.
 
 ## Local demo accounts
 
