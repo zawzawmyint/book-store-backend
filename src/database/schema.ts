@@ -408,3 +408,50 @@ export const checkoutCartSnapshots = sqliteTable('checkout_cart_snapshots', {
   linesJson: text('lines_json').notNull(),
   cleanedAt: text('cleaned_at'),
 })
+
+export const inAppNotifications = sqliteTable(
+  'in_app_notifications',
+  {
+    id: text('id').primaryKey(),
+    eventKey: text('event_key').notNull(),
+    recipientId: text('recipient_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    scope: text('scope', { enum: ['STOREFRONT', 'WORKSPACE'] }).notNull(),
+    kind: text('kind', {
+      enum: [
+        'PAYMENT_CONFIRMED',
+        'ORDER_ACCEPTED',
+        'ORDER_SHIPPED',
+        'ORDER_DELIVERED',
+        'ORDER_CANCELLED',
+        'REFUND_COMPLETED',
+        'NEW_PAID_ORDER',
+        'STOCK_LOW',
+        'STOCK_OUT',
+        'REFUND_FAILED',
+      ],
+    }).notNull(),
+    requiredRole: text('required_role', { enum: ['VERIFIED', 'STAFF', 'ADMIN'] }).notNull(),
+    resourceType: text('resource_type', { enum: ['ORDER', 'BOOK'] }).notNull(),
+    resourceId: text('resource_id').notNull(),
+    payload: text('payload').notNull(),
+    createdAt: text('created_at').notNull(),
+    readAt: text('read_at'),
+  },
+  (t) => [
+    uniqueIndex('in_app_notifications_dedupe').on(t.eventKey, t.recipientId, t.scope),
+    index('in_app_notifications_feed').on(t.recipientId, t.scope, t.createdAt, t.id),
+    index('in_app_notifications_unread').on(t.recipientId, t.scope, t.readAt),
+    index('in_app_notifications_retention').on(t.createdAt),
+    check('in_app_notifications_scope', sql`${t.scope} IN ('STOREFRONT','WORKSPACE')`),
+    check(
+      'in_app_notifications_kind',
+      sql`${t.kind} IN ('PAYMENT_CONFIRMED', 'ORDER_ACCEPTED', 'ORDER_SHIPPED', 'ORDER_DELIVERED', 'ORDER_CANCELLED', 'REFUND_COMPLETED', 'NEW_PAID_ORDER', 'STOCK_LOW', 'STOCK_OUT', 'REFUND_FAILED')`,
+    ),
+    check('in_app_notifications_role', sql`${t.requiredRole} IN ('VERIFIED','STAFF','ADMIN')`),
+    check('in_app_notifications_resource', sql`${t.resourceType} IN ('ORDER','BOOK')`),
+    check('in_app_notifications_key_length', sql`length(${t.eventKey}) BETWEEN 1 AND 256`),
+    check('in_app_notifications_payload_length', sql`length(${t.payload}) BETWEEN 1 AND 2048`),
+  ],
+)

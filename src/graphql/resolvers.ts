@@ -1,3 +1,5 @@
+import { createNotificationRepository } from '../modules/notifications/notification.repository.js'
+import { createNotificationResolvers } from '../modules/notifications/notification.resolvers.js'
 import { coverView, type CoverStorage } from '../modules/covers/cover.storage.js'
 import { GraphQLError } from 'graphql'
 import { normalizeStore } from '../database/persistence.js'
@@ -27,7 +29,11 @@ export function createResolvers(
   db: DatabaseInput,
   paymentService: PaymentService,
   coverStorage?: CoverStorage,
+  options: { notificationsEnabled?: boolean } = {},
 ): Resolvers<GraphQLContext> {
+  const notificationResolvers = createNotificationResolvers(
+    createNotificationRepository(db, options.notificationsEnabled ?? false),
+  )
   const adminRepository = createAdminRepository(db)
   const cartRepository = createCartRepository(db, coverStorage)
   const cartResolvers = createCartResolvers(cartRepository)
@@ -60,6 +66,7 @@ export function createResolvers(
         (await adminOrderRepository.history(order.id)) as AdminOrderStatusEvent[],
     },
     Query: {
+      ...notificationResolvers.Query,
       bookCovers: async (_, { ids }) => {
         if (
           ids.length > 50 ||
@@ -82,6 +89,7 @@ export function createResolvers(
       ...activityResolvers,
     },
     Mutation: {
+      ...notificationResolvers.Mutation,
       ...cartResolvers.Mutation,
       ...orderResolvers.Mutation,
       ...adminBookResolvers.Mutation,

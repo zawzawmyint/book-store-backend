@@ -1,3 +1,4 @@
+import { createInAppQueries } from '../in-app.queries.js'
 import { and, count, desc, eq, gt, gte, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm'
 import * as schema from './../schema.js'
 import type { DomainStore } from '../store.types.js'
@@ -11,6 +12,7 @@ export function createSQLiteQueries(orm: BetterSQLite3Database): DomainStore {
     'sqlite',
   )
   return {
+    ...createInAppQueries(async (query) => orm.all(query) as Record<string, unknown>[]),
     ...createEmailQueries(async (query) => orm.all(query) as Record<string, unknown>[]),
     async cart(userId, create = false) {
       if (create) await orm.insert(schema.accountCarts).values({ userId }).onConflictDoNothing()

@@ -8,6 +8,7 @@ import {
 
 const publicCodes = new Set([
   'BAD_USER_INPUT',
+  'NOTIFICATIONS_DISABLED',
   'CONFLICT',
   'CART_CONFLICT',
   'PAYMENT_UNAVAILABLE',

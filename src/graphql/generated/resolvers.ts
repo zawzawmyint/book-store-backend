@@ -16,6 +16,68 @@ export type Scalars = {
   Float: { input: number; output: number; }
 };
 
+export enum NotificationScope {
+  Storefront = 'STOREFRONT',
+  Workspace = 'WORKSPACE'
+}
+
+export enum InAppNotificationKind {
+  PaymentConfirmed = 'PAYMENT_CONFIRMED',
+  OrderAccepted = 'ORDER_ACCEPTED',
+  OrderShipped = 'ORDER_SHIPPED',
+  OrderDelivered = 'ORDER_DELIVERED',
+  OrderCancelled = 'ORDER_CANCELLED',
+  RefundCompleted = 'REFUND_COMPLETED',
+  NewPaidOrder = 'NEW_PAID_ORDER',
+  StockLow = 'STOCK_LOW',
+  StockOut = 'STOCK_OUT',
+  RefundFailed = 'REFUND_FAILED'
+}
+
+export enum NotificationResourceType {
+  Order = 'ORDER',
+  Book = 'BOOK'
+}
+
+export enum NotificationRefundPhase {
+  None = 'NONE',
+  Processing = 'PROCESSING',
+  Support = 'SUPPORT',
+  Completed = 'COMPLETED'
+}
+
+export type InAppNotification = {
+  __typename?: 'InAppNotification';
+  id: Scalars['ID']['output'];
+  kind: InAppNotificationKind;
+  scope: NotificationScope;
+  createdAt: Scalars['String']['output'];
+  readAt?: Maybe<Scalars['String']['output']>;
+  resourceType: NotificationResourceType;
+  resourceId: Scalars['ID']['output'];
+  bookTitle?: Maybe<Scalars['String']['output']>;
+  stockAtEvent?: Maybe<Scalars['Int']['output']>;
+  refundPhase?: Maybe<NotificationRefundPhase>;
+  testPayment: Scalars['Boolean']['output'];
+};
+
+export type NotificationPageInfo = {
+  __typename?: 'NotificationPageInfo';
+  endCursor?: Maybe<Scalars['String']['output']>;
+  hasNextPage: Scalars['Boolean']['output'];
+};
+
+export type InAppNotificationConnection = {
+  __typename?: 'InAppNotificationConnection';
+  nodes: Array<InAppNotification>;
+  pageInfo: NotificationPageInfo;
+};
+
+export type NotificationReadResult = {
+  __typename?: 'NotificationReadResult';
+  changedCount: Scalars['Int']['output'];
+};
+
 export enum CartMergeNoticeReason {
   Unavailable = 'UNAVAILABLE',
   QuantityLimit = 'QUANTITY_LIMIT',
@@ -147,6 +209,8 @@ export type Query = {
   book?: Maybe<Book>;
   adminBooks: AdminBooksPage;
   adminBook?: Maybe<AdminBook>;
+  notifications: InAppNotificationConnection;
+  notificationUnreadCount: Scalars['Int']['output'];
   myCart: AccountCart;
   deliveryOptions: DeliveryOptions;
   quoteCheckout: CheckoutQuote;
@@ -200,6 +264,19 @@ export type QueryAdminBooksArgs = {
 
 export type QueryAdminBookArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type QueryNotificationsArgs = {
+  scope: NotificationScope;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  after?: InputMaybe<Scalars['String']['input']>;
+  unreadOnly?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+
+export type QueryNotificationUnreadCountArgs = {
+  scope: NotificationScope;
 };
 
 
@@ -518,6 +595,8 @@ export type Mutation = {
   resumeCheckout: CheckoutResult;
   refreshOrderPayment: MyOrder;
   retryOrderRefund: AdminOrder;
+  markNotificationRead: InAppNotification;
+  markAllNotificationsRead: NotificationReadResult;
   setCartItem: AccountCart;
   mergeGuestCart: AccountCart;
   createBook: AdminBook;
@@ -562,6 +641,17 @@ export type MutationRefreshOrderPaymentArgs = {
 
 export type MutationRetryOrderRefundArgs = {
   orderId: Scalars['ID']['input'];
+};
+
+
+export type MutationMarkNotificationReadArgs = {
+  id: Scalars['ID']['input'];
+  scope: NotificationScope;
+};
+
+
+export type MutationMarkAllNotificationsReadArgs = {
+  scope: NotificationScope;
 };
 
 
@@ -893,13 +983,21 @@ export type DirectiveResolverFn<TResult = Record<PropertyKey, never>, TParent = 
 
 /** Mapping between all available schema types and the resolvers types */
 export type ResolversTypes = {
+  NotificationScope: NotificationScope;
+  InAppNotificationKind: InAppNotificationKind;
+  NotificationResourceType: NotificationResourceType;
+  NotificationRefundPhase: NotificationRefundPhase;
+  InAppNotification: ResolverTypeWrapper<InAppNotification>;
+  ID: ResolverTypeWrapper<Scalars['ID']['output']>;
+  String: ResolverTypeWrapper<Scalars['String']['output']>;
+  Int: ResolverTypeWrapper<Scalars['Int']['output']>;
+  Boolean: ResolverTypeWrapper<Scalars['Boolean']['output']>;
+  NotificationPageInfo: ResolverTypeWrapper<NotificationPageInfo>;
+  InAppNotificationConnection: ResolverTypeWrapper<InAppNotificationConnection>;
+  NotificationReadResult: ResolverTypeWrapper<NotificationReadResult>;
   CartMergeNoticeReason: CartMergeNoticeReason;
   CartMergeNotice: ResolverTypeWrapper<CartMergeNotice>;
-  ID: ResolverTypeWrapper<Scalars['ID']['output']>;
   AccountCartItem: ResolverTypeWrapper<AccountCartItem>;
-  Int: ResolverTypeWrapper<Scalars['Int']['output']>;
-  String: ResolverTypeWrapper<Scalars['String']['output']>;
-  Boolean: ResolverTypeWrapper<Scalars['Boolean']['output']>;
   AccountCart: ResolverTypeWrapper<AccountCartResult>;
   SetCartItemInput: SetCartItemInput;
   MergeGuestCartInput: MergeGuestCartInput;
@@ -968,12 +1066,16 @@ export type ResolversTypes = {
 
 /** Mapping between all available schema types and the resolvers parents */
 export type ResolversParentTypes = {
-  CartMergeNotice: CartMergeNotice;
+  InAppNotification: InAppNotification;
   ID: Scalars['ID']['output'];
-  AccountCartItem: AccountCartItem;
-  Int: Scalars['Int']['output'];
   String: Scalars['String']['output'];
+  Int: Scalars['Int']['output'];
   Boolean: Scalars['Boolean']['output'];
+  NotificationPageInfo: NotificationPageInfo;
+  InAppNotificationConnection: InAppNotificationConnection;
+  NotificationReadResult: NotificationReadResult;
+  CartMergeNotice: CartMergeNotice;
+  AccountCartItem: AccountCartItem;
   AccountCart: AccountCartResult;
   SetCartItemInput: SetCartItemInput;
   MergeGuestCartInput: MergeGuestCartInput;
@@ -1024,6 +1126,34 @@ export type ResolversParentTypes = {
   WorkspaceDashboard: WorkspaceDashboardResult;
   DashboardPaymentDay: DashboardPaymentDay;
   DashboardFinance: DashboardFinanceResult;
+};
+
+export type InAppNotificationResolvers<ContextType = any, ParentType extends ResolversParentTypes['InAppNotification'] = ResolversParentTypes['InAppNotification']> = {
+  id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  kind?: Resolver<ResolversTypes['InAppNotificationKind'], ParentType, ContextType>;
+  scope?: Resolver<ResolversTypes['NotificationScope'], ParentType, ContextType>;
+  createdAt?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  readAt?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+  resourceType?: Resolver<ResolversTypes['NotificationResourceType'], ParentType, ContextType>;
+  resourceId?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  bookTitle?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+  stockAtEvent?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
+  refundPhase?: Resolver<Maybe<ResolversTypes['NotificationRefundPhase']>, ParentType, ContextType>;
+  testPayment?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
+};
+
+export type NotificationPageInfoResolvers<ContextType = any, ParentType extends ResolversParentTypes['NotificationPageInfo'] = ResolversParentTypes['NotificationPageInfo']> = {
+  endCursor?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+  hasNextPage?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
+};
+
+export type InAppNotificationConnectionResolvers<ContextType = any, ParentType extends ResolversParentTypes['InAppNotificationConnection'] = ResolversParentTypes['InAppNotificationConnection']> = {
+  nodes?: Resolver<Array<ResolversTypes['InAppNotification']>, ParentType, ContextType>;
+  pageInfo?: Resolver<ResolversTypes['NotificationPageInfo'], ParentType, ContextType>;
+};
+
+export type NotificationReadResultResolvers<ContextType = any, ParentType extends ResolversParentTypes['NotificationReadResult'] = ResolversParentTypes['NotificationReadResult']> = {
+  changedCount?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
 };
 
 export type CartMergeNoticeResolvers<ContextType = any, ParentType extends ResolversParentTypes['CartMergeNotice'] = ResolversParentTypes['CartMergeNotice']> = {
@@ -1102,6 +1232,8 @@ export type QueryResolvers<ContextType = any, ParentType extends ResolversParent
   book?: Resolver<Maybe<ResolversTypes['Book']>, ParentType, ContextType, RequireFields<QueryBookArgs, 'id'>>;
   adminBooks?: Resolver<ResolversTypes['AdminBooksPage'], ParentType, ContextType, RequireFields<QueryAdminBooksArgs, 'filter' | 'lowStockOnly' | 'limit' | 'offset'>>;
   adminBook?: Resolver<Maybe<ResolversTypes['AdminBook']>, ParentType, ContextType, RequireFields<QueryAdminBookArgs, 'id'>>;
+  notifications?: Resolver<ResolversTypes['InAppNotificationConnection'], ParentType, ContextType, RequireFields<QueryNotificationsArgs, 'scope' | 'first' | 'unreadOnly'>>;
+  notificationUnreadCount?: Resolver<ResolversTypes['Int'], ParentType, ContextType, RequireFields<QueryNotificationUnreadCountArgs, 'scope'>>;
   myCart?: Resolver<ResolversTypes['AccountCart'], ParentType, ContextType>;
   deliveryOptions?: Resolver<ResolversTypes['DeliveryOptions'], ParentType, ContextType>;
   quoteCheckout?: Resolver<ResolversTypes['CheckoutQuote'], ParentType, ContextType, RequireFields<QueryQuoteCheckoutArgs, 'input'>>;
@@ -1265,6 +1397,8 @@ export type MutationResolvers<ContextType = any, ParentType extends ResolversPar
   resumeCheckout?: Resolver<ResolversTypes['CheckoutResult'], ParentType, ContextType, RequireFields<MutationResumeCheckoutArgs, 'orderId'>>;
   refreshOrderPayment?: Resolver<ResolversTypes['MyOrder'], ParentType, ContextType, RequireFields<MutationRefreshOrderPaymentArgs, 'orderId'>>;
   retryOrderRefund?: Resolver<ResolversTypes['AdminOrder'], ParentType, ContextType, RequireFields<MutationRetryOrderRefundArgs, 'orderId'>>;
+  markNotificationRead?: Resolver<ResolversTypes['InAppNotification'], ParentType, ContextType, RequireFields<MutationMarkNotificationReadArgs, 'id' | 'scope'>>;
+  markAllNotificationsRead?: Resolver<ResolversTypes['NotificationReadResult'], ParentType, ContextType, RequireFields<MutationMarkAllNotificationsReadArgs, 'scope'>>;
   setCartItem?: Resolver<ResolversTypes['AccountCart'], ParentType, ContextType, RequireFields<MutationSetCartItemArgs, 'input'>>;
   mergeGuestCart?: Resolver<ResolversTypes['AccountCart'], ParentType, ContextType, RequireFields<MutationMergeGuestCartArgs, 'input'>>;
   createBook?: Resolver<ResolversTypes['AdminBook'], ParentType, ContextType, RequireFields<MutationCreateBookArgs, 'input'>>;
@@ -1393,6 +1527,10 @@ export type DashboardFinanceResolvers<ContextType = any, ParentType extends Reso
 };
 
 export type Resolvers<ContextType = any> = {
+  InAppNotification?: InAppNotificationResolvers<ContextType>;
+  NotificationPageInfo?: NotificationPageInfoResolvers<ContextType>;
+  InAppNotificationConnection?: InAppNotificationConnectionResolvers<ContextType>;
+  NotificationReadResult?: NotificationReadResultResolvers<ContextType>;
   CartMergeNotice?: CartMergeNoticeResolvers<ContextType>;
   AccountCartItem?: AccountCartItemResolvers<ContextType>;
   AccountCart?: AccountCartResolvers<ContextType>;

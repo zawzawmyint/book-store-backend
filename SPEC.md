@@ -1,5 +1,7 @@
 # The Quiet Shelf API specification
 
+> **Proposed in-app notifications, implementation delivered:** [Notification specification](specs/in-app-notifications/SPEC.md) and [coordinated implementation plan](docs/superpowers/plans/2026-10-20-in-app-notifications.md) define durable customer/workspace inboxes, Redis Pub/Sub invalidation and authenticated SSE. Local implementation and automated evidence are recorded, but the feature remains Proposed until staging verifies production Redis TLS, streaming proxy/capacity, and the daily retention schedule.
+
 > **Implemented book cover uploads:** [Book covers](specs/book-cover-uploads/SPEC.md) documents local media storage, staff uploads, immutable public cover URLs, offline seed artwork, and future replaceable-storage cutover. See the [implementation plan](docs/superpowers/plans/2026-10-16-book-cover-uploads.md).
 
 > **Implemented account carts:** [Account carts](specs/account-carts/SPEC.md) adds server-owned carts for verified accounts, guest merging, revision-aware checkout, and once-only paid cleanup, with verified SQLite/PostgreSQL migrations and browser coverage.
@@ -59,6 +61,7 @@ New orders require Stripe hosted Checkout in test mode with a required delivery 
   for the logging contract and operations guidance.
 - `POST /api/payments/stripe/webhook` verifies Stripe's signed test-mode events. It
   is a provider endpoint, not a browser API, and has no cookie/origin requirement.
+- `GET /api/notifications/stream?scope=STOREFRONT|WORKSPACE` is an optional same-origin, cookie-authenticated SSE hint stream. It emits no notification data; clients refetch the authorized GraphQL inbox. It returns 404 when the feature flag is off and 503 when live delivery or its Redis subscriber is unavailable. The detailed authorization, limits, framing, and rollout contract is in [in-app notifications](specs/in-app-notifications/SPEC.md).
 - Better Auth handles email-and-password account requests and cookie sessions under `/api/auth/*`. A signed-in user can update their own display name and change their password on those existing routes. Name updates trim to 1–120 characters. Email, image, role, and user ID stay unchanged. Password changes require the current password and a new password of 8–128 characters, revoke other sessions, and keep the current browser session. Later order requests use the saved name; existing orders keep their stored contact snapshots. See [the account profile spec](specs/profile/SPEC.md).
 - Browser access to `/graphql` and `/api/auth/*` is limited by the configured `FRONTEND_ORIGIN` CORS origin. Authenticated GraphQL POST requests require that origin and JSON content.
 - `myCart`, `setCartItem`, and `mergeGuestCart` require the verified session owner and
@@ -138,6 +141,7 @@ are authoritative in [the delivery specification](specs/delivery/SPEC.md).
   is disabled by default and enabled only with test server and webhook signing secrets;
   live keys and live provider resources are rejected. The database file is runtime data
   and is not committed.
+- `IN_APP_NOTIFICATIONS_ENABLED` and `NOTIFICATION_LIVE_ENABLED` default to false. The former enables saved inbox producers and the GraphQL contract; the latter additionally creates the API's dedicated Redis publisher/subscriber connections. Live mode requires `REDIS_URL` and `NOTIFICATION_CHANNEL_PREFIX`; production requires an explicit prefix and authenticated `rediss:` TLS. The queued email API remains Redis-free unless live notifications are enabled, and email worker behavior is otherwise independent.
 - Bun 1.3.14 manages dependencies using committed `bun.lock` and `bun install --frozen-lockfile` for reproducible installs. Node.js 24 or later remains the runtime.
 
 ## Acceptance checks

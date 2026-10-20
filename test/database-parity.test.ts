@@ -1,3 +1,6 @@
+import { createNotificationStore } from '../src/modules/notifications/notification.writer.js'
+import { createNotificationRepository } from '../src/modules/notifications/notification.repository.js'
+import { verifyNotificationContract } from './notification-contract.js'
 import { createCoverRepository } from '../src/modules/covers/cover.repository.js'
 import { revokeUnverifiedSessions } from '../src/modules/auth-email/session-rollout.js'
 import { createCartRepository } from '../src/modules/cart/cart.repository.js'
@@ -62,6 +65,9 @@ describe(`database contract: ${providerName}`, () => {
   let provider: FakePaymentProvider
   let service: ReturnType<typeof createPaymentService>
   let buyer: { id: string; name: string; email: string }
+  it('persists notification transitions, access, cursors, failure episodes and recovery on either provider', async () => {
+    await verifyNotificationContract(store, buyer)
+  })
   it('atomically conditions cover revisions and audits changes on either database', async () => {
     await store.setRole(buyer.id, 'STAFF')
     const repository = createCoverRepository(store)
@@ -1064,6 +1070,44 @@ describe(`database contract: ${providerName}`, () => {
     expect([...provider.sessions.values()][0].amountCents).toBe(1699)
   })
 
+  it('creates notifications through payment reconciliation and the fulfillment workflow', async () => {
+    await store.setRole(buyer.id, 'ADMIN')
+    const notificationStore = createNotificationStore(store, { enabled: true })
+    const notifications = createNotificationRepository(notificationStore)
+    const payment = createPaymentService(
+      createPaymentRepository(notificationStore, () => now),
+      { ...options, provider, now: () => now },
+    )
+    const checkout = await payment.createCheckout(input(), buyer)
+    expect(await notifications.unreadCount(buyer.id, 'STOREFRONT')).toBe(0)
+    provider.pay([...provider.sessions.keys()][0])
+    await payment.refreshOrderPayment(checkout.order.id, buyer)
+    await payment.refreshOrderPayment(checkout.order.id, buyer)
+    const actor = {
+      source: 'GRAPHQL' as const,
+      userId: buyer.id,
+      name: buyer.name,
+      role: 'ADMIN' as const,
+    }
+    await payment.setOrderStatus(
+      { id: checkout.order.id, expectedStatus: 'SUBMITTED', status: 'PREPARING' },
+      actor,
+    )
+    await payment.setOrderStatus(
+      { id: checkout.order.id, expectedStatus: 'PREPARING', status: 'SHIPPED' },
+      actor,
+    )
+    await payment.setOrderStatus(
+      { id: checkout.order.id, expectedStatus: 'SHIPPED', status: 'DELIVERED' },
+      actor,
+    )
+    expect(
+      (await notifications.list(buyer.id, 'STOREFRONT', {})).nodes.map((n) => n.kind).sort(),
+    ).toEqual(['ORDER_ACCEPTED', 'ORDER_DELIVERED', 'ORDER_SHIPPED', 'PAYMENT_CONFIRMED'])
+    expect((await notifications.list(buyer.id, 'WORKSPACE', {})).nodes.map((n) => n.kind)).toEqual([
+      'NEW_PAID_ORDER',
+    ])
+  })
   it('ships and confirms delivery once with immutable tracking, timestamp and private history', async () => {
     const checkout = await service.createCheckout(input(), buyer)
     provider.pay([...provider.sessions.keys()][0])

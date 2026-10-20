@@ -24,6 +24,14 @@ import { createResolvers } from './graphql/resolvers.js'
 import { typeDefs } from './graphql/schema.js'
 import { publicGraphQLError } from './graphql/errors.js'
 import { createPaymentService, type PaymentOptions } from './modules/payments/payment.service.js'
+import {
+  loadNotificationConfig,
+  type NotificationConfig,
+} from './modules/notifications/notification.config.js'
+import { createNotificationLive } from './modules/notifications/notification.live.js'
+import { createNotificationStreams } from './modules/notifications/notification.sse.js'
+import { createNotificationStore } from './modules/notifications/notification.writer.js'
+import { createNotificationRepository } from './modules/notifications/notification.repository.js'
 
 const authBodyLimit = 64 * 1024
 
@@ -41,10 +49,16 @@ export async function createApp(
   db: DatabaseHandle | Database.Database,
   options: AuthOptions & {
     emailConfig?: EmailConfig
+    notificationConfig?: NotificationConfig
     covers?: { directory: string; publicBaseUrl: string; storage?: CoverStorage }
   },
   paymentOptions: Omit<PaymentOptions, 'frontendOrigin'> = {},
 ) {
+  const notificationConfig = options.notificationConfig ?? loadNotificationConfig()
+  const notificationStore = createNotificationStore(db, {
+    enabled: notificationConfig.enabled,
+    publish: (hint) => notificationLive.publish(hint),
+  })
   const coverStorage =
     options.covers?.storage ??
     (options.covers
@@ -60,7 +74,7 @@ export async function createApp(
       : undefined
   if (queuedEmail) await normalizeStore(db).dueEmailNotifications(Date.now(), 1)
   const paymentRepository = createPaymentRepository(
-    db,
+    notificationStore,
     paymentOptions.now ?? Date.now,
     options.emailConfig?.orderNotificationsEnabled ? queuedEmail?.writeOrderEmail : undefined,
   )
@@ -76,18 +90,50 @@ export async function createApp(
   )
   const server = new ApolloServer<GraphQLContext>({
     typeDefs,
-    resolvers: createResolvers(db, paymentService, coverStorage),
+    resolvers: createResolvers(notificationStore, paymentService, coverStorage, {
+      notificationsEnabled: notificationConfig.enabled,
+    }),
     formatError: publicGraphQLError,
     plugins: [operationalLoggingPlugin],
   })
+  const notificationLive = createNotificationLive(notificationConfig)
   try {
     await server.start()
   } catch (error) {
+    await notificationLive.close()
     await server.stop().catch(() => undefined)
     throw error
   }
   try {
     const app = express()
+    const notificationRepository = createNotificationRepository(
+      notificationStore,
+      notificationConfig.enabled,
+    )
+    const notificationStreams = createNotificationStreams(notificationConfig, notificationLive, {
+      origin: options.frontendOrigin,
+      async authorize(req, scope) {
+        const session = await auth.api.getSession({
+          headers: fromNodeHeaders(req.headers),
+          query: { disableCookieCache: true },
+        })
+        if (!session?.user.emailVerified) return { status: 401 }
+        try {
+          await notificationRepository.authorize(session.user.id, scope)
+        } catch (error) {
+          if (error && typeof error === 'object' && 'extensions' in error) {
+            const code = (error.extensions as { code?: string }).code
+            if (code === 'UNAUTHENTICATED') return { status: 401 }
+            if (code === 'FORBIDDEN') return { status: 403 }
+          }
+          throw error
+        }
+        return { userId: session.user.id }
+      },
+    })
+    app.locals.notificationStore = notificationStore
+    app.locals.notificationLive = notificationLive
+    app.locals.closeNotificationStreams = notificationStreams.close
     app.disable('x-powered-by')
     app.use((req, res, next) => {
       const requestId = randomUUID()
@@ -132,6 +178,7 @@ export async function createApp(
       withRequestContext(requestId, next)
     })
     app.get('/health', (_req, res) => res.json({ status: 'ok' }))
+    app.get('/api/notifications/stream', notificationStreams.handle)
     const readiness = createReadinessProbe(
       db,
       queuedEmail
@@ -147,6 +194,8 @@ export async function createApp(
     })
     app.locals.payments = paymentService
     app.locals.close = async () => {
+      notificationStreams.close()
+      await notificationLive.close()
       await auth.closeMail()
       await server.stop()
     }
@@ -287,6 +336,7 @@ export async function createApp(
     )
     return app
   } catch (error) {
+    await notificationLive.close()
     await server.stop().catch(() => undefined)
     throw error
   }

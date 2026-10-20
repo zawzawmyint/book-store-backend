@@ -1,5 +1,7 @@
 # The Quiet Shelf API
 
+Proposed feature, implementation delivered: [In-app notifications](specs/in-app-notifications/SPEC.md), with a [coordinated implementation plan](docs/superpowers/plans/2026-10-20-in-app-notifications.md), adds saved customer/workspace inboxes, GraphQL read APIs, and optional Redis/SSE invalidation. Local automated and browser evidence is recorded in the companion verification record; the feature remains Proposed pending staging production Redis TLS, streaming-proxy/capacity, and retention-scheduler evidence.
+
 Implemented feature: [Account carts](specs/account-carts/SPEC.md) stores each verified user's bag on the server, keeps a versioned guest bag locally, and preserves old raw arrays only for confirmed import.
 
 Implemented feature: [Production email notifications](specs/email-notifications/SPEC.md) records encrypted auth and order email work in the database, dispatches it through separate Redis/BullMQ queues, and sends it from an independent worker. Paid orders receive a payment receipt; the first staff or admin preparation transition sends a separate acceptance message. Production cutover remains gated on staging and provider operations.
@@ -16,7 +18,7 @@ An Express + GraphQL + Drizzle bookstore API with Zod input validation. SQLite i
 development/test default and PostgreSQL is supported for production. This folder is its
 own Git repository and runs independently from the frontend.
 
-See [SPEC.md](SPEC.md) for the implemented API behavior, [the catalog upgrade](specs/catalog-upgrade/SPEC.md) for public catalog filters and ordering, [specs/operational-logging-readiness/SPEC.md](specs/operational-logging-readiness/SPEC.md) for logging and readiness operations, [specs/test-harness/SPEC.md](specs/test-harness/SPEC.md) for compiled application test readiness, [specs/account-carts/SPEC.md](specs/account-carts/SPEC.md) for account-cart ownership and migration constraints, [the database support spec](specs/database-support/SPEC.md) for provider operation, [specs/payment-operation-keys/SPEC.md](specs/payment-operation-keys/SPEC.md) for durable payment idempotency and recovery, [specs/authentication/SPEC.md](specs/authentication/SPEC.md) for the account feature contract, [specs/order-workflow/SPEC.md](specs/order-workflow/SPEC.md) for request processing, [specs/demo-login/SPEC.md](specs/demo-login/SPEC.md) for local demo accounts, [specs/staff/SPEC.md](specs/staff/SPEC.md) for roles and permissions, [specs/users/SPEC.md](specs/users/SPEC.md) for user-directory compatibility, [specs/activity/SPEC.md](specs/activity/SPEC.md) for the Admin-only activity contract, and [specs/dashboard/SPEC.md](specs/dashboard/SPEC.md) for workspace reporting.
+See [SPEC.md](SPEC.md) for the implemented API behavior, [in-app notifications](specs/in-app-notifications/SPEC.md) for the delivered interface and release gates, [the catalog upgrade](specs/catalog-upgrade/SPEC.md) for public catalog filters and ordering, [specs/operational-logging-readiness/SPEC.md](specs/operational-logging-readiness/SPEC.md) for logging and readiness operations, [specs/test-harness/SPEC.md](specs/test-harness/SPEC.md) for compiled application test readiness, [specs/account-carts/SPEC.md](specs/account-carts/SPEC.md) for account-cart ownership and migration constraints, [the database support spec](specs/database-support/SPEC.md) for provider operation, [specs/payment-operation-keys/SPEC.md](specs/payment-operation-keys/SPEC.md) for durable payment idempotency and recovery, [specs/authentication/SPEC.md](specs/authentication/SPEC.md) for the account feature contract, [specs/order-workflow/SPEC.md](specs/order-workflow/SPEC.md) for request processing, [specs/demo-login/SPEC.md](specs/demo-login/SPEC.md) for local demo accounts, [specs/staff/SPEC.md](specs/staff/SPEC.md) for roles and permissions, [specs/users/SPEC.md](specs/users/SPEC.md) for user-directory compatibility, [specs/activity/SPEC.md](specs/activity/SPEC.md) for the Admin-only activity contract, and [specs/dashboard/SPEC.md](specs/dashboard/SPEC.md) for workspace reporting.
 
 ## Development workflow
 
@@ -63,8 +65,10 @@ display sender and must be authorized by the provider. Ethereal is accepted only
 outside production. Configure the provider credentials, sender/domain verification,
 and HTTPS frontend/auth origins yourself; never commit them. SMTP acceptance is not
 proof of inbox delivery. In queued mode, the API
-records encrypted notification work in its database and does not connect to SMTP or
-Redis. A separate worker owns Redis/BullMQ and SMTP delivery; users can still request
+records encrypted email work in its database and does not connect to SMTP or Redis for
+email delivery. When [live in-app notifications](specs/in-app-notifications/SPEC.md)
+are enabled, the same API process separately connects to Redis for their SSE hints. A
+separate worker owns Redis/BullMQ and SMTP email delivery; users can still request
 another verification or reset email when a link has expired or delivery is unavailable.
 
 ## Production email worker
@@ -82,7 +86,9 @@ Set `EMAIL_DELIVERY_MODE=queued`, an encrypted-payload key mapping in
 `EMAIL_DEDUPE_KEY`. Production also requires `REDIS_URL` with authenticated `rediss:`
 TLS and an explicit deployment-unique `EMAIL_QUEUE_PREFIX`; do not rely on a default
 prefix. Set `EMAIL_ORDER_NOTIFICATIONS_ENABLED=true` to create order records. The API
-can run without SMTP or Redis access in queued mode. The worker additionally requires
+can run without SMTP or Redis access for queued email delivery; with live in-app
+notifications enabled it additionally requires Redis as documented in the
+[notification specification](specs/in-app-notifications/SPEC.md). The worker requires
 Redis and complete SMTP configuration.
 
 For a worker that introduces a new persisted notification kind, deploy and verify the
@@ -119,6 +125,10 @@ Use `bun run email:inspect -- --id <notification-uuid>` to inspect redacted stat
 `--acknowledge-duplicate-risk` and `--apply` to create it. Authentication payloads are
 purged after terminal/expiry states, so they cannot be replayed; use the normal resend
 or reset flow. Treat `UNCERTAIN` as operator review, not an automatic resend.
+
+## In-app notification activation
+
+Apply the additive migrations with `bun run db:migrate`, deploy compatible backend and frontend builds with notification flags off, then set `IN_APP_NOTIFICATIONS_ENABLED=true`. To enable live hints, also set `NOTIFICATION_LIVE_ENABLED=true`, `REDIS_URL`, and `NOTIFICATION_CHANNEL_PREFIX`; production requires authenticated `rediss:` TLS and an explicit channel prefix. Proxy `/api/notifications/stream` through the same origin without buffering or compression and preserve session cookies. Run `bun run notifications:cleanup` from the hosting scheduler daily. See the [notification specification](specs/in-app-notifications/SPEC.md) for stream limits, rollout order, and remaining staging acceptance gates.
 
 Delivery checkout is disabled until all three delivery variables are explicitly set:
 `DELIVERY_ENABLED=true`, a comma-separated uppercase ISO country allowlist in
