@@ -234,12 +234,14 @@ alone does not satisfy the separate requirements for real accounts/live payments
 
 ## Tests and acceptance criteria
 
-`bun run test:postgres` runs the shared repository/service/API integration suite
-against a dedicated disposable PostgreSQL 17.10 database; `bun run test` remains the
-default SQLite suite. `bun run test:postgres:browser` provisions the same isolated
-database for the frontend's browser suite. These commands create an embedded local
-PostgreSQL cluster and reject targets outside their UUID-named loopback test database.
-They do not silently skip unavailable PostgreSQL. If Bun reports an embedded
+`bun run test:postgres` runs compiled SQLite and PostgreSQL application smoke checks,
+then the shared repository/service/API integration suite against a dedicated disposable
+PostgreSQL 17.10 database; `bun run test` remains the default SQLite suite. The
+test-only compiled-app health wait uses a 60-second monotonic deadline and aborts each
+probe within one second or the remaining budget. `bun run test:postgres:browser`
+provisions the same isolated database for the frontend's browser suite. These commands
+create an embedded local PostgreSQL cluster and reject targets outside their UUID-named
+loopback test database. They do not silently skip unavailable PostgreSQL. If Bun reports an embedded
 PostgreSQL platform setup script as blocked, trust the appropriate platform package
 with `bun pm trust @embedded-postgres/windows-x64` or
 `bun pm trust @embedded-postgres/linux-x64` and reinstall as directed by Bun. Windows
@@ -264,6 +266,8 @@ Linux platform support has not been verified by this change.
 - [x] Duplicate webhook/payment/refund retries have identical safe results.
 - [x] PostgreSQL pool/client cleanup works after startup, transaction and shutdown failures.
 - [x] Provider-specific schema generation/migration and explicit seed/operator commands work.
+- [x] Compiled SQLite and PostgreSQL smoke checks tolerate the measured 18-second cold
+      start without extending the test-only 60-second startup deadline.
 - [x] Both integration suites, lint/build and frontend browser journeys pass.
 - [x] README, `.env.example`, root/spec/auth/payment docs and repository guidance
       describe verified delivered behavior before this spec becomes Implemented.
