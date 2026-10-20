@@ -8,13 +8,15 @@ Implemented feature: [Auth email verification and recovery](specs/auth-email/SPE
 
 Implemented feature: [Operational logging and readiness](specs/operational-logging-readiness/SPEC.md) adds structured console events, server-generated request correlation, and database readiness at `GET /ready`.
 
+Implemented engineering work: [Compiled application test readiness](specs/test-harness/SPEC.md) gives the disposable PostgreSQL parity harness a bounded, cancellable startup wait for cold compiled API checks. It does not change runtime readiness behavior.
+
 Implemented feature: [Book cover uploads](specs/book-cover-uploads/SPEC.md) provides local immutable media, Staff/Admin cover management, and offline demo-cover seeding.
 
 An Express + GraphQL + Drizzle bookstore API with Zod input validation. SQLite is the
 development/test default and PostgreSQL is supported for production. This folder is its
 own Git repository and runs independently from the frontend.
 
-See [SPEC.md](SPEC.md) for the implemented API behavior, [the catalog upgrade](specs/catalog-upgrade/SPEC.md) for public catalog filters and ordering, [specs/operational-logging-readiness/SPEC.md](specs/operational-logging-readiness/SPEC.md) for logging and readiness operations, [specs/account-carts/SPEC.md](specs/account-carts/SPEC.md) for account-cart ownership and migration constraints, [the database support spec](specs/database-support/SPEC.md) for provider operation, [specs/payment-operation-keys/SPEC.md](specs/payment-operation-keys/SPEC.md) for durable payment idempotency and recovery, [specs/authentication/SPEC.md](specs/authentication/SPEC.md) for the account feature contract, [specs/order-workflow/SPEC.md](specs/order-workflow/SPEC.md) for request processing, [specs/demo-login/SPEC.md](specs/demo-login/SPEC.md) for local demo accounts, [specs/staff/SPEC.md](specs/staff/SPEC.md) for roles and permissions, [specs/users/SPEC.md](specs/users/SPEC.md) for user-directory compatibility, [specs/activity/SPEC.md](specs/activity/SPEC.md) for the Admin-only activity contract, and [specs/dashboard/SPEC.md](specs/dashboard/SPEC.md) for workspace reporting.
+See [SPEC.md](SPEC.md) for the implemented API behavior, [the catalog upgrade](specs/catalog-upgrade/SPEC.md) for public catalog filters and ordering, [specs/operational-logging-readiness/SPEC.md](specs/operational-logging-readiness/SPEC.md) for logging and readiness operations, [specs/test-harness/SPEC.md](specs/test-harness/SPEC.md) for compiled application test readiness, [specs/account-carts/SPEC.md](specs/account-carts/SPEC.md) for account-cart ownership and migration constraints, [the database support spec](specs/database-support/SPEC.md) for provider operation, [specs/payment-operation-keys/SPEC.md](specs/payment-operation-keys/SPEC.md) for durable payment idempotency and recovery, [specs/authentication/SPEC.md](specs/authentication/SPEC.md) for the account feature contract, [specs/order-workflow/SPEC.md](specs/order-workflow/SPEC.md) for request processing, [specs/demo-login/SPEC.md](specs/demo-login/SPEC.md) for local demo accounts, [specs/staff/SPEC.md](specs/staff/SPEC.md) for roles and permissions, [specs/users/SPEC.md](specs/users/SPEC.md) for user-directory compatibility, [specs/activity/SPEC.md](specs/activity/SPEC.md) for the Admin-only activity contract, and [specs/dashboard/SPEC.md](specs/dashboard/SPEC.md) for workspace reporting.
 
 ## Development workflow
 
@@ -318,7 +320,10 @@ bun run build
 After changing a module GraphQL schema, run `bun run codegen` here to refresh the committed resolver types. If a frontend operation uses the new schema, start the API and run `bun run codegen` in the frontend repository too.
 
 `bun run test` uses in-memory SQLite. `bun run test:postgres` provisions a disposable
-local PostgreSQL 17.10 instance and runs the shared parity suite. `bun run test:email`
+local PostgreSQL 17.10 instance, verifies the compiled application with SQLite and
+PostgreSQL, then runs the shared parity suite. Its test-only compiled-app startup wait
+uses a 60-second monotonic deadline with one-second-or-less health probes; it does not
+change the application's `/health` or `/ready` behavior. `bun run test:email`
 uses a loopback captured SMTP server and requires isolated loopback Redis. Start the
 local Redis service with `docker compose -f compose.email.yaml up -d`, set
 `EMAIL_TEST_REDIS_URL=redis://127.0.0.1:6379`, or set `EMAIL_TEST_REDIS_BINARY` to

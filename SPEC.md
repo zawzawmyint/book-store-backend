@@ -10,6 +10,8 @@
 
 > **Implemented engineering work:** [Backend readability and consistency](specs/readability-consistency/SPEC.md) records verified dependency, service-contract, and database-adapter readability refactoring with unchanged API and database behavior.
 
+> **Implemented test infrastructure:** [Compiled application test readiness](specs/test-harness/SPEC.md) documents the bounded, cancellable startup wait used by the disposable compiled-application smoke checks; it does not alter the public API or runtime readiness behavior.
+
 > **Implemented infrastructure:** [Database support](specs/database-support/SPEC.md) provides SQLite development/test and PostgreSQL production support with shared application behavior.
 
 > **Implemented delivery:** [Delivery](specs/delivery/SPEC.md) is the current checkout and fulfillment contract.
@@ -146,8 +148,10 @@ are authoritative in [the delivery specification](specs/delivery/SPEC.md).
   Activity atomicity.
 - Run `bun run lint` and `bun run build` for static and build checks.
 - `bun run test:postgres` provisions disposable PostgreSQL 17.10 and runs shared
-  provider-parity, migration, CLI, and compiled-application checks. Browser journeys
-  run against SQLite by default and PostgreSQL through `bun run test:postgres:browser`.
+  provider-parity, migration, CLI, and compiled-application checks. The test-only
+  compiled-app startup wait has a 60-second monotonic deadline and bounded health
+  probes. Browser journeys run against SQLite by default and PostgreSQL through
+  `bun run test:postgres:browser`.
 
 ## Queued email notifications
 

@@ -1,3 +1,4 @@
+import { waitForHealth } from './wait-for-health.js'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -81,19 +82,12 @@ export async function smokeBuiltApp(provider: 'sqlite' | 'postgresql', databaseU
   const exited = new Promise<void>((accept) => child.once('close', () => accept()))
   try {
     const url = `http://127.0.0.1:${port}`
-    let ready = false
-    for (let attempt = 0; attempt < 40; attempt++) {
-      if (launchError || child.exitCode !== null)
-        startupFailure(`Built ${provider} API failed to start`)
-      try {
-        ready = (await fetch(`${url}/health`)).ok
-      } catch {
-        /* Process is still starting. */
-      }
-      if (ready) break
-      await new Promise((accept) => setTimeout(accept, 250))
-    }
-    if (!ready) startupFailure(`Built ${provider} API readiness timed out`)
+    const readinessResult = await waitForHealth(
+      `${url}/health`,
+      () => !!launchError || child.exitCode !== null,
+    )
+    if (readinessResult === 'stopped') startupFailure(`Built ${provider} API failed to start`)
+    if (readinessResult !== 'ready') startupFailure(`Built ${provider} API readiness timed out`)
     const startupLogs = stdout
       .trim()
       .split(/\r?\n/)
