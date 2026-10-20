@@ -28,9 +28,15 @@ export function createPaymentRepository(
     id: number,
     status: OrderRow['paymentStatus'],
     extra: Partial<OrderRow> = {},
+    refundOperationId?: string,
   ) {
     const before = (await tx.order(id))!
-    await tx.updateOrder(id, { paymentStatus: status, ...extra })
+    await tx.updateOrder(
+      id,
+      { paymentStatus: status, ...extra },
+      undefined,
+      refundOperationId ? { refundOperationId } : undefined,
+    )
     if (before.paymentStatus !== status)
       await insertActivity(tx, systemActor, {
         action: 'ORDER_PAYMENT_CHANGED',
@@ -370,7 +376,7 @@ export function createPaymentRepository(
               true,
             )
             await paymentChange(tx, op.orderId, 'EXPIRED')
-          } else await paymentChange(tx, op.orderId, 'REFUND_FAILED')
+          } else await paymentChange(tx, op.orderId, 'REFUND_FAILED', {}, op.id)
         }
         await tx.updateOperation(
           op.id,

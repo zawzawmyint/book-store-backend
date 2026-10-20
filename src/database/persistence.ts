@@ -94,6 +94,7 @@ function sqliteStore(raw: Database.Database): DomainStore {
             }
           })
       const operation = target[key]
+      if (!operation) return operation
       if (key === 'dashboardWorkspace' || key === 'dashboardFinance')
         return (...args: unknown[]) =>
           serializeSQLite(raw, async () => {

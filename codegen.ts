@@ -1,3 +1,4 @@
+import { notificationTypeDefs } from './src/modules/notifications/notification.schema.ts'
 import { cartTypeDefs } from './src/modules/cart/cart.schema.ts'
 import type { CodegenConfig } from '@graphql-codegen/cli'
 import { buildSchema } from 'graphql'
@@ -10,6 +11,7 @@ import { dashboardTypeDefs } from './src/modules/dashboard/dashboard.schema.ts'
 const config: CodegenConfig = {
   schema: buildSchema(
     [
+      notificationTypeDefs,
       cartTypeDefs,
       bookTypeDefs,
       orderTypeDefs,

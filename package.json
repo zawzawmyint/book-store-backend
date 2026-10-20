@@ -28,6 +28,8 @@
     "email:inspect": "node dist/modules/email/email-operator-cli.js inspect",
     "email:replay": "node dist/modules/email/email-operator-cli.js replay",
     "test:email": "tsx scripts/test-email.ts",
+    "test:notifications:live": "tsx scripts/test-notification-live.ts",
+    "notifications:cleanup": "tsx src/modules/notifications/notification.cleanup-cli.ts",
     "seed:covers": "tsx src/modules/covers/cover-seed-cli.ts",
     "covers:cleanup": "tsx src/modules/covers/cover-cleanup-cli.ts"
   },

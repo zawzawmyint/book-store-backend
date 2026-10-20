@@ -1,3 +1,4 @@
+import { createInAppQueries } from '../in-app.queries.js'
 import { and, count, desc, eq, gt, gte, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm'
 import * as schema from './schema.js'
 import type { DomainStore } from '../store.types.js'
@@ -10,6 +11,7 @@ export function createPostgreSQLStore(
   scoped = false,
 ): DomainStore {
   return {
+    ...createInAppQueries(async (query) => (await orm.execute(query)).rows, true),
     ...createEmailQueries(async (query) => (await orm.execute(query)).rows, true),
     async cart(userId, create = false) {
       if (create) await orm.insert(schema.accountCarts).values({ userId }).onConflictDoNothing()

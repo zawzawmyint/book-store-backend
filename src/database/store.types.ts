@@ -18,7 +18,27 @@ export type EventRow = typeof model.paymentEvents.$inferSelect
 export type NotificationRow = typeof model.emailNotifications.$inferSelect
 export type NotificationDraft = typeof model.emailNotifications.$inferInsert
 export type Role = 'CUSTOMER' | 'STAFF' | 'ADMIN'
+export type InAppNotificationRow = typeof model.inAppNotifications.$inferSelect
+export type InAppNotificationDraft = typeof model.inAppNotifications.$inferInsert
+export type InAppAccess = { recipientId: string; scope: 'STOREFRONT' | 'WORKSPACE'; admin: boolean }
 export interface DomainStore {
+  insertInAppNotification(values: InAppNotificationDraft): Promise<boolean>
+  inAppRecipients(adminOnly: boolean): Promise<string[]>
+  inAppList(
+    access: InAppAccess,
+    first: number,
+    after?: { createdAt: string; id: string },
+    unreadOnly?: boolean,
+  ): Promise<InAppNotificationRow[]>
+  inAppUnreadCount(access: InAppAccess): Promise<number>
+  inAppRead(access: InAppAccess, id: string, now: string): Promise<InAppNotificationRow | undefined>
+  inAppReadAll(access: InAppAccess, now: string): Promise<number>
+  inAppCleanup(cutoff: string, limit: number): Promise<number>
+  notifyInAppChange?(hint: {
+    recipientId: string
+    scope: 'STOREFRONT' | 'WORKSPACE'
+  }): Promise<void>
+
   insertEmailNotification(values: NotificationDraft): Promise<void>
   emailNotification(id: string): Promise<NotificationRow | undefined>
   emailByDedupe(key: string): Promise<NotificationRow | undefined>
@@ -104,6 +124,7 @@ export interface DomainStore {
     id: number,
     values: Partial<typeof model.orders.$inferInsert>,
     expectedStatus?: OrderRow['status'],
+    notificationContext?: { refundOperationId: string },
   ): Promise<OrderRow | undefined>
   orderPage(
     limit: number,

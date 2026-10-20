@@ -59,6 +59,7 @@ async function start() {
       if (stopping) return
       stopping = true
       log('info', 'server.stopping', { component: 'server' })
+      app.locals.closeNotificationStreams()
       server.close(() => {
         void (async () => {
           try {
