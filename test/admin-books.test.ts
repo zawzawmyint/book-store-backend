@@ -63,6 +63,26 @@ const create =
 const update =
   'mutation ($input: AdminBookDetailsInput!) { updateBook(id: "1", input: $input) { title stock } }'
 const stock = 'mutation ($delta: Int!) { adjustBookStock(id: "1", delta: $delta) { stock } }'
+it('exposes detail revisions and returns CONFLICT without writes for stale or invalid revisions', async () => {
+  const mutation =
+    'mutation ($input: AdminBookDetailsInput!, $revision: Int) { updateBook(id: "1", input: $input, expectedRevision: $revision) { title detailsRevision stock coverRevision } }'
+  const first = await gql(mutation, { input: details, revision: 0 })
+  expect(first.body.errors).toBeUndefined()
+  expect(first.body.data.updateBook).toMatchObject({ detailsRevision: 1, title: 'New title' })
+  const stale = await gql(mutation, { input: { ...details, title: 'Stale' }, revision: 0 })
+  expect(stale.body.errors[0].extensions.code).toBe('CONFLICT')
+  const invalid = await gql(mutation, { input: details, revision: -1 })
+  expect(invalid.body.errors[0].extensions.code).toBe('BAD_USER_INPUT')
+  const noChange = await gql(mutation, { input: details, revision: 1 })
+  expect(noChange.body.data.updateBook.detailsRevision).toBe(2)
+  const legacy = await gql(mutation, { input: details })
+  expect(legacy.body.data.updateBook.detailsRevision).toBe(3)
+  const current = await gql('{ adminBook(id: "1") { title detailsRevision } }')
+  expect(current.body.data.adminBook).toEqual({ title: 'New title', detailsRevision: 3 })
+  expect(
+    db.prepare("SELECT count(*) AS n FROM activity_events WHERE action = 'BOOK_UPDATED'").get(),
+  ).toEqual({ n: 1 })
+})
 it('creates trimmed books, preserves checkout stock on metadata edits, and applies bounded deltas', async () => {
   const created = await gql(create, {
     input: {

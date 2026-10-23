@@ -14,13 +14,13 @@ export const bookTypeDefs = `#graphql
   type BookPage { total: Int!, items: [Book!]! }
   enum CatalogSort { DEFAULT TITLE_ASC PRICE_ASC PRICE_DESC }
   enum AdminBookFilter { ACTIVE ARCHIVED ALL }
-  type AdminBook { cover: BookCover, coverRevision: Int!, id: ID!, title: String!, author: String!, genre: String!, description: String!, priceCents: Int!, stock: Int!, archived: Boolean! }
+  type AdminBook { cover: BookCover, coverRevision: Int!, detailsRevision: Int!, id: ID!, title: String!, author: String!, genre: String!, description: String!, priceCents: Int!, stock: Int!, archived: Boolean! }
   type AdminBooksPage { total: Int!, items: [AdminBook!]! }
   input AdminBookDetailsInput { title: String!, author: String!, genre: String!, description: String!, priceCents: Int! }
   input CreateBookInput { details: AdminBookDetailsInput!, stock: Int! }
   extend type Mutation {
     createBook(input: CreateBookInput!): AdminBook!
-    updateBook(id: ID!, input: AdminBookDetailsInput!): AdminBook!
+    updateBook(id: ID!, input: AdminBookDetailsInput!, expectedRevision: Int): AdminBook!
     adjustBookStock(id: ID!, delta: Int!): AdminBook!
     setBookArchived(id: ID!, archived: Boolean!): AdminBook!
   }

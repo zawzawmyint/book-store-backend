@@ -17,6 +17,39 @@ import { systemActor, type ActivityActor } from '../activity/activity.types.js'
 import type { ProviderEvent, ProviderRefund, ProviderSession } from './payment.provider.js'
 import type { OrderCustomer, OrderItemInput } from '../orders/order.types.js'
 import type { OrderEmailWriter } from '../email/email-outbox.writer.js'
+
+async function checkoutPricing(
+  store: DomainStore,
+  items: OrderItemInput[],
+  address: DeliveryAddress,
+  config: DeliveryConfig,
+  purpose: 'quote' | 'reserve',
+) {
+  if (!config.deliveryEnabled || config.deliveryFeeCents === undefined)
+    throw new PaymentUnavailableError()
+  if (!config.deliveryCountryCodes?.includes(address.countryCode))
+    throw new ValidationError('Delivery is unavailable for this country')
+  let subtotalCents = 0
+  for (const line of items) {
+    const book = await store.book(Number(line.bookId))
+    if (!book && purpose === 'reserve')
+      throw new ValidationError(`Book ${line.bookId} was not found`)
+    if (!book || book.archived || book.stock < line.quantity)
+      throw new ValidationError('A selected book is unavailable or has insufficient stock')
+    subtotalCents += book.priceCents * line.quantity
+  }
+  // Reservation retains its existing subtotal-specific diagnostic before checking the fee.
+  if (
+    purpose === 'reserve' &&
+    (!Number.isSafeInteger(subtotalCents) || subtotalCents < 50 || subtotalCents > 2147483647)
+  )
+    throw new ValidationError('Checkout total must be between 50 and 2147483647 cents')
+  const totalCents = subtotalCents + config.deliveryFeeCents
+  if (!Number.isSafeInteger(totalCents) || subtotalCents < 50 || totalCents > 2147483647)
+    throw new ValidationError('Checkout total is outside supported limits')
+  return { subtotalCents, deliveryFeeCents: config.deliveryFeeCents, totalCents, currency: 'usd' }
+}
+
 export function createPaymentRepository(
   input: DatabaseInput,
   now: () => number,
@@ -200,26 +233,7 @@ export function createPaymentRepository(
     workflow: createAdminOrderRepository(store, writeEmail),
     lines: (id: number) => store.lines([id]),
     async quote(items: OrderItemInput[], address: DeliveryAddress, config: DeliveryConfig) {
-      if (!config.deliveryEnabled || config.deliveryFeeCents === undefined)
-        throw new PaymentUnavailableError()
-      if (!config.deliveryCountryCodes?.includes(address.countryCode))
-        throw new ValidationError('Delivery is unavailable for this country')
-      let subtotalCents = 0
-      for (const line of items) {
-        const book = await store.book(Number(line.bookId))
-        if (!book || book.archived || book.stock < line.quantity)
-          throw new ValidationError('A selected book is unavailable or has insufficient stock')
-        subtotalCents += book.priceCents * line.quantity
-      }
-      const totalCents = subtotalCents + config.deliveryFeeCents
-      if (!Number.isSafeInteger(totalCents) || subtotalCents < 50 || totalCents > 2147483647)
-        throw new ValidationError('Checkout total is outside supported limits')
-      return {
-        subtotalCents,
-        deliveryFeeCents: config.deliveryFeeCents,
-        totalCents,
-        currency: 'usd',
-      }
+      return checkoutPricing(store, items, address, config, 'quote')
     },
     reserve(
       input: {
@@ -260,31 +274,15 @@ export function createPaymentRepository(
           )
             throw new CartConflictError()
         }
-        if (!config.deliveryEnabled || config.deliveryFeeCents === undefined)
-          throw new PaymentUnavailableError()
-        if (!config.deliveryCountryCodes?.includes(input.deliveryAddress.countryCode))
-          throw new ValidationError('Delivery is unavailable for this country')
-        let total = 0
-        for (const line of sorted) {
-          const book = await tx.book(Number(line.bookId))
-          if (!book) throw new ValidationError(`Book ${line.bookId} was not found`)
-          if (book.archived || book.stock < line.quantity)
-            throw new ValidationError('A selected book is unavailable or has insufficient stock')
-          total += book.priceCents * line.quantity
-        }
-        if (!Number.isSafeInteger(total) || total < 50 || total > 2147483647)
-          throw new ValidationError('Checkout total must be between 50 and 2147483647 cents')
-        const finalTotal = total + config.deliveryFeeCents
-        if (!Number.isSafeInteger(finalTotal) || finalTotal > 2147483647)
-          throw new ValidationError('Checkout total is outside supported limits')
+        const pricing = await checkoutPricing(tx, sorted, input.deliveryAddress, config, 'reserve')
         if (
-          input.expectedDeliveryFeeCents !== config.deliveryFeeCents ||
-          input.expectedTotalCents !== finalTotal
+          input.expectedDeliveryFeeCents !== pricing.deliveryFeeCents ||
+          input.expectedTotalCents !== pricing.totalCents
         )
           throw new ConflictError('Prices changed. Review your order again before payment.')
         const saved = await createOrderRepository(tx).saveOrder(customer, input.items, {
             address: input.deliveryAddress,
-            feeCents: config.deliveryFeeCents,
+            feeCents: pricing.deliveryFeeCents,
           }),
           id = Number(saved.id)
         if (cartLines)

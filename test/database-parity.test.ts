@@ -96,7 +96,43 @@ describe(`database contract: ${providerName}`, () => {
     const page = await store.activity(activityInputSchema.parse({ limit: 50, offset: 0 }))
     expect(page.items.filter((row) => row.source === 'HTTP')).toHaveLength(2)
   })
+  it('rejects persisted detail revisions outside the GraphQL integer domain', async () => {
+    for (const detailsRevision of [-1, 2147483648])
+      await expect(
+        store.transaction((tx) => tx.updateBook(1, { detailsRevision })),
+      ).rejects.toThrow()
+    expect(await store.book(1)).toMatchObject({ detailsRevision: 0 })
+  })
   let now: number
+  it('rejects concurrent stale detail saves without altering stock or cover revisions', async () => {
+    const repository = createAdminBookRepository(store)
+    const actor = operatorActor
+    const original = (await store.book(1))!
+    const details = {
+      title: original.title,
+      author: original.author,
+      genre: original.genre,
+      description: original.description,
+      priceCents: original.priceCents,
+    }
+    const results = await Promise.allSettled([
+      repository.update('1', { ...details, title: 'First edit' }, actor, 0),
+      repository.update('1', { ...details, title: 'Second edit' }, actor, 0),
+    ])
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1)
+    expect(await store.book(1)).toMatchObject({
+      detailsRevision: 1,
+      stock: original.stock,
+      coverRevision: original.coverRevision,
+    })
+    const history = await store.activity(activityInputSchema.parse({ limit: 50, offset: 0 }))
+    expect(history.items.filter((row) => row.action === 'BOOK_UPDATED')).toHaveLength(1)
+    await expect(repository.update('1', details, actor, 0)).rejects.toThrow('changed')
+    await repository.update('1', details, actor)
+    expect(await store.book(1)).toMatchObject({ detailsRevision: 2 })
+    await expect(repository.update('1', details, actor, 1)).rejects.toThrow('changed')
+  })
   it.skipIf(providerName !== 'postgresql')(
     'serializes cover permission checks with an in-flight role revocation',
     async () => {
@@ -983,6 +1019,47 @@ describe(`database contract: ${providerName}`, () => {
       capturedCents: '0',
     })
   })
+
+  it.each([
+    [49, 500, false],
+    [50, 0, true],
+    [2147483147, 500, true],
+    [2147483148, 500, false],
+  ])(
+    'keeps quote and reservation consistent at price %i and fee %i',
+    async (priceCents, deliveryFeeCents, accepted) => {
+      await store.updateBook(1, { priceCents })
+      const repository = createPaymentRepository(database.handle, () => now)
+      const deliveryConfig = { ...options, deliveryFeeCents }
+      const payload = {
+        ...input(),
+        expectedDeliveryFeeCents: deliveryFeeCents,
+        expectedTotalCents: priceCents + deliveryFeeCents,
+      }
+      if (accepted) {
+        expect(await repository.quote(payload.items, address, deliveryConfig)).toMatchObject({
+          subtotalCents: priceCents,
+          deliveryFeeCents,
+          totalCents: payload.expectedTotalCents,
+          currency: 'usd',
+        })
+        const saved = await repository.reserve(payload, buyer, deliveryConfig)
+        expect(saved.totalCents).toBe(payload.expectedTotalCents)
+        expect((await store.lines([saved.id]))[0]).toMatchObject({ unitPriceCents: priceCents })
+      } else {
+        await expect(repository.quote(payload.items, address, deliveryConfig)).rejects.toThrow(
+          'Checkout total is outside supported limits',
+        )
+        await expect(repository.reserve(payload, buyer, deliveryConfig)).rejects.toThrow(
+          priceCents < 50
+            ? 'Checkout total must be between 50 and 2147483647 cents'
+            : 'Checkout total is outside supported limits',
+        )
+        expect((await store.orderPage(50, 0)).total).toBe(0)
+        expect((await store.book(1))!.stock).toBe(12)
+      }
+    },
+  )
 
   it('quotes normalized delivery and money without reserving stock or provider resources', async () => {
     const before = (await store.book(1))!.stock

@@ -3,8 +3,105 @@ import { fileURLToPath } from 'node:url'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 import { readMigrationFiles } from 'drizzle-orm/migrator'
+import { createHash } from 'node:crypto'
 
 const migrationsFolder = fileURLToPath(new URL('../../drizzle/', import.meta.url))
+
+function migrationHashes(migration: ReturnType<typeof readMigrationFiles>[number] | undefined) {
+  if (!migration) return new Set<string>()
+  const lf = migration.sql.join('--> statement-breakpoint').replaceAll('\r\n', '\n')
+  return new Set([
+    migration.hash,
+    ...[lf, lf.replaceAll('\n', '\r\n')].map((sql) =>
+      createHash('sha256').update(sql).digest('hex'),
+    ),
+  ])
+}
+
+// This unreleased draft was applied by local development before the reviewed
+// additive migration replaced it. Do not infer migration history from a column alone.
+function adoptDraftBookRevision(db: Database.Database): void {
+  const history = db
+    .prepare('SELECT hash, created_at FROM __drizzle_migrations ORDER BY created_at')
+    .all() as {
+    hash: string
+    created_at: number
+  }[]
+  const latest = history.at(-1)
+  const migrations = readMigrationFiles({ migrationsFolder })
+  const index = migrations.findIndex((migration) => migration.folderMillis === 1792587670357)
+  const canonical = migrations[index]
+  if (
+    latest?.created_at !== 1792586504514 ||
+    latest.hash !== 'fb9416a413ec97dcb589fd91a6246952c2950bca5c0bf5b7e0a6a209e136200f'
+  ) {
+    const hasRevision = (db.pragma('table_info(books)') as { name: string }[]).some(
+      (column) => column.name === 'details_revision',
+    )
+    if (
+      hasRevision &&
+      !history.some(
+        (entry) =>
+          entry.created_at === canonical?.folderMillis &&
+          migrationHashes(canonical).has(entry.hash),
+      )
+    )
+      throw new Error('Unsupported draft book revision migration history')
+    return
+  }
+
+  const predecessor = migrations[index - 1]
+  // Git can change SQL line endings on checkout; accept only equivalent source
+  // text for the predecessor, without rewriting its existing history record.
+  const predecessorHashes = migrationHashes(predecessor)
+  if (
+    !canonical ||
+    index < 1 ||
+    history.length !== index + 1 ||
+    !migrations
+      .slice(0, index)
+      .every((migration, position) => history[position].created_at === migration.folderMillis) ||
+    !predecessorHashes.has(history[index - 1].hash)
+  )
+    throw new Error('Unsupported draft book revision migration history')
+
+  const column = (
+    db.pragma('table_info(books)') as {
+      name: string
+      type: string
+      notnull: number
+      dflt_value: string | null
+      pk: number
+    }[]
+  ).find((entry) => entry.name === 'details_revision')
+  if (
+    column?.type.toLowerCase() !== 'integer' ||
+    column.notnull !== 1 ||
+    column.pk !== 0 ||
+    column.dflt_value?.replace(/[\s()]/g, '') !== '0' ||
+    db
+      .prepare(
+        'SELECT 1 FROM books WHERE details_revision IS NULL OR details_revision NOT BETWEEN 0 AND 2147483647 LIMIT 1',
+      )
+      .get() ||
+    (db.pragma('foreign_key_check') as unknown[]).length
+  )
+    throw new Error('Unsupported draft book revision schema or data')
+
+  // SQLite cannot add a CHECK to an existing column without rebuilding books.
+  // Match its range constraint with triggers, preserving all rows and references.
+  for (const action of ['INSERT', 'UPDATE']) {
+    db.exec(`CREATE TRIGGER draft_books_details_revision_${action.toLowerCase()}_check
+      BEFORE ${action} ON books WHEN NEW.details_revision NOT BETWEEN 0 AND 2147483647
+      BEGIN SELECT RAISE(ABORT, 'details_revision must be between 0 and 2147483647'); END`)
+  }
+  // Keep the recognized draft record as provenance. Drizzle resumes after the
+  // canonical record, so it never attempts to add the existing column again.
+  db.prepare('INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)').run(
+    canonical.hash,
+    canonical.folderMillis,
+  )
+}
 
 // The old user_version=1 schema is equivalent to the first Drizzle migration.
 // Verify it before recording that baseline; do not recreate tables containing orders.
@@ -146,6 +243,7 @@ export function migrateDatabase(db: Database.Database): void {
         baseline.folderMillis,
       )
     }
+    if (journal) adoptDraftBookRevision(db)
   })()
   // Drizzle's SQLite migrator owns the transaction for pending schema changes.
   migrate(drizzle(db), config)

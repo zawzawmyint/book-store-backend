@@ -229,3 +229,152 @@ it('coalesces blocked writes, resumes one hint on drain and destroys persistentl
     vi.useRealTimers()
   }
 })
+
+it.each([
+  'write',
+  'backpressure',
+  'response-error',
+  'flush-headers',
+  'end-throw',
+  'end-error',
+] as const)(
+  'logs one safe %s termination and releases stream accounting and timers',
+  async (failure) => {
+    vi.useFakeTimers()
+    const warnings: string[] = []
+    const warning = vi
+      .spyOn(console, 'warn')
+      .mockImplementation((line) => warnings.push(String(line)))
+    const live = liveFixture()
+    const streams = createNotificationStreams(
+      { enabled: true, liveEnabled: true, channelPrefix: 'test' },
+      live,
+      {
+        origin: 'http://localhost:5173',
+        async authorize() {
+          return { userId: 'private-recipient' }
+        },
+      },
+    )
+    const response = Object.assign(new EventEmitter(), {
+      destroyed: false,
+      status() {
+        return this
+      },
+      set() {
+        return this
+      },
+      flushHeaders() {
+        if (failure === 'flush-headers') throw new Error('private-write-secret')
+      },
+      write() {
+        if (failure === 'write') throw new Error('private-write-secret')
+        return false
+      },
+      end() {
+        if (failure === 'end-throw') throw new Error('private-write-secret')
+        if (failure === 'end-error') {
+          queueMicrotask(() => this.emit('error', new Error('private-write-secret')))
+          return
+        }
+        this.emit('close')
+      },
+      destroy() {
+        this.destroyed = true
+        this.emit('close')
+      },
+    })
+    try {
+      await streams.handle(
+        { query: { scope: 'STOREFRONT' }, get() {}, destroyed: false } as unknown as Request,
+        response as unknown as Response,
+      )
+      if (failure === 'response-error') response.emit('error', new Error('private-write-secret'))
+      if (failure === 'end-throw' || failure === 'end-error') streams.close()
+      await vi.advanceTimersByTimeAsync(5001)
+      await live.publish({ recipientId: 'private-recipient', scope: 'STOREFRONT' })
+      expect(warnings.map((line) => JSON.parse(line))).toEqual([
+        expect.objectContaining({
+          event: 'notifications.stream_terminated',
+          level: 'warn',
+          route: '/api/notifications/stream',
+          streamFailure: failure === 'backpressure' ? 'BACKPRESSURE' : 'WRITE_FAILED',
+        }),
+      ])
+      expect(warnings.join('')).not.toMatch(/private-write-secret|private-recipient/)
+      expect(streams.size).toBe(0)
+      expect(vi.getTimerCount()).toBe(0)
+      expect(response.listenerCount('error')).toBe(0)
+    } finally {
+      streams.close()
+      warning.mockRestore()
+      vi.useRealTimers()
+    }
+  },
+)
+
+it.each(['reject', 'revoke'] as const)(
+  'ignores a pending authorization %s after the response has closed',
+  async (outcome) => {
+    vi.useFakeTimers()
+    const live = liveFixture()
+    let authorizeCount = 0
+    let resolveRecheck!: (value: { status: 401 }) => void
+    let rejectRecheck!: (error: Error) => void
+    const streams = createNotificationStreams(
+      { enabled: true, liveEnabled: true, channelPrefix: 'test' },
+      live,
+      {
+        origin: 'http://localhost:5173',
+        recheckMs: 10,
+        authorize() {
+          if (++authorizeCount === 1) return Promise.resolve({ userId: 'reader' })
+          return new Promise<{ status: 401 }>((resolve, reject) => {
+            resolveRecheck = resolve
+            rejectRecheck = reject
+          })
+        },
+      },
+    )
+    let ends = 0
+    const response = Object.assign(new EventEmitter(), {
+      destroyed: false,
+      status() {
+        return this
+      },
+      set() {
+        return this
+      },
+      flushHeaders() {},
+      write() {
+        return true
+      },
+      end() {
+        ends++
+        this.emit('close')
+      },
+      destroy() {
+        this.destroyed = true
+        this.emit('close')
+      },
+    })
+    try {
+      await streams.handle(
+        { query: { scope: 'STOREFRONT' }, get() {}, destroyed: false } as unknown as Request,
+        response as unknown as Response,
+      )
+      await vi.advanceTimersByTimeAsync(11)
+      response.destroy()
+      if (outcome === 'reject') rejectRecheck(new Error('private-auth-secret'))
+      else resolveRecheck({ status: 401 })
+      await vi.advanceTimersByTimeAsync(1)
+      expect(ends).toBe(0)
+      expect(streams.size).toBe(0)
+      expect(vi.getTimerCount()).toBe(0)
+      expect(response.listenerCount('error')).toBe(0)
+    } finally {
+      streams.close()
+      vi.useRealTimers()
+    }
+  },
+)

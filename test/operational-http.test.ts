@@ -2,6 +2,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import request from 'supertest'
 import { createApp } from '../src/app.js'
 import { createDatabase } from '../src/database/connection.js'
+import * as notificationStreams from '../src/modules/notifications/notification.sse.js'
+import { once } from 'node:events'
 
 const options = {
   frontendOrigin: 'http://localhost:5173',
@@ -11,6 +13,76 @@ const options = {
 let db: ReturnType<typeof createDatabase>
 let app: Awaited<ReturnType<typeof createApp>>
 let lines: string[]
+it.each(['/api/notifications/stream', '/api/notifications/stream/', '/API/notifications/stream'])(
+  'silences successful %s disconnects while preserving setup error severity',
+  async (streamPath) => {
+    await app.locals.close()
+    const factory = notificationStreams.createNotificationStreams
+    let streams!: ReturnType<typeof factory>
+    let status: 401 | 403 | undefined
+    let ready = true
+    vi.spyOn(notificationStreams, 'createNotificationStreams').mockImplementation(
+      (config, live, streamOptions) => {
+        streams = factory(
+          { ...config, enabled: true, liveEnabled: true },
+          {
+            ...live,
+            get ready() {
+              return ready
+            },
+          },
+          {
+            ...streamOptions,
+            limits: { perUser: 1, total: 1 },
+            async authorize() {
+              return status ? { status } : { userId: 'private-recipient' }
+            },
+          },
+        )
+        return streams
+      },
+    )
+    app = await createApp(db, options)
+    const server = app.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const controller = new AbortController()
+    try {
+      const url = `http://127.0.0.1:${(server.address() as { port: number }).port}${streamPath}?scope=STOREFRONT`
+      const response = await fetch(url, {
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]),
+      })
+      expect(response.status).toBe(200)
+      expect((await fetch(url)).status).toBe(429)
+      status = 401
+      expect((await fetch(url)).status).toBe(401)
+      status = 403
+      expect((await fetch(url)).status).toBe(403)
+      ready = false
+      expect((await fetch(url)).status).toBe(503)
+      await response.body!.cancel()
+      await vi.waitFor(() => expect(streams.size).toBe(0))
+      const events = lines.map((line) => JSON.parse(line))
+      expect(
+        events.filter((event) => event.event === 'http.aborted' || event.route === 'unmatched'),
+      ).toEqual([])
+      expect(
+        events
+          .filter((event) => event.event === 'http.completed')
+          .map((event) => [event.route, event.statusCode, event.level]),
+      ).toEqual([
+        ['/api/notifications/stream', 429, 'warn'],
+        ['/api/notifications/stream', 401, 'warn'],
+        ['/api/notifications/stream', 403, 'warn'],
+        ['/api/notifications/stream', 503, 'error'],
+      ])
+    } finally {
+      controller.abort()
+      streams.close()
+      server.closeAllConnections()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  },
+)
 it('keeps unsupported JSON charset errors as client errors without logging body contents', async () => {
   const response = await request(app)
     .post('/graphql')
@@ -165,4 +237,20 @@ it('isolates concurrent request IDs and safely handles malformed JSON', async ()
   expect(invalid.body).toEqual({ error: 'Invalid request' })
   expect(invalid.headers['x-request-id']).toBeTruthy()
   expect(lines.join('')).not.toContain('malformed-secret')
+})
+
+it('classifies notification setup failures without exposing query or cookie values', async () => {
+  const response = await request(app)
+    .get('/api/notifications/stream?scope=private-query-secret')
+    .set('Cookie', 'secret-cookie')
+  expect(response.status).toBe(404)
+  expect(lines.map((line) => JSON.parse(line))).toContainEqual(
+    expect.objectContaining({
+      event: 'http.completed',
+      route: '/api/notifications/stream',
+      statusCode: 404,
+      level: 'warn',
+    }),
+  )
+  expect(lines.join('')).not.toMatch(/private-query-secret|secret-cookie/)
 })

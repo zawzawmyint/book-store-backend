@@ -107,6 +107,11 @@ export interface DomainStore {
     id: number,
     values: Partial<typeof model.books.$inferInsert>,
   ): Promise<BookRow | undefined>
+  updateBookDetails(
+    id: number,
+    values: Pick<BookRow, 'title' | 'author' | 'genre' | 'description' | 'priceCents'>,
+    expectedRevision: number,
+  ): Promise<BookRow | undefined>
   adjustStock(id: number, delta: number): Promise<BookRow | undefined>
   delivery(id: number): Promise<typeof model.orderDeliveries.$inferSelect | undefined>
   insertDelivery(

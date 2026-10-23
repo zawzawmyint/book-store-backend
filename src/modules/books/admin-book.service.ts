@@ -5,6 +5,7 @@ import {
   adminBookIdSchema,
   adminBooksInputSchema,
   bookDetailsSchema,
+  bookRevisionSchema,
   stockSchema,
   stockDeltaSchema,
 } from './book.validation.js'
@@ -20,11 +21,12 @@ export function createAdminBookService(repository: AdminBookRepository) {
         actor,
       )
     },
-    update(id: string, details: unknown, actor: ActivityActor) {
+    update(id: string, details: unknown, actor: ActivityActor, expectedRevision?: number | null) {
       return repository.update(
         validated(adminBookIdSchema, id),
         validated(bookDetailsSchema, details),
         actor,
+        expectedRevision == null ? undefined : validated(bookRevisionSchema, expectedRevision),
       )
     },
     adjustStock(id: string, delta: number, actor: ActivityActor) {

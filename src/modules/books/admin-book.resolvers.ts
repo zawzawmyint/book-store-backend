@@ -55,6 +55,7 @@ export function createAdminBookResolvers(
             args.id,
             args.input,
             await adminRepository.getActivityActor(user.id),
+            args.expectedRevision,
           ),
         ),
       adjustBookStock: (_, args, ctx) =>

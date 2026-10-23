@@ -18,6 +18,8 @@ type LogContext = {
   pendingAgeMs?: number
   heartbeatAgeMs?: number
   sendAttempts?: number
+  streamFailure?: 'WRITE_FAILED' | 'BACKPRESSURE'
+  redisConnection?: 'publisher' | 'subscriber'
 }
 const requests = new AsyncLocalStorage<{ requestId: string }>()
 export function withRequestContext<T>(requestId: string, action: () => T): T {
@@ -27,13 +29,15 @@ export function withRequestContext<T>(requestId: string, action: () => T): T {
 // Only application-owned categories and bounded context are serialized. In
 // particular, exception objects/messages, payloads and headers are never accepted.
 const stringRules: Record<string, RegExp> = {
+  streamFailure: /^(WRITE_FAILED|BACKPRESSURE)$/,
+  redisConnection: /^(publisher|subscriber)$/,
   notificationId: /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
   emailQueue: /^(AUTH|ORDER)$/,
   emailStatus: /^(PENDING|ENQUEUED|SENDING|SUBMITTED|EXPIRED|SKIPPED|FAILED|UNCERTAIN)$/,
   requestId: /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
   component: /^(http|graphql|database|payments|email|server)$/,
   route:
-    /^(\/health|\/ready|\/graphql|\/api\/auth\/\*|\/api\/payments\/stripe\/webhook|unmatched)$/,
+    /^(\/health|\/ready|\/graphql|\/api\/auth\/\*|\/api\/notifications\/stream|\/api\/payments\/stripe\/webhook|unmatched)$/,
   method: /^(GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)$/,
   operationName: /^[_A-Za-z][_0-9A-Za-z]{0,79}$/,
   errorCode: /^[A-Z][A-Z_]{0,79}$/,

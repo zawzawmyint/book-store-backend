@@ -9,9 +9,195 @@ import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { fileURLToPath } from 'node:url'
+import { createHash } from 'node:crypto'
 const migrationCount = readMigrationFiles({
   migrationsFolder: fileURLToPath(new URL('../drizzle/', import.meta.url)),
 }).length
+
+function draftRevisionDatabase() {
+  const directory = mkdtempSync(join(tmpdir(), 'draft-book-revision-'))
+  const db = new Database(':memory:')
+  try {
+    mkdirSync(join(directory, 'meta'))
+    const journal = JSON.parse(
+      readFileSync(new URL('../drizzle/meta/_journal.json', import.meta.url), 'utf8'),
+    )
+    journal.entries = journal.entries.filter((entry: { idx: number }) => entry.idx < 13)
+    writeFileSync(join(directory, 'meta/_journal.json'), JSON.stringify(journal))
+    for (const entry of journal.entries)
+      copyFileSync(
+        new URL(`../drizzle/${entry.tag}.sql`, import.meta.url),
+        join(directory, `${entry.tag}.sql`),
+      )
+    db.pragma('foreign_keys=ON')
+    migrate(drizzle(db), { migrationsFolder: directory })
+    db.exec('ALTER TABLE books ADD COLUMN details_revision integer DEFAULT 0 NOT NULL')
+    db.prepare('INSERT INTO __drizzle_migrations(hash,created_at) VALUES (?,?)').run(
+      'fb9416a413ec97dcb589fd91a6246952c2950bca5c0bf5b7e0a6a209e136200f',
+      1792586504514,
+    )
+    db.exec(`INSERT INTO user(id,name,email) VALUES('saved','Saved','saved@example.com');
+      INSERT INTO books(id,title,author,genre,description,price_cents,stock,cover_key,cover_width,cover_height,cover_revision,details_revision) VALUES(42,'Saved','Author','Genre','Book',100,5,'saved.webp',10,20,3,7);
+      INSERT INTO orders(id,user_id,customer_name,email,subtotal_cents,delivery_fee_cents,total_cents) VALUES(9,'saved','Saved','saved@example.com',100,500,600);
+      INSERT INTO order_items(order_id,book_id,title,quantity,unit_price_cents) VALUES(9,42,'Snapshot',1,100);`)
+    return db
+  } catch (error) {
+    db.close()
+    throw error
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+}
+
+it.each(['source', 'lf'])(
+  'adopts the known draft revision with %s predecessor text without changing saved books or order references',
+  (lineEndings) => {
+    const db = draftRevisionDatabase()
+    try {
+      if (lineEndings === 'lf') {
+        const previous = readMigrationFiles({
+          migrationsFolder: fileURLToPath(new URL('../drizzle/', import.meta.url)),
+        })[12]
+        const hash = createHash('sha256')
+          .update(previous.sql.join('--> statement-breakpoint').replaceAll('\r\n', '\n'))
+          .digest('hex')
+        db.prepare('UPDATE __drizzle_migrations SET hash=? WHERE created_at=?').run(
+          hash,
+          previous.folderMillis,
+        )
+      }
+      const tables = ['user', 'books', 'orders', 'order_items']
+      const before = tables.map((table) => db.prepare(`SELECT * FROM ${table}`).all())
+      migrateDatabase(db)
+      migrateDatabase(db)
+      expect(tables.map((table) => db.prepare(`SELECT * FROM ${table}`).all())).toEqual(before)
+      expect(db.pragma('foreign_key_check')).toEqual([])
+      const canonical = readMigrationFiles({
+        migrationsFolder: fileURLToPath(new URL('../drizzle/', import.meta.url)),
+      }).at(-1)!
+      expect(
+        db
+          .prepare(
+            'SELECT hash,created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1',
+          )
+          .get(),
+      ).toEqual({ hash: canonical.hash, created_at: canonical.folderMillis })
+      expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({
+        n: migrationCount + 1,
+      })
+      for (const revision of [-1, 2147483648]) {
+        expect(() =>
+          db.prepare('UPDATE books SET details_revision=? WHERE id=42').run(revision),
+        ).toThrow()
+        expect(() =>
+          db
+            .prepare(
+              "INSERT INTO books(title,author,genre,description,price_cents,stock,details_revision) VALUES('Invalid','Author','Genre','Book',100,1,?)",
+            )
+            .run(revision),
+        ).toThrow()
+      }
+      expect(() => db.exec('UPDATE books SET details_revision=NULL WHERE id=42')).toThrow()
+      db.exec('UPDATE books SET details_revision=0 WHERE id=42')
+      db.exec('UPDATE books SET details_revision=2147483647 WHERE id=42')
+      expect(db.prepare('SELECT details_revision FROM books WHERE id=42').get()).toEqual({
+        details_revision: 2147483647,
+      })
+    } finally {
+      db.close()
+    }
+  },
+)
+
+it.each([-1, 2147483648])(
+  'rejects invalid draft revision %i without adoption writes',
+  (revision) => {
+    const db = draftRevisionDatabase()
+    try {
+      db.prepare('UPDATE books SET details_revision=? WHERE id=42').run(revision)
+      const before = db.prepare('SELECT * FROM sqlite_master').all()
+      const journal = db.prepare('SELECT * FROM __drizzle_migrations').all()
+      expect(() => migrateDatabase(db)).toThrow()
+      expect(db.prepare('SELECT * FROM sqlite_master').all()).toEqual(before)
+      expect(db.prepare('SELECT * FROM __drizzle_migrations').all()).toEqual(journal)
+    } finally {
+      db.close()
+    }
+  },
+)
+
+it.each([
+  'history',
+  'predecessor',
+  'column',
+  'trigger',
+  'extra',
+  'duplicate',
+  'future',
+  'canonical',
+])('refuses incompatible draft %s without partial adoption', (kind) => {
+  const db = draftRevisionDatabase()
+  try {
+    if (kind === 'history')
+      db.prepare('DELETE FROM __drizzle_migrations WHERE created_at=?').run(1792481592247)
+    if (kind === 'predecessor')
+      db.prepare('UPDATE __drizzle_migrations SET hash=? WHERE created_at=?').run(
+        'unknown',
+        1792481592247,
+      )
+    if (kind === 'extra' || kind === 'future' || kind === 'duplicate' || kind === 'canonical')
+      db.prepare('INSERT INTO __drizzle_migrations(hash,created_at) VALUES (?,?)').run(
+        'unknown',
+        kind === 'future'
+          ? 1792587670358
+          : kind === 'canonical'
+            ? 1792587670357
+            : kind === 'duplicate'
+              ? 1792481592247
+              : 1792586504513,
+      )
+    if (kind === 'column') {
+      db.exec(
+        'ALTER TABLE books DROP COLUMN details_revision; ALTER TABLE books ADD COLUMN details_revision text DEFAULT 0 NOT NULL',
+      )
+    }
+    if (kind === 'trigger')
+      db.exec(
+        'CREATE TRIGGER draft_books_details_revision_update_check BEFORE UPDATE ON books BEGIN SELECT 1; END',
+      )
+    const schema = db.prepare('SELECT * FROM sqlite_master').all()
+    const journal = db.prepare('SELECT * FROM __drizzle_migrations').all()
+    const books = db.prepare('SELECT * FROM books').all()
+    expect(() => migrateDatabase(db)).toThrow()
+    expect(db.prepare('SELECT * FROM sqlite_master').all()).toEqual(schema)
+    expect(db.prepare('SELECT * FROM __drizzle_migrations').all()).toEqual(journal)
+    expect(db.prepare('SELECT * FROM books').all()).toEqual(books)
+  } finally {
+    db.close()
+  }
+})
+
+it('does not adopt an unknown migration merely because the revision column exists', () => {
+  const db = draftRevisionDatabase()
+  try {
+    db.prepare('UPDATE __drizzle_migrations SET hash=? WHERE created_at=?').run(
+      'unknown',
+      1792586504514,
+    )
+    const journal = db.prepare('SELECT * FROM __drizzle_migrations').all()
+    expect(() => migrateDatabase(db)).toThrow()
+    expect(db.prepare('SELECT * FROM __drizzle_migrations').all()).toEqual(journal)
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'draft_books_details_revision%'",
+        )
+        .all(),
+    ).toEqual([])
+  } finally {
+    db.close()
+  }
+})
 
 it.each([9, 10])(
   'adds notification/cart tables to populated SQLite at migration %i without altering existing data',
@@ -45,6 +231,7 @@ it.each([9, 10])(
         cover_width: null,
         cover_height: null,
         cover_revision: 0,
+        details_revision: 0,
       }))
       migrateDatabase(db)
       migrateDatabase(db)

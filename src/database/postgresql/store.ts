@@ -196,6 +196,21 @@ export function createPostgreSQLStore(
         await orm.update(schema.books).set(values).where(eq(schema.books.id, id)).returning(),
       )
     },
+    async updateBookDetails(id, values, expectedRevision) {
+      return firstRow(
+        await orm
+          .update(schema.books)
+          .set({ ...values, detailsRevision: sql`${schema.books.detailsRevision} + 1` })
+          .where(
+            and(
+              eq(schema.books.id, id),
+              eq(schema.books.detailsRevision, expectedRevision),
+              lt(schema.books.detailsRevision, 2147483647),
+            ),
+          )
+          .returning(),
+      )
+    },
     async adjustStock(id, delta) {
       const { next, bounds } = stockAdjustment(schema.books.stock, delta)
       return firstRow(

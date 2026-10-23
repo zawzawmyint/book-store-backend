@@ -9,11 +9,13 @@ import { startPaymentWorker } from './modules/payments/payment.worker.js'
 import { createEmailSender } from './modules/email/email.service.js'
 import { log } from './shared/logger.js'
 import { loadEmailConfig } from './modules/email/email-config.js'
+import { loadAuthRateLimitConfig } from './modules/auth-email/auth-rate-limit.config.js'
 
 let startupErrorCode = 'CONFIGURATION_INVALID'
 async function start() {
   const emailConfig = loadEmailConfig()
   const config = loadConfig({ ...process.env, EMAIL_DELIVERY_MODE: emailConfig.mode })
+  const authRateLimit = loadAuthRateLimitConfig()
   startupErrorCode = 'DATABASE_STARTUP_FAILED'
   const database = await openDatabase(config)
   let closeApp: (() => Promise<void>) | undefined
@@ -29,6 +31,7 @@ async function start() {
         authBaseURL: config.authBaseURL,
         authSecret: config.authSecret,
         trustedProxyIp: config.trustedProxyIp,
+        authRateLimit,
         emailConfig,
         emailSender:
           emailConfig.mode === 'inline' && config.nodeEnv !== 'test' && config.smtp
