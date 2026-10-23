@@ -137,12 +137,14 @@ export const books = sqliteTable(
     coverWidth: integer('cover_width'),
     coverHeight: integer('cover_height'),
     coverRevision: integer('cover_revision').notNull().default(0),
+    detailsRevision: integer('details_revision').notNull().default(0),
     priceCents: integer('price_cents').notNull(),
     stock: integer('stock').notNull(),
     archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
   },
   (table) => [
     check('books_cover_revision', sql`${table.coverRevision} >= 0`),
+    check('books_details_revision', sql`${table.detailsRevision} BETWEEN 0 AND 2147483647`),
     check(
       'books_cover_metadata',
       sql`(${table.coverKey} IS NULL AND ${table.coverWidth} IS NULL AND ${table.coverHeight} IS NULL) OR (${table.coverKey} IS NOT NULL AND ${table.coverWidth} IS NOT NULL AND ${table.coverHeight} IS NOT NULL AND ${table.coverWidth} > 0 AND ${table.coverHeight} > 0)`,

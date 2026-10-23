@@ -1,0 +1,2 @@
+ALTER TABLE "books" ADD COLUMN "details_revision" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "books" ADD CONSTRAINT "books_details_revision" CHECK ("books"."details_revision" BETWEEN 0 AND 2147483647);

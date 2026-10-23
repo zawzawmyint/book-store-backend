@@ -21,6 +21,7 @@ export const catalogInputSchema = z
   )
 
 export const adminBookIdSchema = numericIdSchema
+export const bookRevisionSchema = z.number().int().min(0).max(2147483647)
 export const bookDetailsSchema = z.object({
   title: z.string().trim().min(1).max(200),
   author: z.string().trim().min(1).max(200),

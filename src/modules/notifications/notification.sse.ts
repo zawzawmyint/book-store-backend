@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express'
 import type { NotificationConfig } from './notification.config.js'
 import type { NotificationLive, NotificationHint } from './notification.live.js'
+import { log } from '../../shared/logger.js'
 
 type Scope = NotificationHint['scope']
 type Options = {
@@ -60,12 +61,16 @@ export function createNotificationStreams(
       return
     }
     const userId = authorization.userId
+    const requestIdHeader = res.getHeader?.('X-Request-ID')
+    const requestId = typeof requestIdHeader === 'string' ? requestIdHeader : undefined
     if (connections.size >= limits.total || (counts.get(userId) ?? 0) >= limits.perUser) {
       res.setHeader('Retry-After', '30')
       res.sendStatus(429)
       return
     }
     let closed = false
+    // Keep final end() errors observable after accounting/timers are released.
+    let ending = false
     let blocked = false
     let pending = false
     let checking = false
@@ -79,15 +84,38 @@ export function createNotificationStreams(
       clearInterval(heartbeat)
       clearInterval(recheck)
       res.off('drain', drain)
-      res.off('close', cleanup)
       connections.delete(connection)
       const count = (counts.get(userId) ?? 1) - 1
       if (count) counts.set(userId, count)
       else counts.delete(userId)
     }
     const close = () => {
+      if (closed) return
+      ending = true
       cleanup()
-      res.end()
+      try {
+        res.end()
+      } catch {
+        writeFailed()
+      }
+    }
+    const terminate = (streamFailure: 'WRITE_FAILED' | 'BACKPRESSURE') => {
+      if (closed && !ending) return
+      ending = false
+      log('warn', 'notifications.stream_terminated', {
+        component: 'http',
+        route: '/api/notifications/stream',
+        requestId,
+        streamFailure,
+      })
+      cleanup()
+      res.destroy()
+    }
+    const writeFailed = () => terminate('WRITE_FAILED')
+    const responseClosed = () => {
+      ending = false
+      cleanup()
+      res.off('error', writeFailed)
     }
     const write = (frame: string) => {
       if (closed) return
@@ -95,14 +123,12 @@ export function createNotificationStreams(
         if (!res.write(frame)) {
           blocked = true
           pressureTimer ??= setTimeout(() => {
-            cleanup()
-            res.destroy()
+            terminate('BACKPRESSURE')
           }, 5000)
           pressureTimer.unref()
         }
       } catch {
-        cleanup()
-        res.destroy()
+        terminate('WRITE_FAILED')
       }
     }
     const invalidate = () => {
@@ -124,15 +150,22 @@ export function createNotificationStreams(
     const connection: Connection = { userId, scope, invalidate, close }
     connections.add(connection)
     counts.set(userId, (counts.get(userId) ?? 0) + 1)
-    res.once('close', cleanup)
+    res.once('close', responseClosed)
+    res.once('error', writeFailed)
     res.on('drain', drain)
     res.status(200).set({
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-store, no-transform',
       'X-Accel-Buffering': 'no',
     })
-    res.flushHeaders()
+    try {
+      res.flushHeaders()
+    } catch {
+      writeFailed()
+      return
+    }
     write('retry: 5000\nevent: ready\ndata: {}\n\n')
+    if (closed) return
     heartbeat = setInterval(() => {
       if (!blocked) write(': heartbeat\n\n')
     }, 15000)

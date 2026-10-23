@@ -54,290 +54,302 @@ export async function createApp(
   },
   paymentOptions: Omit<PaymentOptions, 'frontendOrigin'> = {},
 ) {
-  const notificationConfig = options.notificationConfig ?? loadNotificationConfig()
-  const notificationStore = createNotificationStore(db, {
-    enabled: notificationConfig.enabled,
-    publish: (hint) => notificationLive.publish(hint),
-  })
-  const coverStorage =
-    options.covers?.storage ??
-    (options.covers
-      ? await createLocalCoverStorage(options.covers.directory, options.covers.publicBaseUrl)
-      : undefined)
-  const queuedEmail =
-    options.emailConfig?.mode === 'queued'
-      ? createEmailOutboxWriter(
-          db,
-          createEmailCrypto(options.emailConfig),
-          paymentOptions.now ?? Date.now,
-        )
-      : undefined
-  if (queuedEmail) await normalizeStore(db).dueEmailNotifications(Date.now(), 1)
-  const paymentRepository = createPaymentRepository(
-    notificationStore,
-    paymentOptions.now ?? Date.now,
-    options.emailConfig?.orderNotificationsEnabled ? queuedEmail?.writeOrderEmail : undefined,
-  )
-  const paymentService = createPaymentService(paymentRepository, {
-    ...paymentOptions,
-    frontendOrigin: options.frontendOrigin,
-  })
-  const auth = createAuth(
-    db,
-    queuedEmail
-      ? { ...options, emailSender: undefined, enqueueAuthEmail: queuedEmail.enqueueAuthEmail }
-      : options,
-  )
-  const server = new ApolloServer<GraphQLContext>({
-    typeDefs,
-    resolvers: createResolvers(notificationStore, paymentService, coverStorage, {
-      notificationsEnabled: notificationConfig.enabled,
-    }),
-    formatError: publicGraphQLError,
-    plugins: [operationalLoggingPlugin],
-  })
-  const notificationLive = createNotificationLive(notificationConfig)
+  let closeAuth: (() => Promise<void>) | undefined
   try {
-    await server.start()
-  } catch (error) {
-    await notificationLive.close()
-    await server.stop().catch(() => undefined)
-    throw error
-  }
-  try {
-    const app = express()
-    const notificationRepository = createNotificationRepository(
+    const notificationConfig = options.notificationConfig ?? loadNotificationConfig()
+    const notificationStore = createNotificationStore(db, {
+      enabled: notificationConfig.enabled,
+      publish: (hint) => notificationLive.publish(hint),
+    })
+    const coverStorage =
+      options.covers?.storage ??
+      (options.covers
+        ? await createLocalCoverStorage(options.covers.directory, options.covers.publicBaseUrl)
+        : undefined)
+    const queuedEmail =
+      options.emailConfig?.mode === 'queued'
+        ? createEmailOutboxWriter(
+            db,
+            createEmailCrypto(options.emailConfig),
+            paymentOptions.now ?? Date.now,
+          )
+        : undefined
+    if (queuedEmail) await normalizeStore(db).dueEmailNotifications(Date.now(), 1)
+    const paymentRepository = createPaymentRepository(
       notificationStore,
-      notificationConfig.enabled,
+      paymentOptions.now ?? Date.now,
+      options.emailConfig?.orderNotificationsEnabled ? queuedEmail?.writeOrderEmail : undefined,
     )
-    const notificationStreams = createNotificationStreams(notificationConfig, notificationLive, {
-      origin: options.frontendOrigin,
-      async authorize(req, scope) {
-        const session = await auth.api.getSession({
-          headers: fromNodeHeaders(req.headers),
-          query: { disableCookieCache: true },
-        })
-        if (!session?.user.emailVerified) return { status: 401 }
-        try {
-          await notificationRepository.authorize(session.user.id, scope)
-        } catch (error) {
-          if (error && typeof error === 'object' && 'extensions' in error) {
-            const code = (error.extensions as { code?: string }).code
-            if (code === 'UNAUTHENTICATED') return { status: 401 }
-            if (code === 'FORBIDDEN') return { status: 403 }
-          }
-          throw error
-        }
-        return { userId: session.user.id }
-      },
+    const paymentService = createPaymentService(paymentRepository, {
+      ...paymentOptions,
+      frontendOrigin: options.frontendOrigin,
     })
-    app.locals.notificationStore = notificationStore
-    app.locals.notificationLive = notificationLive
-    app.locals.closeNotificationStreams = notificationStreams.close
-    app.disable('x-powered-by')
-    app.use((req, res, next) => {
-      const requestId = randomUUID()
-      const started = performance.now()
-      const route =
-        req.path === '/health' ||
-        req.path === '/ready' ||
-        req.path === '/graphql' ||
-        req.path === '/api/payments/stripe/webhook'
-          ? req.path
-          : req.path.startsWith('/api/auth/')
-            ? '/api/auth/*'
-            : 'unmatched'
-      res.setHeader('X-Request-ID', requestId)
-      let completed = false
-      const complete = () => {
-        if (completed) return
-        completed = true
-        if (route === '/health' || route === '/ready') return
-        withRequestContext(requestId, () =>
-          log(
-            !res.writableFinished
-              ? 'warn'
-              : res.statusCode >= 500
-                ? 'error'
-                : res.statusCode >= 400
-                  ? 'warn'
-                  : 'info',
-            res.writableFinished ? 'http.completed' : 'http.aborted',
-            {
-              component: 'http',
-              route,
-              method: req.method,
-              statusCode: res.statusCode,
-              durationMs: Math.round(performance.now() - started),
-            },
-          ),
-        )
-      }
-      res.once('finish', complete)
-      res.once('close', complete)
-      withRequestContext(requestId, next)
-    })
-    app.get('/health', (_req, res) => res.json({ status: 'ok' }))
-    app.get('/api/notifications/stream', notificationStreams.handle)
-    const readiness = createReadinessProbe(
+    const auth = createAuth(
       db,
       queuedEmail
-        ? async () => {
-            await normalizeStore(db).emailNotification('00000000-0000-0000-0000-000000000000')
-          }
-        : undefined,
+        ? { ...options, emailSender: undefined, enqueueAuthEmail: queuedEmail.enqueueAuthEmail }
+        : options,
     )
-    app.get('/ready', async (_req, res) => {
-      res.setHeader('Cache-Control', 'no-store')
-      const ready = await readiness()
-      res.status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'unavailable' })
+    closeAuth = auth.closeMail
+    const server = new ApolloServer<GraphQLContext>({
+      typeDefs,
+      resolvers: createResolvers(notificationStore, paymentService, coverStorage, {
+        notificationsEnabled: notificationConfig.enabled,
+      }),
+      formatError: publicGraphQLError,
+      plugins: [operationalLoggingPlugin],
     })
-    app.locals.payments = paymentService
-    app.locals.close = async () => {
-      notificationStreams.close()
+    const notificationLive = createNotificationLive(notificationConfig)
+    try {
+      await server.start()
+    } catch (error) {
       await notificationLive.close()
-      await auth.closeMail()
-      await server.stop()
+      await server.stop().catch(() => undefined)
+      throw error
     }
-    app.post(
-      '/api/payments/stripe/webhook',
-      express.raw({ type: 'application/json', limit: '100kb' }),
-      async (req, res) => {
-        if (!paymentOptions.provider) {
-          res.sendStatus(503)
-          return
-        }
-        let event
-        try {
-          event = paymentOptions.provider.verifyWebhook(req.body, req.get('stripe-signature') ?? '')
-          if (
-            !event ||
-            typeof event.id !== 'string' ||
-            !event.id ||
-            typeof event.type !== 'string' ||
-            !event.type ||
-            typeof event.resourceId !== 'string'
-          )
-            throw new Error('Invalid event envelope')
-        } catch {
-          log('warn', 'payment.webhook_invalid', {
-            component: 'payments',
-            errorCode: 'INVALID_WEBHOOK',
-          })
-          res.sendStatus(400)
-          return
-        }
-        try {
-          await paymentService.handleEvent(event)
-          res.sendStatus(200)
-        } catch {
-          log('error', 'payment.webhook_failed', {
-            component: 'payments',
-            errorCode: 'PAYMENT_UNAVAILABLE',
-          })
-          res.sendStatus(503)
-        }
-      },
-    )
-    app.all(
-      '/api/auth/*splat',
-      cors({ origin: options.frontendOrigin, credentials: true }),
-      (req, res, next) => {
-        // Better Auth must never use a caller-supplied forwarded IP for rate limiting.
-        req.headers['x-bookstore-client-ip'] = clientIp(req, options.trustedProxyIp)
-        if (req.method === 'GET' || req.method === 'HEAD') return next()
-        let size = 0
-        const chunks: Buffer[] = []
-        req.on('data', (chunk: Buffer) => {
-          size += chunk.length
-          if (size <= authBodyLimit) chunks.push(chunk)
-          else chunks.length = 0
-        })
-        req.on('end', () => {
-          if (size > authBodyLimit) {
-            res.status(413).json({ error: 'Auth request body is too large' })
-            return
-          }
-          req.body = Buffer.concat(chunks).toString('utf8')
-          next()
-        })
-        req.on('error', next)
-      },
-      toNodeHandler(auth),
-    )
-    if (coverStorage)
-      mountCoverRoutes(
-        app,
-        db,
-        auth,
-        options.frontendOrigin,
-        coverStorage,
-        'mediaDirectory' in coverStorage ? String(coverStorage.mediaDirectory) : undefined,
+    try {
+      const app = express()
+      const notificationRepository = createNotificationRepository(
+        notificationStore,
+        notificationConfig.enabled,
       )
-    app.use(
-      '/graphql',
-      cors({ origin: options.frontendOrigin, credentials: true }),
-      express.json({ limit: '100kb' }),
-      (req, res, next) => {
-        if (req.method === 'POST' && req.headers.cookie) {
-          if (req.get('origin') !== options.frontendOrigin || !req.is('application/json')) {
-            res.status(403).json({ error: 'Forbidden origin or content type' })
-            return
-          }
-        }
-        next()
-      },
-      expressMiddleware(server, {
-        context: async ({ req }) => {
+      const notificationStreams = createNotificationStreams(notificationConfig, notificationLive, {
+        origin: options.frontendOrigin,
+        async authorize(req, scope) {
           const session = await auth.api.getSession({
             headers: fromNodeHeaders(req.headers),
             query: { disableCookieCache: true },
           })
-          return {
-            user: session?.user.emailVerified ? session.user : null,
-            expectedCartAccount: req.get('x-cart-account'),
+          if (!session?.user.emailVerified) return { status: 401 }
+          try {
+            await notificationRepository.authorize(session.user.id, scope)
+          } catch (error) {
+            if (error && typeof error === 'object' && 'extensions' in error) {
+              const code = (error.extensions as { code?: string }).code
+              if (code === 'UNAUTHENTICATED') return { status: 401 }
+              if (code === 'FORBIDDEN') return { status: 403 }
+            }
+            throw error
+          }
+          return { userId: session.user.id }
+        },
+      })
+      app.locals.notificationStore = notificationStore
+      app.locals.notificationLive = notificationLive
+      app.locals.closeNotificationStreams = notificationStreams.close
+      app.disable('x-powered-by')
+      app.use((req, res, next) => {
+        const requestId = randomUUID()
+        const started = performance.now()
+        const route =
+          req.path === '/health' ||
+          req.path === '/ready' ||
+          req.path === '/graphql' ||
+          req.path === '/api/payments/stripe/webhook'
+            ? req.path
+            : /^\/api\/notifications\/stream\/?$/i.test(req.path)
+              ? '/api/notifications/stream'
+              : req.path.startsWith('/api/auth/')
+                ? '/api/auth/*'
+                : 'unmatched'
+        res.setHeader('X-Request-ID', requestId)
+        let completed = false
+        const complete = () => {
+          if (completed) return
+          completed = true
+          if (route === '/health' || route === '/ready') return
+          if (route === '/api/notifications/stream' && res.statusCode === 200 && res.headersSent)
+            return
+          withRequestContext(requestId, () =>
+            log(
+              !res.writableFinished
+                ? 'warn'
+                : res.statusCode >= 500
+                  ? 'error'
+                  : res.statusCode >= 400
+                    ? 'warn'
+                    : 'info',
+              res.writableFinished ? 'http.completed' : 'http.aborted',
+              {
+                component: 'http',
+                route,
+                method: req.method,
+                statusCode: res.statusCode,
+                durationMs: Math.round(performance.now() - started),
+              },
+            ),
+          )
+        }
+        res.once('finish', complete)
+        res.once('close', complete)
+        withRequestContext(requestId, next)
+      })
+      app.get('/health', (_req, res) => res.json({ status: 'ok' }))
+      app.get('/api/notifications/stream', notificationStreams.handle)
+      const readiness = createReadinessProbe(db, async () => {
+        await auth.checkRateLimit()
+        if (queuedEmail)
+          await normalizeStore(db).emailNotification('00000000-0000-0000-0000-000000000000')
+      })
+      app.get('/ready', async (_req, res) => {
+        res.setHeader('Cache-Control', 'no-store')
+        const ready = await readiness()
+        res.status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'unavailable' })
+      })
+      app.locals.payments = paymentService
+      app.locals.close = async () => {
+        notificationStreams.close()
+        await notificationLive.close()
+        await auth.closeMail()
+        await server.stop()
+      }
+      app.post(
+        '/api/payments/stripe/webhook',
+        express.raw({ type: 'application/json', limit: '100kb' }),
+        async (req, res) => {
+          if (!paymentOptions.provider) {
+            res.sendStatus(503)
+            return
+          }
+          let event
+          try {
+            event = paymentOptions.provider.verifyWebhook(
+              req.body,
+              req.get('stripe-signature') ?? '',
+            )
+            if (
+              !event ||
+              typeof event.id !== 'string' ||
+              !event.id ||
+              typeof event.type !== 'string' ||
+              !event.type ||
+              typeof event.resourceId !== 'string'
+            )
+              throw new Error('Invalid event envelope')
+          } catch {
+            log('warn', 'payment.webhook_invalid', {
+              component: 'payments',
+              errorCode: 'INVALID_WEBHOOK',
+            })
+            res.sendStatus(400)
+            return
+          }
+          try {
+            await paymentService.handleEvent(event)
+            res.sendStatus(200)
+          } catch {
+            log('error', 'payment.webhook_failed', {
+              component: 'payments',
+              errorCode: 'PAYMENT_UNAVAILABLE',
+            })
+            res.sendStatus(503)
           }
         },
-      }),
-    )
-    app.use(
-      (
-        error: unknown,
-        _req: express.Request,
-        res: express.Response,
-        _next: express.NextFunction,
-      ) => {
-        // Body-parser categories are safe; never serialize the error/body itself.
-        const type = error && typeof error === 'object' && 'type' in error ? error.type : undefined
-        const status =
-          type === 'entity.too.large'
-            ? 413
-            : type === 'charset.unsupported' || type === 'encoding.unsupported'
-              ? 415
-              : type === 'entity.parse.failed' ||
-                  type === 'request.aborted' ||
-                  type === 'request.size.invalid'
-                ? 400
-                : 500
-        log(status === 500 ? 'error' : 'warn', 'http.failed', {
-          component: 'http',
-          statusCode: status,
-          errorCode: status === 500 ? 'INTERNAL_SERVER_ERROR' : 'BAD_REQUEST',
-        })
-        if (res.headersSent) {
-          res.destroy()
-          return
-        }
-        res.status(status).json({
-          error:
-            status === 500 ? 'Request unavailable. Please try again shortly.' : 'Invalid request',
-        })
-      },
-    )
-    return app
+      )
+      app.all(
+        '/api/auth/*splat',
+        cors({ origin: options.frontendOrigin, credentials: true }),
+        (req, res, next) => {
+          // Better Auth must never use a caller-supplied forwarded IP for rate limiting.
+          req.headers['x-bookstore-client-ip'] = clientIp(req, options.trustedProxyIp)
+          if (req.method === 'GET' || req.method === 'HEAD') return next()
+          let size = 0
+          const chunks: Buffer[] = []
+          req.on('data', (chunk: Buffer) => {
+            size += chunk.length
+            if (size <= authBodyLimit) chunks.push(chunk)
+            else chunks.length = 0
+          })
+          req.on('end', () => {
+            if (size > authBodyLimit) {
+              res.status(413).json({ error: 'Auth request body is too large' })
+              return
+            }
+            req.body = Buffer.concat(chunks).toString('utf8')
+            next()
+          })
+          req.on('error', next)
+        },
+        toNodeHandler(auth),
+      )
+      if (coverStorage)
+        mountCoverRoutes(
+          app,
+          db,
+          auth,
+          options.frontendOrigin,
+          coverStorage,
+          'mediaDirectory' in coverStorage ? String(coverStorage.mediaDirectory) : undefined,
+        )
+      app.use(
+        '/graphql',
+        cors({ origin: options.frontendOrigin, credentials: true }),
+        express.json({ limit: '100kb' }),
+        (req, res, next) => {
+          if (req.method === 'POST' && req.headers.cookie) {
+            if (req.get('origin') !== options.frontendOrigin || !req.is('application/json')) {
+              res.status(403).json({ error: 'Forbidden origin or content type' })
+              return
+            }
+          }
+          next()
+        },
+        expressMiddleware(server, {
+          context: async ({ req }) => {
+            const session = await auth.api.getSession({
+              headers: fromNodeHeaders(req.headers),
+              query: { disableCookieCache: true },
+            })
+            return {
+              user: session?.user.emailVerified ? session.user : null,
+              expectedCartAccount: req.get('x-cart-account'),
+            }
+          },
+        }),
+      )
+      app.use(
+        (
+          error: unknown,
+          _req: express.Request,
+          res: express.Response,
+          _next: express.NextFunction,
+        ) => {
+          // Body-parser categories are safe; never serialize the error/body itself.
+          const type =
+            error && typeof error === 'object' && 'type' in error ? error.type : undefined
+          const status =
+            type === 'entity.too.large'
+              ? 413
+              : type === 'charset.unsupported' || type === 'encoding.unsupported'
+                ? 415
+                : type === 'entity.parse.failed' ||
+                    type === 'request.aborted' ||
+                    type === 'request.size.invalid'
+                  ? 400
+                  : 500
+          log(status === 500 ? 'error' : 'warn', 'http.failed', {
+            component: 'http',
+            statusCode: status,
+            errorCode: status === 500 ? 'INTERNAL_SERVER_ERROR' : 'BAD_REQUEST',
+          })
+          if (res.headersSent) {
+            res.destroy()
+            return
+          }
+          res.status(status).json({
+            error:
+              status === 500 ? 'Request unavailable. Please try again shortly.' : 'Invalid request',
+          })
+        },
+      )
+      return app
+    } catch (error) {
+      await notificationLive.close()
+      await server.stop().catch(() => undefined)
+      throw error
+    }
   } catch (error) {
-    await notificationLive.close()
-    await server.stop().catch(() => undefined)
+    await closeAuth?.()
     throw error
   }
 }

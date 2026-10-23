@@ -1,6 +1,6 @@
 import { normalizeStore, type DatabaseInput } from '../../database/persistence.js'
 import type { BookRow } from '../../database/store.types.js'
-import { ValidationError } from '../../shared/errors.js'
+import { ConflictError, ValidationError } from '../../shared/errors.js'
 import type { z } from 'zod'
 import type { adminBooksInputSchema, bookDetailsSchema } from './book.validation.js'
 import type { ActivityActor, ActivityChange } from '../activity/activity.types.js'
@@ -51,11 +51,24 @@ export function createAdminBookRepository(input: DatabaseInput) {
         return row
       })
     },
-    update(id: string, details: z.infer<typeof bookDetailsSchema>, actor: ActivityActor) {
+    update(
+      id: string,
+      details: z.infer<typeof bookDetailsSchema>,
+      actor: ActivityActor,
+      expectedRevision?: number,
+    ) {
       return store.transaction(async (tx) => {
-        const before = saved(await tx.book(Number(id))),
-          row = saved(await tx.updateBook(Number(id), details)),
-          changes = changesFor(before, row)
+        const before = saved(await tx.book(Number(id)))
+        const row = await tx.updateBookDetails(
+          Number(id),
+          details,
+          expectedRevision ?? before.detailsRevision,
+        )
+        if (!row)
+          throw new ConflictError(
+            'This book changed. Reload the latest details before saving again.',
+          )
+        const changes = changesFor(before, row)
         if (changes.length)
           await insertActivity(tx, actor, {
             action: 'BOOK_UPDATED',

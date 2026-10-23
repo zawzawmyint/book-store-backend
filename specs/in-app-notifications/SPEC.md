@@ -37,7 +37,7 @@ Give customers a durable order-update inbox and Staff/Admin an actionable operat
 **Technical**
 
 - Reuse Express, Better Auth, Apollo, Drizzle, `ioredis`, existing Redis, and native browser `EventSource`; no new production package is expected.
-- Redis is an optional API connection only when notification live delivery is enabled. Queued email mode otherwise keeps Redis in the separate email worker.
+- Redis is an optional API connection for notification live delivery. Queued email mode otherwise keeps its Redis use in the separate email worker; the independent auth limiter may separately require Redis.
 - Database writes and notification inserts share the domain transaction; no Redis calls inside database transactions.
 - Existing `NotificationRow` / `NotificationDraft` in `src/database/store.types.ts` refer to email records. New types must use `InAppNotification*` names and a separate table.
 - API instances share one database and one deployment-specific Redis channel prefix. Each instance subscribes once, with dedicated publisher/subscriber connections, never borrowed from BullMQ.
@@ -96,7 +96,7 @@ Give customers a durable order-update inbox and Staff/Admin an actionable operat
 - `NOTIFICATION_CHANNEL_PREFIX` defaults to `book-store-development` outside production; require an explicit 1–100 character `[A-Za-z0-9_-]` prefix in production when live is enabled. Use `${prefix}:notifications:changed`.
 - Live enabled requires existing `REDIS_URL`; production requires authenticated verified `rediss:`. Reuse URL-validation policy without coupling notification configuration to email payload keys or worker startup. Existing email configuration remains independent.
 - Payload: `{ version: 1, recipientId: string, scope: "STOREFRONT" | "WORKSPACE" }`, maximum encoded size 1 KiB; subscriber validates before dispatch. IDs/scopes are internal signals, never authorization grants. Publish after commit from every event producer and after reads; nested transactions must not publish before the outermost commit.
-- No persisted live-signal queue, replay, or delivery guarantee. Crash between commit and publish is recovered by fetching. Redis outages log redacted operational events and reconnect with bounded buffering disabled; GraphQL inbox and business transactions stay available. API `/ready` continues reflecting database readiness; report live transport degradation separately.
+- No persisted live-signal queue, replay, or delivery guarantee. Crash between commit and publish is recovered by fetching. Redis outages log redacted operational events and reconnect with bounded buffering disabled; GraphQL inbox and business transactions stay available. API `/ready` includes the auth limiter only when that independent Redis mode is configured; report live transport degradation separately.
 
 **SSE contract and lifecycle**
 
@@ -105,6 +105,8 @@ Give customers a durable order-update inbox and Staff/Admin an actionable operat
 - Headers: `Content-Type: text/event-stream`, `Cache-Control: no-store, no-transform`, `X-Accel-Buffering: no`; flush headers, disable compression/buffering for this route. Send `retry: 5000` and comment heartbeat every 15 seconds. No replay cursor or Last-Event-ID guarantee.
 - Revalidate current session and workspace eligibility at least every 30 seconds, without stale cookie/session-role cache; close on expiry/logout/revocation. Frontend session transitions close immediately. No private business data travels through hints; GraphQL always reauthorizes.
 - Per-process limits are 5 streams per user and 500 streams total; return 429 before opening beyond limits. Close slow clients after 5 seconds of unresolved write backpressure; coalesce invalidations rather than unbounded buffering. Clean listeners/timers/registrations on abort. Shutdown closes streams before draining HTTP and closes both Redis connections. Capacity/load-balancer settings must be reviewed in staging.
+- A successful client disconnect is silent. Setup failures retain normal HTTP logging. A server-side write failure or unresolved backpressure emits one safe `notifications.stream_terminated` diagnostic with only the server request ID and `streamFailure` (`WRITE_FAILED` or `BACKPRESSURE`); it releases the stream slot and timers immediately without exposing client data or raw errors.
+- Publisher and subscriber lifecycle health is independent. Each connection reports one unavailable event per outage and one ready event on recovery; publisher recovery is also established by a successful publish, while stream admission remains gated on successful subscriber subscription.
 - Same-origin deployment only for v1: reject foreign Origin when present, no wildcard credentialed CORS. Proxy the exact route in Vite and production, preserving cookies/streaming. No sticky session requirement when all API instances subscribe to shared Redis; clients refetch on reconnect to any instance.
 
 **Delivered files**
@@ -172,7 +174,7 @@ Give customers a durable order-update inbox and Staff/Admin an actionable operat
 
 ## 🛠️ Activation and operations
 
-Apply the generated SQLite and PostgreSQL migrations with `bun run db:migrate` before enabling this feature. Deploy compatible backend and frontend builds with both flags off first. Set `IN_APP_NOTIFICATIONS_ENABLED=true` only after migration readiness; set `NOTIFICATION_LIVE_ENABLED=true` only after setting `REDIS_URL` and `NOTIFICATION_CHANNEL_PREFIX`. Live mode requires a shared channel prefix and Redis connection; production requires an explicit prefix plus authenticated `rediss:` TLS. The API connects to Redis only when live notifications are enabled. Queued email delivery remains independent and adds no Redis requirement to the API by itself.
+Apply the generated SQLite and PostgreSQL migrations with `bun run db:migrate` before enabling this feature. Deploy compatible backend and frontend builds with both flags off first. Set `IN_APP_NOTIFICATIONS_ENABLED=true` only after migration readiness; set `NOTIFICATION_LIVE_ENABLED=true` only after setting `REDIS_URL` and `NOTIFICATION_CHANNEL_PREFIX`. Live mode requires a shared channel prefix and Redis connection; production requires an explicit prefix plus authenticated `rediss:` TLS. The independent auth limiter may also create an API Redis connection. Queued email delivery remains independent and adds no Redis requirement to the API by itself.
 
 Proxy `/api/notifications/stream` same-origin without response buffering or compression, preserve cookies, and support long-lived streaming connections. Run `bun run notifications:cleanup` from the hosting scheduler daily; it captures one cutoff and deletes only notification rows older than 90 days in batches of 500. Run `bun run test:notifications:live` only with its isolated loopback Redis settings; it neither uses production Redis nor flushes shared data.
 

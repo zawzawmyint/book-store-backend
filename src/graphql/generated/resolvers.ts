@@ -172,6 +172,7 @@ export type AdminBook = {
   __typename?: 'AdminBook';
   cover?: Maybe<BookCover>;
   coverRevision: Scalars['Int']['output'];
+  detailsRevision: Scalars['Int']['output'];
   id: Scalars['ID']['output'];
   title: Scalars['String']['output'];
   author: Scalars['String']['output'];
@@ -673,6 +674,7 @@ export type MutationCreateBookArgs = {
 export type MutationUpdateBookArgs = {
   id: Scalars['ID']['input'];
   input: AdminBookDetailsInput;
+  expectedRevision?: InputMaybe<Scalars['Int']['input']>;
 };
 
 
@@ -1210,6 +1212,7 @@ export type BookPageResolvers<ContextType = any, ParentType extends ResolversPar
 export type AdminBookResolvers<ContextType = any, ParentType extends ResolversParentTypes['AdminBook'] = ResolversParentTypes['AdminBook']> = {
   cover?: Resolver<Maybe<ResolversTypes['BookCover']>, ParentType, ContextType>;
   coverRevision?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  detailsRevision?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   id?: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
   title?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   author?: Resolver<ResolversTypes['String'], ParentType, ContextType>;

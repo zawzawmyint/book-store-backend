@@ -5,7 +5,7 @@
 ## Purpose
 
 Make backend failures observable in local terminals and hosting log collectors,
-and let a hosting health check determine whether the API can access its database.
+and let a hosting health check determine whether the API can access its required readiness dependencies.
 Logs support diagnosis; persisted orders and payment evidence remain authoritative.
 This feature is backend-only and independent of a hosting provider.
 
@@ -14,7 +14,7 @@ This feature is backend-only and independent of a hosting provider.
 - Structured JSON console logging, HTTP request correlation, GraphQL outcomes,
   payment/recovery failures, auth-email outcomes, database connection failures,
   and server lifecycle events.
-- A public, read-only `GET /ready` endpoint for SQLite and PostgreSQL.
+- A public, read-only `GET /ready` endpoint for SQLite and PostgreSQL, plus the auth limiter's Redis PING when that independent mode is configured.
 - Preserve `GET /health`, authentication, authorization, payments, retries,
   inventory transactions, and GraphQL response contracts.
 - No log-file storage, log database, admin log viewer, telemetry vendor integration,
@@ -77,12 +77,17 @@ Logging failures must not change HTTP responses, payment outcomes, or worker ret
 ## Readiness HTTP contract
 
 - `GET /ready` needs no session and performs no writes or provider calls.
-- Successful database probe: HTTP 200, `{ "status": "ready" }`.
-- Failed or timed-out probe: HTTP 503, `{ "status": "unavailable" }`.
+- Successful composite probe: HTTP 200, `{ "status": "ready" }`.
+- Failed or timed-out composite probe: HTTP 503, `{ "status": "unavailable" }`.
 - Responses include `Cache-Control: no-store` and `X-Request-ID`; disclose no
   provider, connection details, SQL, or error messages.
 - Probe SQLite with `SELECT 1` on the supplied connection; probe PostgreSQL with
   `SELECT 1` through the supplied pool. Never open a new database per HTTP request.
+- In Redis auth-limiter mode, also PING its dedicated connection without consuming a
+  request budget. The established composite probe reports its failure as `database`;
+  do not infer a distinct readiness component from that label. Safe server events
+  `auth.rate_limit_unavailable` and `auth.rate_limit_recovered` identify limiter
+  transitions.
 - Bound readiness response time to two seconds for asynchronous probes. Limit
   concurrent probes so polling during an outage does not accumulate database work.
   Ensure late results and failures are handled; a response timeout alone does not
@@ -176,3 +181,12 @@ this backend-only change.
 
 Rollback is application-only with no migration; operators must restore a previous
 health-check path if deploying a version without `/ready`.
+
+## Delivered notification observability remediation
+
+**Status: Implemented and locally verified; production Redis/proxy/capacity and retention operations remain release gates for in-app notifications.**
+
+- Classify only `/api/notifications/stream` as its own safe route. Suppress generic HTTP completion/abort records for admitted HTTP 200 streams after headers were sent; setup rejections retain ordinary status/severity logging.
+- Emit one warning `notifications.stream_terminated` per server write failure or sustained backpressure termination, with `component: http`, the exact stream route, correlated server request ID, and allowlisted `streamFailure: WRITE_FAILED | BACKPRESSURE`. Never log recipient identity, raw exception, frame or headers. Normal client disconnect, authorization recheck closure and shutdown are silent.
+- Emit `notifications.live_unavailable` once per publisher/subscriber outage episode and `notifications.live_ready` once when that connection recovers. Both carry `component: server` and allowlisted `redisConnection: publisher | subscriber`; outage warnings retain `NOTIFICATION_LIVE_UNAVAILABLE`. Initial successful readiness is also recorded once per connection. Subscriber readiness requires successful subscription and triggers reconciliation. Publisher readiness cannot admit streams when the subscriber is unavailable. Shutdown suppresses subsequent transitions.
+- Regression checks cover successful disconnect silence, setup error classification, write/backpressure warning privacy and released slots/timers, independent repeated outages, resubscription failure/recovery, and close during pending subscription.

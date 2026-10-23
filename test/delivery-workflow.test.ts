@@ -35,6 +35,27 @@ beforeEach(() => {
   service = createPaymentService(createPaymentRepository(db, Date.now), options)
 })
 afterEach(() => db.close())
+it('revalidates stock after a quote and preserves missing-book diagnostics without writes', async () => {
+  const repository = createPaymentRepository(db, Date.now)
+  const quote = await repository.quote(items, deliveryAddress, options)
+  const payload = {
+    items,
+    deliveryAddress,
+    requestKey: randomUUID(),
+    expectedDeliveryFeeCents: quote.deliveryFeeCents,
+    expectedTotalCents: quote.totalCents,
+  }
+  db.prepare('UPDATE books SET stock=0 WHERE id=1').run()
+  await expect(repository.reserve(payload, buyer, options)).rejects.toThrow('insufficient stock')
+  const missing = [{ bookId: '99999', quantity: 1 }]
+  await expect(repository.quote(missing, deliveryAddress, options)).rejects.toThrow(
+    'unavailable or has insufficient stock',
+  )
+  await expect(repository.reserve({ ...payload, items: missing }, buyer, options)).rejects.toThrow(
+    'Book 99999 was not found',
+  )
+  expect(db.prepare('SELECT count(*) AS n FROM orders').get()).toEqual({ n: 0 })
+})
 it('rejects a stale pending cancellation before persisting intent after another processing transition', async () => {
   const placed = await service.createCheckout(
     {

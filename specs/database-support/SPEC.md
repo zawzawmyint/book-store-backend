@@ -36,6 +36,16 @@ Use Drizzle with `better-sqlite3` for SQLite and `pg` with
 
 ## Delivered architecture
 
+### SQLite draft book-revision adoption — Implemented
+
+A local database may contain the earlier, unconstrained `details_revision` draft recorded with migration timestamp `1792586504514` and hash `fb9416a413ec97dcb589fd91a6246952c2950bca5c0bf5b7e0a6a209e136200f`. Replaying the reviewed `1792587670357` migration would attempt to add that existing column and prevent startup.
+
+The SQLite wrapper recognizes only that exact latest draft record, with the exact preceding generated timestamp sequence and cardinality. Its immediate predecessor must match the generated source hash, allowing equivalent LF/CRLF source text; older history hashes remain as recorded and are never rewritten. It verifies the existing `INTEGER`, non-null, default-zero, non-primary-key column, valid `0..2,147,483,647` values, and intact foreign keys. In the existing migration-adoption transaction, it installs the two range triggers and appends the canonical record while retaining the draft as provenance. Preserve all business rows, references and revision values; never drop/rebuild the books table or reset data. Unknown draft records, a future/canonical timestamp with the wrong hash, duplicate or extra records, malformed schema/data, and unrecognized history fail before Drizzle can skip migration work. Fresh databases continue through the unchanged generated migration.
+
+Verification: 25 focused migration tests passed, covering populated-row preservation, idempotence, range constraints, malformed draft states, and rollback without adoption writes. The final backend suite passed 388 tests with 4 skips; lint and build passed. A repaired local database was backed up through SQLite's backup API before normal startup; eight business tables matched the backup, `foreign_key_check` returned no violations, and `/health`, `/ready`, and GraphQL all returned 200 (the catalog total was 12). This is a SQLite-only repair: no PostgreSQL or frontend suite was rerun for it.
+
+Back up persisted local data before applying this repair through the normal migration/startup workflow. No reset, environment variable, command, or public API change is required.
+
 - `openDatabase(config)` creates a SQLite handle or a PostgreSQL pool/Drizzle handle and
   exposes an awaited close operation. PostgreSQL startup verifies its migration journal
   and required relations before the HTTP server or payment worker starts.
@@ -315,8 +325,10 @@ The automated portable-test baseline is PostgreSQL 17.10 through the pinned
 `embedded-postgres` package. Production hosting, PostgreSQL server maintenance, and
 credentials remain deployment choices; this feature creates no external database.
 
-## Cover metadata migration and storage (verification pending)
+## Cover metadata and detail-revision migrations
 
 The additive cover migrations add nullable `cover_key`, `cover_width`, and `cover_height`, plus non-null `cover_revision` defaulting to zero, to both providers. Existing books remain valid without a cover. Apply both generated migration sets before running an application version that writes covers, and preserve the upload root with the database backup. A compatible rollback may leave the columns and media in place; do not remove them as part of application rollback.
 
 Cover reference updates, revision comparison, Activity insertion, and actor authorization are coordinated by the provider transaction. The concurrent role-demotion regression confirms an actor cannot commit a cover write after permission is removed. The local media file itself is outside the database transaction, so a failed write leaves the old reference intact and best-effort cleanup handles a newly abandoned object.
+
+The additive detail-revision migrations, `drizzle/0013_book_details_revision.sql` and `drizzle/postgresql/0006_book_details_revision.sql`, add non-null `details_revision` with a zero default and a `0..2,147,483,647` constraint to books in both providers. Detail writes compare an optional expected revision when supplied, then update the details and increment the revision atomically. Cover writes, archive state, and stock deltas retain their independent revision/concurrency behavior. Apply the generated SQLite and PostgreSQL migration chains before application versions that use the field; compatible rollback keeps the additive column.

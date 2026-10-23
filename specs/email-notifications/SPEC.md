@@ -78,7 +78,7 @@ payments and production launch of the entire store remain separate work.
 - [admin-order.repository.ts](../../src/modules/orders/admin-order.repository.ts)
   commits shipment/cancellation and their history inside transactions.
 - [server.ts](../../src/server.ts) starts payment recovery and passes queued-email
-  configuration to the API. In queued mode it opens neither SMTP nor Redis; existing
+  configuration to the API. For queued email delivery it opens neither SMTP nor Redis; the independently configured auth limiter and optional notification live transport may each use their own Redis connection. Existing
   payment recovery stays in place and only the separate email worker uses BullMQ.
 - Extend [store.types.ts](../../src/database/store.types.ts), both physical
   schemas and store adapters, config, logger, app startup/readiness, and scripts.
@@ -281,7 +281,7 @@ FAILED | UNCERTAIN`; `createdAt`, `expiresAt`, `nextAttemptAt`, `enqueuedAt`,
   also requires an explicit deployment-unique `EMAIL_QUEUE_PREFIX`.
   Validate bounded positive concurrency and fail startup for malformed enabled
   configuration. Do not silently fall back to inline SMTP in queued mode.
-- API needs DB and encryption keys, not SMTP or Redis connections; worker needs
+- API needs DB and encryption keys, not SMTP or Redis connections for queued email delivery; independently configured auth limiting or live notifications may require their own Redis connections. The worker needs
   DB, Redis, keys, trusted origins, and existing SMTP configuration. Split config
   validation by process role. Worker startup must not seed data or run migrations.
 - Use BullMQ-compatible Redis, persistence (AOF), `maxmemory-policy=noeviction`,
@@ -289,7 +289,9 @@ FAILED | UNCERTAIN`; `createdAt`, `expiresAt`, `nextAttemptAt`, `enqueuedAt`,
   tested BullMQ/Redis-client versions in bun.lock and a tested Redis image in
   local/CI infrastructure; verify compatibility rather than assuming latest.
 - API readiness checks durable enqueue prerequisites (DB/schema/active key),
-  not Redis availability. Worker readiness includes schema, keys, queue connection,
+  not email-queue Redis availability. The composite API readiness probe additionally
+  checks the independently configured auth limiter's Redis connection when that mode
+  is enabled. Worker readiness includes schema, keys, queue connection,
   and dispatcher/consumer heartbeats. SMTP outage is degraded delivery with
   alerting/retries, not API downtime. SIGTERM stops polling, closes consumers
   within 30 seconds, then closes SMTP/Redis/DB; interrupted sends become UNCERTAIN.
@@ -349,7 +351,7 @@ FAILED | UNCERTAIN`; `createdAt`, `expiresAt`, `nextAttemptAt`, `enqueuedAt`,
 - [x] Same-transaction order/outbox writes roll back together on both databases.
 - [x] All listed triggers, replay/no-op paths, late payment after cancellation,
       immutable snapshots, safe copy/links, and per-order sequencing are verified.
-- [x] API performs no SMTP/Redis network calls in queued mode; existing auth,
+- [x] API performs no SMTP/Redis network calls for queued email delivery; independently configured auth limiting and live notifications retain their own connections. Existing auth,
       authorization, checkout, cart, and order contracts remain intact.
 - [x] Existing verification and reset links work through real Redis + worker +
       captured SMTP; expiry, resend, unknown-account behavior, and callback database

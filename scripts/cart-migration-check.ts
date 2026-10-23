@@ -31,6 +31,7 @@ export async function verifyPostgreSQLCartMigration(url: string, directory: stri
       cover_width: null,
       cover_height: null,
       cover_revision: 0,
+      details_revision: 0,
     }))
     await migrate(drizzle(pool), { migrationsFolder: source })
     await migrate(drizzle(pool), { migrationsFolder: source })

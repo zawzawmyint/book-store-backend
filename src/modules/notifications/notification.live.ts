@@ -73,41 +73,64 @@ export function createNotificationLive(config: NotificationConfig): Notification
   }
   const publisher = new Redis(config.redisUrl!, options)
   const subscriber = new Redis(config.redisUrl!, options)
-  let degraded = false
-  const unavailable = () => {
-    if (!degraded && !closed)
-      log('warn', 'notifications.live_unavailable', {
-        component: 'server',
-        errorCode: 'NOTIFICATION_LIVE_UNAVAILABLE',
-      })
-    degraded = true
+  const health = {
+    publisher: { degraded: false, healthy: false },
+    subscriber: { degraded: false, healthy: false },
   }
-  publisher.on('error', unavailable)
-  subscriber.on('error', unavailable)
-  subscriber.on('close', () => {
-    ready = false
-    unavailable()
-  })
+  let subscriptionGeneration = 0
+  const unavailable = (redisConnection: 'publisher' | 'subscriber') => {
+    if (closed) return
+    if (redisConnection === 'subscriber') {
+      ready = false
+      subscriptionGeneration++
+    }
+    const state = health[redisConnection]
+    state.healthy = false
+    if (state.degraded) return
+    state.degraded = true
+    log('warn', 'notifications.live_unavailable', {
+      component: 'server',
+      errorCode: 'NOTIFICATION_LIVE_UNAVAILABLE',
+      redisConnection,
+    })
+  }
+  const available = (redisConnection: 'publisher' | 'subscriber') => {
+    if (closed) return
+    const state = health[redisConnection]
+    if (state.healthy) return
+    state.degraded = false
+    state.healthy = true
+    log('info', 'notifications.live_ready', { component: 'server', redisConnection })
+  }
+  publisher.on('error', () => unavailable('publisher'))
+  publisher.on('close', () => unavailable('publisher'))
+  publisher.on('ready', () => available('publisher'))
+  subscriber.on('error', () => unavailable('subscriber'))
+  subscriber.on('close', () => unavailable('subscriber'))
   subscriber.on('ready', () => {
+    if (closed) return
+    ready = false
+    const generation = ++subscriptionGeneration
     void subscriber
       .subscribe(channel)
       .then(() => {
-        if (closed || subscriber.status !== 'ready') return
+        if (closed || subscriber.status !== 'ready' || generation !== subscriptionGeneration) return
         ready = true
-        degraded = false
-        log('info', 'notifications.live_ready', { component: 'server' })
+        available('subscriber')
         // Reconcile missed invalidations on every subscription, including reconnect.
         dispatch(null)
       })
-      .catch(unavailable)
+      .catch(() => {
+        if (generation === subscriptionGeneration) unavailable('subscriber')
+      })
   })
   subscriber.on('message', (receivedChannel, message) => {
     if (receivedChannel !== channel) return
     const hint = parseNotificationHint(message)
     if (hint) dispatch(hint)
   })
-  void publisher.connect().catch(unavailable)
-  void subscriber.connect().catch(unavailable)
+  void publisher.connect().catch(() => unavailable('publisher'))
+  void subscriber.connect().catch(() => unavailable('subscriber'))
   return {
     get ready() {
       return ready
@@ -118,8 +141,9 @@ export function createNotificationLive(config: NotificationConfig): Notification
       if (!parseNotificationHint(message)) return
       try {
         await publisher.publish(channel, message)
+        if (publisher.status === 'ready') available('publisher')
       } catch {
-        unavailable()
+        unavailable('publisher')
       }
     },
     subscribe(listener) {

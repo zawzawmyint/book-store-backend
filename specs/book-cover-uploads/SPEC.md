@@ -37,6 +37,10 @@ Reuse the existing verified cookie-session lookup and current stored `MANAGE_CAT
 
 Maximum input is **5 MiB (5,242,880 bytes)**. Inspect actual decoded format and require it to match the accepted declared type. Reject empty, corrupt, animated/multi-frame, SVG, GIF, and other unsupported images. PNG input also receives bounded chunk-boundary `acTL` detection before normalization so APNG is rejected even when decoder metadata does not expose page count. Limit decoded input to **20,000,000 pixels** and each edge to **10,000 pixels**. Apply orientation, strip metadata, preserve artwork aspect ratio, and encode a single WebP at quality **85**, fitting within **800 × 1200 pixels** without enlargement or cropping. Do not reject legitimate landscape artwork; the frontend contains it in a portrait frame. Bound active decodes to **two per API process**; reject additional uploads with 503 rather than creating an unbounded queue. The delivered decoder is Sharp 0.35.5.
 
+## Delivered decoder failure classification
+
+The existing 413 byte limit, 415 MIME validation, and two-decode 503 admission limit are unchanged. Explicit checks and verified Sharp 0.35.5 malformed-input diagnostics return 422 `INVALID_COVER_IMAGE`; the bounded PNG chunk parser rejects structurally truncated PNG before Sharp. Resource/backend failures and unfamiliar operational failures return safe 503 `COVER_UNAVAILABLE`; a bare Sharp `corrupt header` wrapper alone is not evidence that input is invalid. Deliberate pixel-limit failures remain 422. Admission is released in `finally`; failed normalization preserves the stored cover, revision, and Activity record.
+
 ## Storage boundary and failure handling
 
 The internal `CoverStorage` contract is `put(key: string, bytes: Uint8Array): Promise<void>`, `remove(key: string): Promise<void>`, and `publicUrl(key: string): string`. `put` publishes the complete immutable object atomically; `remove` is idempotent for missing keys. Only the local adapter is implemented in this feature. The cover service receives it by injection and domain logic does not import disk APIs.
